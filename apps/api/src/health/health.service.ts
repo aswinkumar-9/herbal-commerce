@@ -1,14 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
-import { Client } from 'pg';
 import { Env } from '../config/env';
+import { PrismaService } from '../prisma/prisma.service';
 
 export type CheckResult = 'up' | 'down';
 
 @Injectable()
 export class HealthService {
-  constructor(private readonly config: ConfigService<Env, true>) {}
+  constructor(
+    private readonly config: ConfigService<Env, true>,
+    private readonly prisma: PrismaService,
+  ) {}
 
   async checkAll(): Promise<{ database: CheckResult; valkey: CheckResult }> {
     const [database, valkey] = await Promise.all([
@@ -19,19 +22,19 @@ export class HealthService {
   }
 
   private async checkDatabase(): Promise<CheckResult> {
-    const client = new Client({
-      connectionString: this.config.get('DATABASE_URL', { infer: true }),
-      connectionTimeoutMillis: 2000,
-    });
-    client.on('error', () => undefined);
+    let timer: NodeJS.Timeout | undefined;
     try {
-      await client.connect();
-      await client.query('SELECT 1');
+      await Promise.race([
+        this.prisma.$queryRaw`SELECT 1`,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('timeout')), 2000);
+        }),
+      ]);
       return 'up';
     } catch {
       return 'down';
     } finally {
-      await client.end().catch(() => undefined);
+      clearTimeout(timer);
     }
   }
 

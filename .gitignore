@@ -15,3 +15,6 @@ coverage/
 .DS_Store
 Thumbs.db
 *.log
+
+#The generated client is rebuilt from schema.prisma, so it doesn’t belong in Git.
+apps/api/src/generated/
