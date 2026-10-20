@@ -65,4 +65,19 @@ describe('AllExceptionsFilter', () => {
     });
     expect(error).toHaveBeenCalled();
   });
+
+  it('turns body-parser errors into a 400 without logging them', () => {
+    const { filter, host, status, json, error } = setup();
+    const parseError = Object.assign(new SyntaxError('Unexpected token'), {
+      statusCode: 400,
+    });
+    filter.catch(parseError, host);
+    expect(status).toHaveBeenCalledWith(400);
+    expect(json).toHaveBeenCalledWith({
+      message: 'Invalid request',
+      statusCode: 400,
+      requestId: 'req-12345678',
+    });
+    expect(error).not.toHaveBeenCalled();
+  });
 });

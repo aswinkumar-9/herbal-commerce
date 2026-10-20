@@ -7,7 +7,7 @@ import { Env, validateEnv } from './config/env';
 import { HealthModule } from './health/health.module';
 import { buildLoggerParams } from './logging/logger.config';
 import { PrismaModule } from './prisma/prisma.module';
-import { MailModule } from './mail/mail.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -25,7 +25,7 @@ import { MailModule } from './mail/mail.module';
         }),
     }),
     PrismaModule,
-    MailModule,
+    AuthModule,
     HealthModule,
   ],
   providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
