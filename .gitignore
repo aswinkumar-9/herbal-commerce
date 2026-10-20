@@ -18,3 +18,6 @@ Thumbs.db
 
 #The generated client is rebuilt from schema.prisma, so it doesn’t belong in Git.
 apps/api/src/generated/
+
+#apps/api/tsconfig.build.tsbuildinfo, which is a generated cache and shouldn’t be in Git.
+*.tsbuildinfo
