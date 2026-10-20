@@ -23,4 +23,11 @@ describe('validateEnv', () => {
       'API_PORT',
     );
   });
+
+  it('defaults LOG_LEVEL to info and rejects unknown levels', () => {
+    expect(validateEnv(valid).LOG_LEVEL).toBe('info');
+    expect(() => validateEnv({ ...valid, LOG_LEVEL: 'loud' })).toThrow(
+      'LOG_LEVEL',
+    );
+  });
 });
