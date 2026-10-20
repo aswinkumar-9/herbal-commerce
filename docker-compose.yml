@@ -18,6 +18,15 @@ services:
       timeout: 5s
       retries: 5
 
+  mailpit:
+    image: axllent/mailpit:v1.30
+    container_name: herbal-mailpit
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8025:8025"
+      - "127.0.0.1:1025:1025"
+    mem_limit: 128m
+
   valkey:
     image: valkey/valkey:8-alpine
     container_name: herbal-valkey

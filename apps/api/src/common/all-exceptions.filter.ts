@@ -16,7 +16,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const http = host.switchToHttp();
-    const request = http.getRequest<{ id?: unknown }>();
+    const request = http.getRequest<{ id?: string | number }>();
     const response = http.getResponse<{
       status: (code: number) => { json: (body: unknown) => void };
     }>();

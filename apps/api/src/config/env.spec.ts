@@ -30,4 +30,10 @@ describe('validateEnv', () => {
       'LOG_LEVEL',
     );
   });
+
+  it('applies mail defaults for local development', () => {
+    const env = validateEnv(valid);
+    expect(env.SMTP_PORT).toBe(1025);
+    expect(env.WEB_BASE_URL).toBe('http://localhost:3001');
+  });
 });

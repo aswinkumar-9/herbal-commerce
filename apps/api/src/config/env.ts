@@ -6,6 +6,16 @@ const envSchema = z.object({
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
+  SMTP_HOST: z.string().min(1).default('127.0.0.1'),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(1025),
+  MAIL_FROM: z
+    .string()
+    .min(3)
+    .default('Herbal Commerce <no-reply@herbal.local>'),
+  WEB_BASE_URL: z
+    .string()
+    .regex(/^https?:\/\//)
+    .default('http://localhost:3001'),
   DATABASE_URL: z.string().min(1).startsWith('postgresql://'),
   VALKEY_URL: z.string().min(1).startsWith('redis://'),
 });
