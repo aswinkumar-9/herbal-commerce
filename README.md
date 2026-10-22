@@ -20,6 +20,11 @@ Run everything from the repository root unless stated otherwise.
    Copy-Item .env.example .env
    ```
    Use passwords made of letters and digits only. Special characters such as `@` or `:` break the connection URLs. The password in `DATABASE_URL` must match `POSTGRES_PASSWORD`, and the one in `VALKEY_URL` must match `VALKEY_PASSWORD`.
+
+   Generate a random secret for signing access tokens and put it in `JWT_ACCESS_SECRET` (the API refuses to start with the placeholder):
+   ```powershell
+   node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
+   ```
 2. Start PostgreSQL and Valkey:
    ```powershell
    docker compose up -d
@@ -94,6 +99,7 @@ Database commands (run from `apps/api`):
 ## Security notes
 
 - `.env` holds secrets and is ignored by Git. Never commit it or paste it into chats or tickets.
+- `.env.example` is committed, so it holds placeholders only. Never put a real secret in it. If a secret is ever committed or shared, generate a new one.
 - Use synthetic data in development. Never log passwords, tokens or personal data.
 - The generated database client (`apps/api/src/generated`) is not committed. Run `prisma generate` after cloning.
 
