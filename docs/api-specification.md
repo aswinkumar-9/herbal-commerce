@@ -36,7 +36,7 @@ Creates a Customer account and sends a verification email. Only Customer account
 
 Request:
 ```json
-{ "email": "asha@example.com", "password": "a-long-password-1", "fullName": "Asha" }
+{ "email": "aswin@example.com", "password": "a-long-password-1", "fullName": "Aswin" }
 ```
 Rules: email is trimmed, lowercased and must be valid (max 254). Password 10 to 128 characters. Name 1 to 100 characters.
 
@@ -60,7 +60,7 @@ Errors: `400` with `Invalid or expired verification link` (unknown, expired or a
 
 Sends a new verification email if the account exists and is not yet verified. At most one per minute per account.
 
-Request: `{ "email": "asha@example.com" }`
+Request: `{ "email": "aswin@example.com" }`
 
 Response `202`: same generic message as registration, always.
 

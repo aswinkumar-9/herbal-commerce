@@ -7,15 +7,15 @@ import {
 
 describe('auth schemas', () => {
   const valid = {
-    email: ' Asha@Example.com ',
+    email: ' Aswin@Example.com ',
     password: 'a-long-password-1',
-    fullName: ' Asha ',
+    fullName: ' Aswin ',
   };
 
   it('normalises the email and the name', () => {
     const parsed = registerSchema.parse(valid);
-    expect(parsed.email).toBe('asha@example.com');
-    expect(parsed.fullName).toBe('Asha');
+    expect(parsed.email).toBe('aswin@example.com');
+    expect(parsed.fullName).toBe('Aswin');
   });
 
   it('drops a role sent by the client', () => {
@@ -41,11 +41,11 @@ describe('auth schemas', () => {
   });
 
   it('normalises the login email and only checks the password length', () => {
-    const parsed = loginSchema.parse({ email: ' Asha@Example.com ', password: 'x' });
-    expect(parsed.email).toBe('asha@example.com');
-    expect(loginSchema.safeParse({ email: 'asha@example.com', password: '' }).success).toBe(false);
+    const parsed = loginSchema.parse({ email: ' Aswin@Example.com ', password: 'x' });
+    expect(parsed.email).toBe('aswin@example.com');
+    expect(loginSchema.safeParse({ email: 'aswin@example.com', password: '' }).success).toBe(false);
     expect(
-      loginSchema.safeParse({ email: 'asha@example.com', password: 'x'.repeat(129) }).success,
+      loginSchema.safeParse({ email: 'aswin@example.com', password: 'x'.repeat(129) }).success,
     ).toBe(false);
   });
 

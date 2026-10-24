@@ -80,7 +80,7 @@ describe('AccessTokenService', () => {
   });
 
   it('rejects a token signed with a different secret', async () => {
-    const other = serviceWithSecret([...SECRET].reverse().join(''));
+    const other = serviceWithSecret(SECRET.toUpperCase());
     await expect(service.verify(await other.sign(USER))).rejects.toThrow();
   });
 
