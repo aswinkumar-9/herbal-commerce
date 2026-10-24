@@ -6,3 +6,7 @@ allowBuilds:
   '@prisma/engines': false
   prisma: false
   unrs-resolver: true
+
+
+# Only install package versions published at least 3 days ago (value in minutes).
+minimumReleaseAge: 4320
