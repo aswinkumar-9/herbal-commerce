@@ -35,8 +35,10 @@ Run everything from the repository root unless stated otherwise.
    ```powershell
    pnpm install
    ```
-   If pnpm stops with `ERR_PNPM_IGNORED_BUILDS`,    pnpm only installs package versions that are at least 3 days old (`minimumReleaseAge` in `pnpm-workspace.yaml`). If it refuses a version as too new, wait a few days rather than making an exception.
-   add the named package to `allowBuilds` in `pnpm-workspace.yaml` (only after checking that you recognise it), then run `pnpm install` again.
+    If pnpm stops with `ERR_PNPM_IGNORED_BUILDS`, add the named package to `allowBuilds` in `pnpm-workspace.yaml` (only after checking that you recognise it), then run `pnpm install` again.
+
+   pnpm only installs package versions that are at least 3 days old (`minimumReleaseAge` in `pnpm-workspace.yaml`). If it refuses a version as too new, wait a few days rather than making an exception.
+
 4. Generate the database client and apply migrations (run from `apps/api`):
    ```powershell
    cd apps\api
