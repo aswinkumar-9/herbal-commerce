@@ -32,4 +32,10 @@ export const loginSchema = z.object({
     .max(128, 'Password must be at most 128 characters'),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
-;
+
+
+// Refresh and logout both take the refresh token in the body.
+export const refreshTokenSchema = z.object({
+  refreshToken: z.string().min(20).max(200),
+});
+export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;

@@ -11,11 +11,13 @@ import {
 } from './access-token.service';
 import type { LoginInput } from './auth.schemas';
 import { PasswordService } from './password.service';
-import { generateToken } from './token.util';
+import { generateToken, hashToken } from './token.util';
 
 // A sign-in lasts 30 days in total. After that the password is needed again.
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const INVALID_CREDENTIALS = 'Invalid email or password';
+// The same answer for every failed refresh; the reason goes to the log only.
+const INVALID_REFRESH_TOKEN = 'Invalid refresh token';
 
 type LoginFailure =
   | 'unknown_account'
@@ -23,6 +25,12 @@ type LoginFailure =
   | 'wrong_password'
   | 'email_not_verified'
   | 'account_disabled';
+
+type RefreshFailure =
+  | 'unknown_token'
+  | 'session_ended'
+  | 'token_reused'
+  | 'account_not_allowed';
 
 export interface TokenPair {
   accessToken: string;
@@ -94,6 +102,83 @@ export class SessionService {
     return this.issueTokens(user.id, session.id, refreshToken);
   }
 
+  // Swaps a refresh token for a new pair. Each refresh token works only once.
+  async refresh(refreshToken: string): Promise<TokenPair> {
+    const record = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash: hashToken(refreshToken) },
+      select: {
+        id: true,
+        usedAt: true,
+        session: {
+          select: {
+            id: true,
+            expiresAt: true,
+            revokedAt: true,
+            user: { select: { id: true, role: true, status: true } },
+          },
+        },
+      },
+    });
+    if (!record) {
+      throw this.refreshFailure('unknown_token');
+    }
+    const { session } = record;
+    const ids = { userId: session.user.id, sessionId: session.id };
+
+    // A token that was already swapped came back, so someone has a copy of it.
+    // We cannot tell the thief from the owner, so the whole session ends.
+    if (record.usedAt) {
+      await this.revokeSession(session.id);
+      throw this.refreshFailure('token_reused', ids);
+    }
+    if (session.revokedAt || session.expiresAt <= new Date()) {
+      throw this.refreshFailure('session_ended', ids);
+    }
+    // A disabled account or a role change ends the session for good.
+    if (session.user.role !== 'CUSTOMER' || session.user.status !== 'ACTIVE') {
+      await this.revokeSession(session.id);
+      throw this.refreshFailure('account_not_allowed', ids);
+    }
+
+    const next = generateToken();
+    const rotated = await this.prisma.$transaction(async (tx) => {
+      // Atomic claim: if two requests send the same token, only one wins.
+      const claimed = await tx.refreshToken.updateMany({
+        where: { id: record.id, usedAt: null },
+        data: { usedAt: new Date() },
+      });
+      if (claimed.count === 0) {
+        return false;
+      }
+      await tx.refreshToken.create({
+        data: { sessionId: session.id, tokenHash: next.tokenHash },
+      });
+      return true;
+    });
+    if (!rotated) {
+      // Another request used this token first, so this is a second use.
+      await this.revokeSession(session.id);
+      throw this.refreshFailure('token_reused', ids);
+    }
+    this.logger.debug(ids, 'Tokens refreshed');
+    return this.issueTokens(session.user.id, session.id, next.token);
+  }
+
+  // Always succeeds, so the answer never tells whether the token was valid.
+  async logout(refreshToken: string): Promise<void> {
+    const record = await this.prisma.refreshToken.findUnique({
+      where: { tokenHash: hashToken(refreshToken) },
+      select: { sessionId: true, session: { select: { userId: true } } },
+    });
+    if (record) {
+      await this.revokeSession(record.sessionId);
+      this.logger.info(
+        { userId: record.session.userId, sessionId: record.sessionId },
+        'Customer signed out',
+      );
+    }
+  }
+
   private async issueTokens(
     userId: string,
     sessionId: string,
@@ -108,6 +193,14 @@ export class SessionService {
     };
   }
 
+  // Ends a session: every refresh token in it stops working at once.
+  private async revokeSession(sessionId: string): Promise<void> {
+    await this.prisma.session.updateMany({
+      where: { id: sessionId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
   // The reason goes to the log only, never to the client. Emails are never logged.
   private logFailure(reason: LoginFailure, userId?: string): void {
     // A staff email used on the customer path deserves a closer look.
@@ -116,5 +209,19 @@ export class SessionService {
     } else {
       this.logger.info({ userId, reason }, 'Customer sign-in failed');
     }
+  }
+
+  // Logs the reason and builds the one answer every failed refresh gets.
+  private refreshFailure(
+    reason: RefreshFailure,
+    ids: { userId?: string; sessionId?: string } = {},
+  ): UnauthorizedException {
+    // A reused token or a blocked account may mean a stolen token.
+    if (reason === 'token_reused' || reason === 'account_not_allowed') {
+      this.logger.warn({ ...ids, reason }, 'Token refresh failed');
+    } else {
+      this.logger.info({ ...ids, reason }, 'Token refresh failed');
+    }
+    return new UnauthorizedException(INVALID_REFRESH_TOKEN);
   }
 }

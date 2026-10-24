@@ -1,13 +1,22 @@
-import { Body, Controller, Header, HttpCode, HttpStatus, Post, } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Header,
+  HttpCode,
+  HttpStatus,
+  Post,
+} from '@nestjs/common';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import {
   loginSchema,
+  refreshTokenSchema,
   registerSchema,
   resendVerificationSchema,
   verifyEmailSchema,
 } from './auth.schemas';
 import type {
   LoginInput,
+  RefreshTokenInput,
   RegisterInput,
   ResendVerificationInput,
   VerifyEmailInput,
@@ -51,5 +60,23 @@ export class AuthController {
   @Header('Cache-Control', 'no-store')
   login(@Body(new ZodValidationPipe(loginSchema)) body: LoginInput) {
     return this.sessions.login(body);
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  @Header('Cache-Control', 'no-store')
+  refresh(
+    @Body(new ZodValidationPipe(refreshTokenSchema)) body: RefreshTokenInput,
+  ) {
+    return this.sessions.refresh(body.refreshToken);
+  }
+
+  // 204 whether or not the token was valid.
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  logout(
+    @Body(new ZodValidationPipe(refreshTokenSchema)) body: RefreshTokenInput,
+  ) {
+    return this.sessions.logout(body.refreshToken);
   }
 }
