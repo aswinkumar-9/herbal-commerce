@@ -26,4 +26,13 @@ describe('PasswordService', () => {
   it('treats a malformed stored hash as a mismatch', async () => {
     await expect(service.verify('not-a-hash', 'anything')).resolves.toBe(false);
   });
+
+  it('answers false for the dummy check and makes the dummy hash only once', async () => {
+    const fresh = new PasswordService();
+    const hashSpy = jest.spyOn(fresh, 'hash');
+    await expect(fresh.verifyDummy('any password')).resolves.toBe(false);
+    await expect(fresh.verifyDummy('another password')).resolves.toBe(false);
+    expect(hashSpy).toHaveBeenCalledTimes(1);
+  });
+
 });
