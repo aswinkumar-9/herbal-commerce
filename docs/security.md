@@ -80,7 +80,7 @@ Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisi
 | Webhook signature verification | Not applicable yet | No webhooks yet. | Payments part: verify the HMAC over the raw body with a constant-time comparison, reject old timestamps, handle each event ID only once, and confirm the payment status with the gateway instead of trusting the webhook body. |
 | Source map protection | Done (API) | `apps/api/dist` contains `.map` files, but the API never serves `dist` over HTTP. | Website and admin console: no public source maps in production builds; upload them only to an error tracker. |
 | Sensitive data protection | Partly | Logs hide `Authorization`, `Cookie`, `x-api-key` and `Set-Cookie`, and contain no request bodies (`logging/logger.config.ts`). 500 errors show a generic message. Queries select only the fields they need. Token responses and every authenticated response carry `Cache-Control: no-store`. The API takes tokens in headers and bodies, never in URLs. SMTP must use TLS in production. | The verification email links to the website with the token in the URL: the website must post it to the API at once and keep it out of its own logs and analytics. Logs still keep the full URL, the IP address and the user agent, which are personal data: set a log retention period. Before production: HTTPS, database TLS, and hide the `/health/ready` details from the public. |
-| Dependency vulnerability management | Partly | Unused `@nestjs/mau` removed, 3-day minimum release age, exact pins for `@nestjs/jwt` and `helmet`, lockfile committed, build scripts need approval (ADR 0008). 6 findings remain (section 5). | Part 3A-3, step 9C: patch them with `overrides` once the fixes are 3 days old (from 25 October, about 17:30 IST). GitHub: turn on Dependabot alerts. |
+| Dependency vulnerability management | Done | Unused `@nestjs/mau` removed, 3-day minimum release age, exact pins for `@nestjs/jwt` and `helmet`, lockfile committed, build scripts need approval (ADR 0008). `pnpm audit` is clean since 25 October: `overrides` in `pnpm-workspace.yaml` patch `body-parser`, `multer` and `fast-uri` (section 5). | Keep `pnpm audit` clean before every pull request. Remove each override once its parent package ships the fix. Turn on Dependabot alerts on GitHub, if not done yet. |
 
 ### 4.5 Further controls for this stack
 
@@ -101,16 +101,17 @@ Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisi
 |---|---|---|
 | 2026-10-24 | 26 findings (8 high) | First review |
 | 2026-10-24 | 6 findings (2 high) | `@nestjs/mau` removed |
+| 2026-10-25 | No known vulnerabilities | `overrides` for the 3 packages below |
 
-Remaining findings:
+Active overrides in `pnpm-workspace.yaml`. Remove each one once the package that pulls it in ships the fix itself, and check them at every upgrade of Nest or Express.
 
-| Package | Installed | Fixed in | Finding | Comes from | Reachable today? |
-|---|---|---|---|---|---|
-| `body-parser` | 2.3.0 | 2.4.0 | 1 high: denial of service through a compressed request body ([GHSA-27r3-jxmh-p828](https://github.com/advisories/GHSA-27r3-jxmh-p828)) | `express`, used by Nest | No: `inflate: false` refuses compressed bodies, and the API listens on `127.0.0.1` only |
-| `multer` | 2.4.0 | 2.5.0 | 1 high: denial of service through file uploads ([GHSA-q7qp-rjg7-q26m](https://github.com/advisories/GHSA-q7qp-rjg7-q26m)) | `@nestjs/platform-express`, which pins it exactly | No: there are no upload endpoints |
-| `fast-uri` | 3.1.8 | 3.1.9 | 4 (2 moderate, 2 low) | `ajv`, used by `@nestjs/cli` and `prisma` (development tools) | No: development tools only |
+| Package | Was | Now | Advisory | Pulled in by |
+|---|---|---|---|---|
+| `body-parser` | 2.3.0 | 2.4.0 | 1 high: denial of service through a compressed request body ([GHSA-27r3-jxmh-p828](https://github.com/advisories/GHSA-27r3-jxmh-p828)). `inflate: false` already blocked it. | `express` 5.2.1, used by Nest |
+| `multer` | 2.4.0 | 2.5.0 | 1 high: denial of service through file uploads ([GHSA-q7qp-rjg7-q26m](https://github.com/advisories/GHSA-q7qp-rjg7-q26m)). There are no upload endpoints yet. | `@nestjs/platform-express` 12.1.3, which pins exactly 2.4.0 |
+| `fast-uri` | 3.1.8 | 3.1.9 | 4 (2 moderate, 2 low) | `ajv`, used by `@nestjs/cli` and `prisma` (development tools) |
 
-The `body-parser` and `multer` fixes were published on 22 October 2026, so the 3-day rule allows them from 25 October.
+The `body-parser` and `multer` fixes were published on 22 October 2026. The 3-day minimum release age allowed them from 25 October, 17:30 IST.
 
 ## 6. Must be done before the API leaves localhost
 
