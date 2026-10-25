@@ -116,4 +116,30 @@ describe('validateEnv', () => {
       }),
     ).not.toThrow();
   });
+
+  it('trusts no proxy unless TRUST_PROXY lists one', () => {
+    expect(validateEnv(valid).TRUST_PROXY).toEqual([]);
+    expect(validateEnv({ ...valid, TRUST_PROXY: '' }).TRUST_PROXY).toEqual([]);
+    expect(
+      validateEnv({
+        ...valid,
+        TRUST_PROXY: 'loopback, 10.0.0.0/8, 2001:db8::/32',
+      }).TRUST_PROXY,
+    ).toEqual(['loopback', '10.0.0.0/8', '2001:db8::/32']);
+  });
+
+  it('rejects hop counts and invalid proxy entries', () => {
+    for (const value of [
+      '1',
+      'true',
+      '*',
+      '10.0.0.0/33',
+      '10.0.0.1/8/8',
+      'proxy.example.com',
+    ]) {
+      expect(() => validateEnv({ ...valid, TRUST_PROXY: value })).toThrow(
+        'TRUST_PROXY',
+      );
+    }
+  });
 });

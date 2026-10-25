@@ -1,8 +1,43 @@
+import { isIP } from 'node:net';
 import { z } from 'zod';
+
+// Express's names for groups of private addresses.
+const PROXY_RANGE_NAMES = new Set(['loopback', 'linklocal', 'uniquelocal']);
+
+// One TRUST_PROXY entry: a range name, an IP address or a subnet (10.0.0.0/8).
+function isProxyEntry(entry: string): boolean {
+  if (PROXY_RANGE_NAMES.has(entry)) {
+    return true;
+  }
+  const [address, prefix, ...rest] = entry.split('/');
+  const version = isIP(address);
+  if (version === 0 || rest.length > 0) {
+    return false;
+  }
+  return (
+    prefix === undefined ||
+    (/^\d{1,3}$/.test(prefix) && Number(prefix) <= (version === 4 ? 32 : 128))
+  );
+}
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
+  // Proxies allowed to report the client IP (X-Forwarded-For), comma separated.
+  // Empty, the default: trust none, so nobody can fake their IP.
+  TRUST_PROXY: z
+    .string()
+    .default('')
+    .transform((value) =>
+      value
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter((entry) => entry !== ''),
+    )
+    .refine(
+      (entries) => entries.every(isProxyEntry),
+      'must list proxy addresses or subnets, or "loopback", "linklocal", "uniquelocal" (no hop counts)',
+    ),
   LOG_LEVEL: z
     .enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'])
     .default('info'),
