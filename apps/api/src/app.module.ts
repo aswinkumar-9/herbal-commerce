@@ -9,6 +9,7 @@ import { Env, validateEnv } from './config/env';
 import { HealthModule } from './health/health.module';
 import { buildLoggerParams } from './logging/logger.config';
 import { PrismaModule } from './prisma/prisma.module';
+import { ValkeyModule } from './valkey/valkey.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { PrismaModule } from './prisma/prisma.module';
         }),
     }),
     PrismaModule,
+    ValkeyModule,
     AuthModule,
     HealthModule,
   ],
