@@ -12,10 +12,6 @@ minimumReleaseAge: 4320
 
 # Security fixes for indirect dependencies (ADR 0008). Remove each override
 # once the package that pulls it in ships the fix itself.
-minimumReleaseAgeExclude:
-  - body-parser@2.4.0
-  - multer@2.5.0
-
 overrides:
   # From express: GHSA-27r3-jxmh-p828 (denial of service, compressed bodies)
   body-parser: ^2.4.0
