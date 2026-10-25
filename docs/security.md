@@ -1,0 +1,149 @@
+# Security
+
+Status: **living document.** Last reviewed on 2026-10-25, at the end of part 3A-3 (customer login and tokens).
+
+Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisions behind this page are in ADR 0007 (customer authentication) and ADR 0008 (security baseline). This page records the status of each control and the rules for features that do not exist yet.
+
+## 1. Threat model in short
+
+| | |
+|---|---|
+| What we protect | Customer accounts and personal data (today: name, email, password hash; later: phone, addresses, orders, invoices), staff accounts, prices and stock, payment status |
+| Who might attack | Anonymous internet users (password guessing, account enumeration, bots, overload), a customer trying to read another customer's data, someone holding a stolen token or phone, a compromised dependency, and our own mistakes (secrets in Git, development settings in production) |
+| Exposure today | The API listens on `127.0.0.1` only and has no real users. The gaps in section 6 must be closed before that changes. |
+
+## 2. Secure-by-design principles
+
+| Principle | How it shows up |
+|---|---|
+| Deny by default | One global guard protects every endpoint. Only handlers marked `@Public()` are open. |
+| Never trust the client | The server sets roles and, later, prices. The user ID comes from the token, never from the request. |
+| Least privilege | Admin and Super User are separate roles. The database gets a data-only runtime role before production. |
+| Defense in depth | Refresh tokens are stored hashed and rotate on every use, and reusing one revokes the session. The session is also checked on every request. |
+| Fail closed | The API refuses to start with invalid, missing or (in production) placeholder configuration. |
+| Small attack surface | The API accepts JSON only and stays on localhost until rate limiting exists. |
+| Privacy by design | No emails, passwords or tokens in logs, and only the data we need is stored. |
+
+## 3. Status legend
+
+| Status | Meaning |
+|---|---|
+| **Done** | In place today |
+| **Partly** | In place, with named follow-ups |
+| **Gap** | Missing today, and must be closed before the API leaves localhost (section 6) |
+| **Later** | Added along with the feature it protects (the part is named) |
+| **Not applicable yet** | The feature does not exist yet. The rule for it is recorded here. |
+| **Decision** | Deliberately not done, with the reason |
+
+## 4. Control-by-control status
+
+### 4.1 Input and injection
+
+| Control | Status | Today | Rule or next action |
+|---|---|---|---|
+| SQL injection | Done | All queries go through Prisma, which sends values as parameters. The only raw SQL is a constant `SELECT 1` in `health/health.service.ts`. zod checks every request body, so no objects can be smuggled into queries. | Never use `$queryRawUnsafe`. Allowlist sort and filter fields. Check that IDs are valid UUIDs before querying (an invalid one would cause a 500). |
+| XSS | Done (API) | Responses are JSON only, and helmet sends `nosniff` and a Content Security Policy. Emails escape the user's name and the link (`mail/mail.service.ts`). | Website and admin console: a Content Security Policy, no raw HTML for product text, no SVG uploads. |
+| CSRF | Done (API) | Tokens travel in the `Authorization` header, which a browser never sends on its own. The API accepts JSON bodies only, so an HTML form on another website cannot call it (ADR 0008). | Website: keep the refresh token in a cookie with `HttpOnly; Secure; SameSite=Strict; Path=/v1/auth`, and add an `Origin` check or a CSRF token on the cookie endpoints. |
+| File upload validation | Later (catalog) | No uploads. `multer` comes with Nest but is unused (its advisory is in section 5). | Size and count limits, check the real file type (magic bytes), re-encode images, random file names, private storage, no SVG. |
+| SSRF | Not applicable yet | Nothing fetches a URL taken from user input. Email links use `WEB_BASE_URL` from the environment, never the request's `Host` header. | Payments and courier: call fixed hosts only. If a user-supplied URL ever has to be fetched: allowlist the hosts, block private IP ranges, disallow redirects, set timeouts. |
+
+### 4.2 Authentication and authorization
+
+| Control | Status | Today | Rule or next action |
+|---|---|---|---|
+| BOLA (broken object level authorization) | Done for what exists | `GET /v1/me` takes the user ID from the token, never from the request. No endpoint fetches an object by ID yet. | Orders, addresses, invoices: always query `where: { id, userId: currentUser.id }`, and answer 404 for other users' objects. One test per endpoint shows that user B cannot read user A's data. |
+| Rate limiting | Gap (part 3D) | None. Safe only because the API listens on `127.0.0.1`. | Part 3D: per-IP and per-account limits in Valkey, with back-off. Until then, test on a phone over USB (`adb reverse tcp:3000 tcp:3000`), never over Wi-Fi (ADR 0007, known gaps). |
+| Secure password storage | Done | argon2id with the OWASP minimum settings (19 MiB, 2 passes, 1 lane), 10 to 128 characters, no forced character rules (`auth/password.service.ts`). | Later: a breached-password check, a decision on Unicode normalization before real users, and rehashing when the hash settings change. |
+| Account enumeration | Done | Registration and resend always give the same answer. Login gives the same 401 for an unknown email, a wrong password and an unverified email, and runs a dummy hash for unknown emails. Response times are similar, not identical. | Password reset (later) must follow the same rule. |
+| Session management | Done | Each login creates a 30-day session. Access tokens last 15 minutes. Refresh tokens rotate on every use, and reusing one revokes the session. Logout revokes the session. The session is checked on every request, so all of this takes effect at once (ADR 0007). | Later: "sign out everywhere", a list of active sessions, and revoking all sessions on password reset. |
+| MFA | Later (staff login) | Not built. | Staff: TOTP or passkeys, required (ADR 0004), with MFA secrets encrypted and recovery codes hashed. Customers: password only for now (the owner's choice); optional MFA later. |
+| Server-side permission enforcement | Done (customers) | The server sets the role at registration, and zod drops unknown fields such as `role`. A global deny-by-default guard checks the token and the session on every request. Only active Customers pass. | Staff part: a roles guard, a separate token audience, an append-only audit log. |
+| Row-level security (RLS) | Decision: not now | The app connects as the database user that Docker creates, which is a superuser and bypasses RLS anyway. | Before production: separate database roles for migrations and for the running app (data access only, no schema changes). Ownership checks in the app stay the main control. RLS is optional later for orders, addresses and invoices. |
+
+### 4.3 Secrets and tokens
+
+| Control | Status | Today | Rule or next action |
+|---|---|---|---|
+| JWT secret management | Done | Only in `.env`, never printed. At least 43 base64url characters, not repetitive, and the `.env.example` placeholder is refused, which a test checks (`config/env.ts`). Tokens are signed and checked with HS256 only, with issuer, audience and a maximum age of 15 minutes. | Production: a secret manager, one secret per environment. To rotate: replace the secret and restart. Clients simply refresh. |
+| Refresh and verification tokens | Done | 32 random bytes each, stored only as SHA-256 hashes, single use, claimed atomically. | None. |
+| Server-side API key storage | Not applicable yet | No third-party keys yet. Logs already hide the `x-api-key` header. | Payment, SMS and courier secrets stay on the server (environment or secret manager). The apps get only publishable IDs. Keys we issue to others are stored hashed. |
+| Secure local storage usage | Not applicable yet (clients) | No clients yet. | Mobile: refresh token in Keychain (iOS) or Keystore (Android) through a secure-storage library, access token in memory only, email links opened through verified App Links / Universal Links. Web: never put tokens in `localStorage` or `sessionStorage`. The refresh token goes in an HttpOnly cookie, and the access token stays in memory. |
+| No default credentials | Done (API) | In production the API refuses any database, Valkey or JWT setting that still contains `change_me`, and a `WEB_BASE_URL` that is not `https://` (ADR 0008). Local containers listen on `127.0.0.1` only. | Super User script (staff part): require a strong password. |
+
+### 4.4 Security configuration
+
+| Control | Status | Today | Rule or next action |
+|---|---|---|---|
+| Security headers | Done | helmet sets `nosniff`, framing protection, a Content Security Policy, `Referrer-Policy` and HSTS, and removes `X-Powered-By` (ADR 0008). | HSTS only takes effect over HTTPS (before production). |
+| Request bodies | Done | JSON only, at most 100 kB, compressed bodies refused (ADR 0008). | Webhooks and uploads add their own parser on their route only. |
+| CORS hardening | Done (secure default) | Off: no CORS headers, so browsers block other websites from reading API responses. | Website part: an allowlist of origins from the environment. Allow credentials only when cookies are used. Never `*`. |
+| Webhook signature verification | Not applicable yet | No webhooks yet. | Payments part: verify the HMAC over the raw body with a constant-time comparison, reject old timestamps, handle each event ID only once, and confirm the payment status with the gateway instead of trusting the webhook body. |
+| Source map protection | Done (API) | `apps/api/dist` contains `.map` files, but the API never serves `dist` over HTTP. | Website and admin console: no public source maps in production builds; upload them only to an error tracker. |
+| Sensitive data protection | Partly | Logs hide `Authorization`, `Cookie`, `x-api-key` and `Set-Cookie`, and contain no request bodies (`logging/logger.config.ts`). 500 errors show a generic message. Queries select only the fields they need. Token responses and every authenticated response carry `Cache-Control: no-store`. The API takes tokens in headers and bodies, never in URLs. SMTP must use TLS in production. | The verification email links to the website with the token in the URL: the website must post it to the API at once and keep it out of its own logs and analytics. Logs still keep the full URL, the IP address and the user agent, which are personal data: set a log retention period. Before production: HTTPS, database TLS, and hide the `/health/ready` details from the public. |
+| Dependency vulnerability management | Partly | Unused `@nestjs/mau` removed, 3-day minimum release age, exact pins for `@nestjs/jwt` and `helmet`, lockfile committed, build scripts need approval (ADR 0008). 6 findings remain (section 5). | Part 3A-3, step 9C: patch them with `overrides` once the fixes are 3 days old (from 25 October, about 17:30 IST). GitHub: turn on Dependabot alerts. |
+
+### 4.5 Further controls for this stack
+
+| Control | Status | Rule or next action |
+|---|---|---|
+| Security logging | Done (basic) | Every failed login and refresh is logged with a reason, never with the email. A staff email on the customer login, a reused refresh token and a blocked account are logged as warnings. Later: alerts on those warnings. |
+| Denial of service through password hashing | Gap (part 3D) | argon2 runs on Node's thread pool (4 threads by default), so a burst of logins slows everything down. Part 3D adds a cap on concurrent hashing. |
+| Pre-account takeover | Gap | Someone registers an email address that is not theirs and waits for the real owner to verify it. Delete unverified accounts after a few days. A password reset must revoke all sessions and mark the email verified. |
+| Business logic (orders, payments) | Later | The server calculates prices, tax and totals. Orders and payments carry idempotency keys, stock reservations expire, and coupons have limits. Add checks against cash-on-delivery abuse. |
+| Audit log and Super User limit | Later (staff) | The audit log is append-only, enforced in the database (the app's role cannot update or delete rows). The limit of 3 Super Users is enforced in the database too. |
+| Supply chain beyond npm | Later (before production) | Pin Docker images by digest and add secret scanning in CI (for example gitleaks). The AI-skill files in `apps/api/.agents` give instructions to AI tools, so review changes to them like code. |
+| Privacy (India's DPDP Act) | Later | A list of the personal data held, retention periods (unverified accounts, old sessions, logs), deletion on request, consent, and a breach plan. Data stays in India. |
+| Backups and email | Later (before production) | Encrypted backups with a rehearsed restore. SPF, DKIM and DMARC on the sending domain. |
+
+## 5. Dependency audit
+
+| Date | `pnpm audit` | What changed |
+|---|---|---|
+| 2026-10-24 | 26 findings (8 high) | First review |
+| 2026-10-24 | 6 findings (2 high) | `@nestjs/mau` removed |
+
+Remaining findings:
+
+| Package | Installed | Fixed in | Finding | Comes from | Reachable today? |
+|---|---|---|---|---|---|
+| `body-parser` | 2.3.0 | 2.4.0 | 1 high: denial of service through a compressed request body ([GHSA-27r3-jxmh-p828](https://github.com/advisories/GHSA-27r3-jxmh-p828)) | `express`, used by Nest | No: `inflate: false` refuses compressed bodies, and the API listens on `127.0.0.1` only |
+| `multer` | 2.4.0 | 2.5.0 | 1 high: denial of service through file uploads ([GHSA-q7qp-rjg7-q26m](https://github.com/advisories/GHSA-q7qp-rjg7-q26m)) | `@nestjs/platform-express`, which pins it exactly | No: there are no upload endpoints |
+| `fast-uri` | 3.1.8 | 3.1.9 | 4 (2 moderate, 2 low) | `ajv`, used by `@nestjs/cli` and `prisma` (development tools) | No: development tools only |
+
+The `body-parser` and `multer` fixes were published on 22 October 2026, so the 3-day rule allows them from 25 October.
+
+## 6. Must be done before the API leaves localhost
+
+1. Rate limiting and brute-force protection, and a cap on concurrent password hashing (part 3D).
+2. HTTPS everywhere, so HSTS takes effect, and TLS to the database.
+3. Separate database roles for migrations and for the running app.
+4. Secrets in a secret manager, one set per environment.
+5. `/health/ready` details hidden from the public.
+6. A log retention period, and cleanup of expired sessions and tokens.
+7. `pnpm audit` clean, Dependabot alerts on, secret scanning in CI, Docker images pinned by digest.
+8. Encrypted backups with a rehearsed restore.
+
+## 7. Keeping this page current
+
+- Change a control's status in the same pull request that changes the control.
+- Before every pull request, run `pnpm api:test`, `pnpm api:lint`, `pnpm api:build`, `pnpm audit` and `pnpm api:smoke`.
+- Repeat the full review whenever a part adds attack surface: uploads, payments, the website, the mobile app, staff login.
+
+## 8. Glossary
+
+| Term | Meaning |
+|---|---|
+| ASVS | OWASP Application Security Verification Standard, the security checklist this project follows (Level 2). |
+| argon2id | A slow, memory-hard password hashing algorithm recommended by OWASP. |
+| BOLA | Broken object level authorization: reading or changing someone else's data by changing an ID in a request. |
+| CORS | Cross-origin resource sharing: the browser rules for which other websites may read the API's responses. |
+| CSP | Content Security Policy: a header that tells the browser which scripts and resources a page may load. |
+| CSRF | Cross-site request forgery: another website making the user's browser send a request that carries the user's cookies. |
+| DPDP Act | India's Digital Personal Data Protection Act, 2023. |
+| HMAC | A signature made with a shared secret. Used to prove that a webhook really came from the payment gateway. |
+| HSTS | A header that tells browsers to use HTTPS only. |
+| JWT | JSON Web Token: the signed access token the app sends with each request. |
+| MFA / TOTP | Multi-factor authentication. TOTP is the 6-digit code from an authenticator app. |
+| RLS | Row-level security: PostgreSQL rules that limit which rows a database user can see. |
+| SSRF | Server-side request forgery: tricking the server into fetching a URL the attacker chooses. |
+| XSS | Cross-site scripting: getting the browser to run an attacker's script inside our website. |
