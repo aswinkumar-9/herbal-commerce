@@ -341,3 +341,38 @@ describe('SessionService.logout', () => {
     expect(prisma.session.updateMany).not.toHaveBeenCalled();
   });
 });
+
+describe('SessionService.isActive', () => {
+  function withSession(found: { id: string } | null) {
+    const findFirst = jest.fn().mockResolvedValue(found);
+    const service = new SessionService(
+      { session: { findFirst } } as unknown as PrismaService,
+      {} as PasswordService,
+      {} as AccessTokenService,
+      {} as PinoLogger,
+    );
+    return { service, findFirst };
+  }
+
+  it('accepts only a live session of an active customer', async () => {
+    const { service, findFirst } = withSession({ id: 'session-1' });
+
+    await expect(service.isActive('user-1', 'session-1')).resolves.toBe(true);
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'session-1',
+        userId: 'user-1',
+        revokedAt: null,
+        expiresAt: { gt: expect.any(Date) },
+        user: { role: 'CUSTOMER', status: 'ACTIVE' },
+      },
+      select: { id: true },
+    });
+  });
+
+  it('says no when the session is revoked, expired or not this user', async () => {
+    const { service } = withSession(null);
+
+    await expect(service.isActive('user-1', 'session-1')).resolves.toBe(false);
+  });
+});

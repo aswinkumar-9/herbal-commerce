@@ -179,6 +179,22 @@ export class SessionService {
     }
   }
 
+  // Checked on every authenticated request, so logout, reuse detection and
+  // disabled accounts take effect at once.
+  async isActive(userId: string, sessionId: string): Promise<boolean> {
+    const session = await this.prisma.session.findFirst({
+      where: {
+        id: sessionId,
+        userId,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+        user: { role: 'CUSTOMER', status: 'ACTIVE' },
+      },
+      select: { id: true },
+    });
+    return session !== null;
+  }
+
   private async issueTokens(
     userId: string,
     sessionId: string,

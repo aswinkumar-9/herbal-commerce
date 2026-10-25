@@ -199,3 +199,31 @@ describe('AuthService.resendVerification', () => {
     );
   });
 });
+
+describe('AuthService.getProfile', () => {
+  it('reads only the fields a customer may see about themselves', async () => {
+    const { service, prisma } = setup();
+    const profile = {
+      id: 'u1',
+      email: 'aswin@example.com',
+      fullName: 'Aswin',
+      role: 'CUSTOMER',
+      emailVerifiedAt: null,
+      createdAt: new Date(),
+    };
+    prisma.user.findUnique.mockResolvedValue(profile);
+
+    await expect(service.getProfile('u1')).resolves.toEqual(profile);
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        emailVerifiedAt: true,
+        createdAt: true,
+      },
+    });
+  });
+});

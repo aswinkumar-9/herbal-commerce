@@ -22,6 +22,7 @@ import type {
   VerifyEmailInput,
 } from './auth.schemas';
 import { AuthService } from './auth.service';
+import { Public } from './public.decorator';
 import { SessionService } from './session.service';
 
 @Controller('auth')
@@ -31,12 +32,14 @@ export class AuthController {
     private readonly sessions: SessionService,
   ) {}
 
+  @Public()
   @Post('register')
   @HttpCode(HttpStatus.ACCEPTED)
   register(@Body(new ZodValidationPipe(registerSchema)) body: RegisterInput) {
     return this.auth.register(body);
   }
 
+  @Public()
   @Post('verify-email')
   @HttpCode(HttpStatus.OK)
   verifyEmail(
@@ -45,6 +48,7 @@ export class AuthController {
     return this.auth.verifyEmail(body.token);
   }
 
+  @Public()
   @Post('resend-verification')
   @HttpCode(HttpStatus.ACCEPTED)
   resendVerification(
@@ -54,6 +58,7 @@ export class AuthController {
     return this.auth.resendVerification(body.email);
   }
 
+  @Public()
   @Post('login')
   @HttpCode(HttpStatus.OK)
   // Token responses must never be stored by browsers or proxies.
@@ -62,6 +67,7 @@ export class AuthController {
     return this.sessions.login(body);
   }
 
+  @Public()
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @Header('Cache-Control', 'no-store')
@@ -71,7 +77,8 @@ export class AuthController {
     return this.sessions.refresh(body.refreshToken);
   }
 
-  // 204 whether or not the token was valid.
+  // Public because the access token may already have expired. 204 either way.
+  @Public()
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   logout(

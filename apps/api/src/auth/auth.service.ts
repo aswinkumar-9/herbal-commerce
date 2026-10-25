@@ -157,6 +157,21 @@ export class AuthService {
     return { message: GENERIC_ACCEPTED };
   }
 
+  // The signed-in user's own account. Never includes the password hash.
+  getProfile(userId: string) {
+    return this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        emailVerifiedAt: true,
+        createdAt: true,
+      },
+    });
+  }
+
   private verificationUrl(token: string): string {
     const base = this.config.get('WEB_BASE_URL', { infer: true });
     return `${base}/verify-email?token=${encodeURIComponent(token)}`;
