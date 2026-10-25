@@ -6,6 +6,7 @@
     "api:dev": "pnpm --filter api start:dev",
     "api:test": "pnpm --filter api test",
     "api:lint": "pnpm --filter api lint",
-    "api:build": "pnpm --filter api build"
+    "api:build": "pnpm --filter api build",
+    "api:smoke": "node apps/api/scripts/auth-smoke.cjs"
   }
 }

@@ -10,7 +10,7 @@ describe('MailService', () => {
   it('sends a verification email containing the link', async () => {
     await service.sendVerificationEmail(
       'a@example.com',
-      'Asha',
+      'Aswin',
       'http://localhost:3001/verify?token=abc',
     );
     const message = send.mock.calls[0][0];

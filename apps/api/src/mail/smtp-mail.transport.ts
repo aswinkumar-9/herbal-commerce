@@ -10,13 +10,16 @@ export class SmtpMailTransport implements MailTransport {
   private readonly from: string;
 
   constructor(config: ConfigService<Env, true>) {
+    const nodeEnv = config.get('NODE_ENV', { infer: true });
     this.from = config.get('MAIL_FROM', { infer: true });
     this.transporter = createTransport({
       host: config.get('SMTP_HOST', { infer: true }),
       port: config.get('SMTP_PORT', { infer: true }),
       secure: false,
-      // Local Mailpit has no TLS. Production SMTP settings come in the deployment phase.
-      ignoreTLS: config.get('NODE_ENV', { infer: true }) === 'development',
+      // Local Mailpit has no TLS. In production the connection must
+      // switch to TLS (STARTTLS) or fail, so mail is never sent in clear text.
+      ignoreTLS: nodeEnv === 'development',
+      requireTLS: nodeEnv === 'production',
       connectionTimeout: 5000,
       socketTimeout: 10000,
     });

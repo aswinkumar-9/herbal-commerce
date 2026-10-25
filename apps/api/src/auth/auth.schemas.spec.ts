@@ -1,4 +1,6 @@
 import {
+  loginSchema,
+  refreshTokenSchema,
   registerSchema,
   resendVerificationSchema,
   verifyEmailSchema,
@@ -37,5 +39,21 @@ describe('auth schemas', () => {
   it('requires a plausible verification token', () => {
     expect(verifyEmailSchema.safeParse({ token: 'abc' }).success).toBe(false);
     expect(verifyEmailSchema.safeParse({ token: 'a'.repeat(43) }).success).toBe(true);
+  });
+
+  it('normalises the login email and only checks the password length', () => {
+    const parsed = loginSchema.parse({ email: ' Asha@Example.com ', password: 'x' });
+    expect(parsed.email).toBe('asha@example.com');
+    expect(loginSchema.safeParse({ email: 'asha@example.com', password: '' }).success).toBe(false);
+    expect(
+      loginSchema.safeParse({ email: 'asha@example.com', password: 'x'.repeat(129) }).success,
+    ).toBe(false);
+  });
+
+  it('requires a plausible refresh token', () => {
+    expect(refreshTokenSchema.safeParse({ refreshToken: 'abc' }).success).toBe(false);
+    expect(
+      refreshTokenSchema.safeParse({ refreshToken: 'a'.repeat(43) }).success,
+    ).toBe(true);
   });
 });

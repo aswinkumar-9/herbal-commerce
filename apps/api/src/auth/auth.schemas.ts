@@ -19,4 +19,23 @@ export const verifyEmailSchema = z.object({
 export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
 
 export const resendVerificationSchema = z.object({ email });
-export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>;
+export type ResendVerificationInput = z.infer<typeof resendVerificationSchema>
+
+
+// Login checks only the length: the password rules may change later,
+// and passwords made under the old rules must keep working.
+export const loginSchema = z.object({
+  email,
+  password: z
+    .string()
+    .min(1, 'Password is required')
+    .max(128, 'Password must be at most 128 characters'),
+});
+export type LoginInput = z.infer<typeof loginSchema>;
+
+
+// Refresh and logout both take the refresh token in the body.
+export const refreshTokenSchema = z.object({
+  refreshToken: z.string().min(20).max(200),
+});
+export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;

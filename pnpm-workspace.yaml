@@ -6,3 +6,16 @@ allowBuilds:
   '@prisma/engines': false
   prisma: false
   unrs-resolver: true
+
+# Only install package versions published at least 3 days ago (value in minutes).
+minimumReleaseAge: 4320
+
+# Security fixes for indirect dependencies (ADR 0008). Remove each override
+# once the package that pulls it in ships the fix itself.
+overrides:
+  # From express: GHSA-27r3-jxmh-p828 (denial of service, compressed bodies)
+  body-parser: ^2.4.0
+  # Pinned to 2.4.0 by @nestjs/platform-express: GHSA-q7qp-rjg7-q26m
+  multer: ^2.5.0
+  # From ajv, used by the dev tools (@nestjs/cli, prisma)
+  fast-uri: ^3.1.9

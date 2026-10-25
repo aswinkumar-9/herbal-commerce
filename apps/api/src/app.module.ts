@@ -1,13 +1,14 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { APP_FILTER } from '@nestjs/core';
+import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
+import { AccessTokenGuard } from './auth/access-token.guard';
+import { AuthModule } from './auth/auth.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { Env, validateEnv } from './config/env';
 import { HealthModule } from './health/health.module';
 import { buildLoggerParams } from './logging/logger.config';
 import { PrismaModule } from './prisma/prisma.module';
-import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -28,6 +29,10 @@ import { AuthModule } from './auth/auth.module';
     AuthModule,
     HealthModule,
   ],
-  providers: [{ provide: APP_FILTER, useClass: AllExceptionsFilter }],
+  providers: [
+    { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    // Deny by default: every route needs a valid access token unless @Public().
+    { provide: APP_GUARD, useClass: AccessTokenGuard },
+  ],
 })
 export class AppModule {}

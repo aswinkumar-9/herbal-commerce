@@ -54,9 +54,9 @@ function setup() {
 }
 
 const input = {
-  email: 'asha@example.com',
+  email: 'aswin@example.com',
   password: 'a-long-password-1',
-  fullName: 'Asha',
+  fullName: 'Aswin',
 };
 
 describe('AuthService.register', () => {
@@ -93,7 +93,7 @@ describe('AuthService.register', () => {
     expect(forExistingEmail).toEqual(forNewEmail);
     expect(passwords.hash).toHaveBeenCalled();
     expect(prisma.user.create).not.toHaveBeenCalled();
-    expect(mail.sendAccountExistsNotice).toHaveBeenCalledWith('asha@example.com');
+    expect(mail.sendAccountExistsNotice).toHaveBeenCalledWith('aswin@example.com');
   });
 
   it('treats a simultaneous duplicate registration as an existing account', async () => {
@@ -160,10 +160,10 @@ describe('AuthService.resendVerification', () => {
     const { service, prisma, mail } = setup();
     prisma.user.findUnique.mockResolvedValue({
       id: 'u1',
-      fullName: 'Asha',
+      fullName: 'Aswin',
       emailVerifiedAt: new Date(),
     });
-    await service.resendVerification('asha@example.com');
+    await service.resendVerification('aswin@example.com');
     expect(mail.sendVerificationEmail).not.toHaveBeenCalled();
   });
 
@@ -171,11 +171,11 @@ describe('AuthService.resendVerification', () => {
     const { service, prisma, mail } = setup();
     prisma.user.findUnique.mockResolvedValue({
       id: 'u1',
-      fullName: 'Asha',
+      fullName: 'Aswin',
       emailVerifiedAt: null,
     });
     prisma.emailVerificationToken.findFirst.mockResolvedValue({ id: 't1' });
-    await service.resendVerification('asha@example.com');
+    await service.resendVerification('aswin@example.com');
     expect(mail.sendVerificationEmail).not.toHaveBeenCalled();
   });
 
@@ -183,19 +183,47 @@ describe('AuthService.resendVerification', () => {
     const { service, prisma, mail } = setup();
     prisma.user.findUnique.mockResolvedValue({
       id: 'u1',
-      fullName: 'Asha',
+      fullName: 'Aswin',
       emailVerifiedAt: null,
     });
     prisma.emailVerificationToken.findFirst.mockResolvedValue(null);
 
-    await service.resendVerification('asha@example.com');
+    await service.resendVerification('aswin@example.com');
 
     expect(prisma.emailVerificationToken.deleteMany).toHaveBeenCalled();
     expect(prisma.emailVerificationToken.create).toHaveBeenCalled();
     expect(mail.sendVerificationEmail).toHaveBeenCalledWith(
-      'asha@example.com',
-      'Asha',
+      'aswin@example.com',
+      'Aswin',
       expect.stringContaining('/verify-email?token='),
     );
+  });
+});
+
+describe('AuthService.getProfile', () => {
+  it('reads only the fields a customer may see about themselves', async () => {
+    const { service, prisma } = setup();
+    const profile = {
+      id: 'u1',
+      email: 'aswin@example.com',
+      fullName: 'Aswin',
+      role: 'CUSTOMER',
+      emailVerifiedAt: null,
+      createdAt: new Date(),
+    };
+    prisma.user.findUnique.mockResolvedValue(profile);
+
+    await expect(service.getProfile('u1')).resolves.toEqual(profile);
+    expect(prisma.user.findUnique).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      select: {
+        id: true,
+        email: true,
+        fullName: true,
+        role: true,
+        emailVerifiedAt: true,
+        createdAt: true,
+      },
+    });
   });
 });
