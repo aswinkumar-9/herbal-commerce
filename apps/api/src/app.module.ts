@@ -9,6 +9,7 @@ import { Env, validateEnv } from './config/env';
 import { HealthModule } from './health/health.module';
 import { buildLoggerParams } from './logging/logger.config';
 import { PrismaModule } from './prisma/prisma.module';
+import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { ValkeyModule } from './valkey/valkey.module';
 
 @Module({
@@ -28,6 +29,7 @@ import { ValkeyModule } from './valkey/valkey.module';
     }),
     PrismaModule,
     ValkeyModule,
+    RateLimitModule,
     AuthModule,
     HealthModule,
   ],

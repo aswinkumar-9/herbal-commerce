@@ -6,6 +6,7 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import { RetryLaterException } from './retry-later.exception';
 
 // Errors raised by the body parser (malformed JSON, oversized body) carry a 4xx statusCode.
 function isClientError(exception: unknown): exception is { statusCode: number } {
@@ -28,6 +29,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = http.getRequest<{ id?: string | number }>();
     const response = http.getResponse<{
       status: (code: number) => { json: (body: unknown) => void };
+      setHeader: (name: string, value: string) => void;
     }>();
     const requestId = request.id !== undefined ? String(request.id) : undefined;
 
@@ -51,6 +53,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.logger.error({ err: exception }, 'Unhandled exception');
     }
 
+    if (exception instanceof RetryLaterException) {
+      // Tells the client how many seconds to wait before trying again.
+      response.setHeader('Retry-After', String(exception.retryAfterSeconds));
+    }
     response.status(status).json({ ...body, statusCode: status, requestId });
   }
 }
