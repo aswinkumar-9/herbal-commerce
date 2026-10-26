@@ -18,7 +18,9 @@ export const RATE_LIMITS = {
   register: { points: 20, duration: HOUR },
   verifyEmail: { points: 60, duration: HOUR },
   resendByIp: { points: 20, duration: HOUR },
-  resendByEmail: { points: 5, duration: HOUR },
+  // Emails we send to one address (verification links, "account exists"
+  // notices), so nobody can flood someone else's inbox.
+  emailsToAddress: { points: 5, duration: HOUR },
   login: { points: 60, duration: MINUTE },
   refresh: { points: 120, duration: MINUTE },
   logout: { points: 120, duration: MINUTE },

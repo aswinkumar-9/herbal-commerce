@@ -1,9 +1,11 @@
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PinoLogger } from 'nestjs-pino';
+import { RetryLaterException } from '../common/retry-later.exception';
 import type { Env } from '../config/env';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RateLimitService } from '../rate-limit/rate-limit.service';
 import { AuthService } from './auth.service';
 import { PasswordService } from './password.service';
 import { hashToken } from './token.util';
@@ -15,6 +17,9 @@ type CreateUserArgs = {
     emailVerificationTokens: { create: { tokenHash: string } };
   };
 };
+
+const tooManyRequests = () =>
+  new RetryLaterException(429, 'Too many requests.', 'RATE_LIMITED', 3600);
 
 function setup() {
   const tx = {
@@ -42,15 +47,17 @@ function setup() {
     sendAccountExistsNotice: jest.fn().mockResolvedValue(undefined),
   };
   const config = { get: jest.fn().mockReturnValue('http://localhost:3001') };
+  const limits = { consume: jest.fn().mockResolvedValue(undefined) };
   const logger = { warn: jest.fn() };
   const service = new AuthService(
     prisma as unknown as PrismaService,
     passwords as unknown as PasswordService,
     mail as unknown as MailService,
     config as unknown as ConfigService<Env, true>,
+    limits as unknown as RateLimitService,
     logger as unknown as PinoLogger,
   );
-  return { service, prisma, tx, passwords, mail };
+  return { service, prisma, tx, passwords, mail, limits };
 }
 
 const input = {
@@ -105,6 +112,20 @@ describe('AuthService.register', () => {
 
     await expect(service.register(input)).resolves.toBeDefined();
     expect(mail.sendAccountExistsNotice).toHaveBeenCalled();
+  });
+
+  it('counts against the emails-to-this-address limit and refuses before hashing', async () => {
+    const { service, prisma, passwords, mail, limits } = setup();
+    limits.consume.mockRejectedValueOnce(tooManyRequests());
+
+    await expect(service.register(input)).rejects.toBeInstanceOf(
+      RetryLaterException,
+    );
+    expect(limits.consume).toHaveBeenCalledWith('emailsToAddress', input.email);
+    expect(passwords.hash).not.toHaveBeenCalled();
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(mail.sendVerificationEmail).not.toHaveBeenCalled();
+    expect(mail.sendAccountExistsNotice).not.toHaveBeenCalled();
   });
 });
 
@@ -197,6 +218,28 @@ describe('AuthService.resendVerification', () => {
       'Aswin',
       expect.stringContaining('/verify-email?token='),
     );
+  });
+
+  it('counts every request against the address limit, unknown emails too', async () => {
+    const { service, prisma, limits } = setup();
+    prisma.user.findUnique.mockResolvedValue(null);
+
+    await service.resendVerification('nobody@example.com');
+    expect(limits.consume).toHaveBeenCalledWith(
+      'emailsToAddress',
+      'nobody@example.com',
+    );
+  });
+
+  it('refuses with 429 before any lookup once the address had too many emails', async () => {
+    const { service, prisma, mail, limits } = setup();
+    limits.consume.mockRejectedValueOnce(tooManyRequests());
+
+    await expect(
+      service.resendVerification('aswin@example.com'),
+    ).rejects.toBeInstanceOf(RetryLaterException);
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(mail.sendVerificationEmail).not.toHaveBeenCalled();
   });
 });
 

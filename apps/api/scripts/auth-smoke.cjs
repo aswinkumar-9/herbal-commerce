@@ -196,6 +196,19 @@ async function main() {
     'while blocked, even the right password answers 429 (it is not even checked)',
     blocked.status === 429 && Number(blocked.headers.get('retry-after')) > 0,
   );
+  // At most 5 emails an hour to one address. Registering counted once above,
+  // so the 5th resend request below is the first one over the limit.
+  const resends = [];
+  for (let i = 0; i < 5; i += 1) {
+    const resend = await call('POST', '/v1/auth/resend-verification', {
+      json: { email },
+    });
+    resends.push(resend.status);
+  }
+  check(
+    'one address gets at most 5 emails an hour: the 5th resend answers 429',
+    resends.join(',') === '202,202,202,202,429',
+  );
 
   console.log(
     failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`,
