@@ -1,8 +1,10 @@
 // End-to-end check of customer sign-up and sign-in against the running API.
 // Needs the API (pnpm api:dev) and Mailpit (docker compose) to be running.
 // Each run creates one throwaway customer account in the local database.
+// `pnpm api:smoke` clears the local rate limits first, so it can run again at once.
 const API = process.env.API_URL ?? 'http://localhost:3000';
 const MAILPIT = process.env.MAILPIT_URL ?? 'http://localhost:8025';
+const LOGOUT_LIMIT = 120; // per IP per minute, see rate-limits.ts
 
 const email = `smoke.${Date.now()}@example.com`;
 const password = 'smoke-test-password-1';
@@ -15,8 +17,8 @@ function check(name, ok) {
   }
 }
 
-async function call(method, path, { json, form, token } = {}) {
-  const headers = {};
+async function call(method, path, { json, form, token, headers: extra } = {}) {
+  const headers = { ...extra };
   let body;
   if (json) {
     headers['Content-Type'] = 'application/json';
@@ -152,6 +154,29 @@ async function main() {
     'after logout, the access token is refused at once',
     (await call('GET', '/v1/me', { token: second.body.accessToken })).status ===
       401,
+  );
+
+  // Rate limits. One logout already happened above, so the request number
+  // LOGOUT_LIMIT below is the first one over the limit. Each request claims a
+  // different client IP; that must not help, because no proxy is trusted.
+  let refused;
+  for (let i = 1; i <= LOGOUT_LIMIT + 5 && !refused; i += 1) {
+    const response = await call('POST', '/v1/auth/logout', {
+      json: { refreshToken: 'x'.repeat(43) },
+      headers: { 'X-Forwarded-For': `198.51.100.${i}` },
+    });
+    if (response.status === 429) {
+      refused = { at: i, response };
+    }
+  }
+  check(
+    `logout is limited to ${LOGOUT_LIMIT} per minute per IP, even with a faked X-Forwarded-For`,
+    refused?.at === LOGOUT_LIMIT,
+  );
+  check(
+    'the 429 says when to try again (Retry-After) and has code RATE_LIMITED',
+    Number(refused?.response.headers.get('retry-after')) > 0 &&
+      refused?.response.body?.code === 'RATE_LIMITED',
   );
 
   console.log(
