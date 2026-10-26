@@ -5,24 +5,26 @@ import {
 } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
 import { AllExceptionsFilter } from './all-exceptions.filter';
+import { RetryLaterException } from './retry-later.exception';
 
 function setup() {
   const json = jest.fn();
   const status = jest.fn().mockReturnValue({ json });
+  const setHeader = jest.fn();
   const host = {
     switchToHttp: () => ({
       getRequest: () => ({ id: 'req-12345678' }),
-      getResponse: () => ({ status }),
+      getResponse: () => ({ status, setHeader }),
     }),
   } as unknown as ArgumentsHost;
   const error = jest.fn();
   const filter = new AllExceptionsFilter({ error } as unknown as PinoLogger);
-  return { filter, host, status, json, error };
+  return { filter, host, status, json, setHeader, error };
 }
 
 describe('AllExceptionsFilter', () => {
   it('keeps the status of HTTP exceptions and adds the request id', () => {
-    const { filter, host, status, json, error } = setup();
+    const { filter, host, status, json, setHeader, error } = setup();
     filter.catch(new BadRequestException('bad input'), host);
     expect(status).toHaveBeenCalledWith(400);
     expect(json).toHaveBeenCalledWith(
@@ -32,6 +34,7 @@ describe('AllExceptionsFilter', () => {
         requestId: 'req-12345678',
       }),
     );
+    expect(setHeader).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
   });
 
@@ -79,5 +82,21 @@ describe('AllExceptionsFilter', () => {
       requestId: 'req-12345678',
     });
     expect(error).not.toHaveBeenCalled();
+  });
+
+  it('tells the client when to try again after a 429', () => {
+    const { filter, host, status, json, setHeader } = setup();
+    filter.catch(
+      new RetryLaterException(429, 'Too many requests.', 'RATE_LIMITED', 42),
+      host,
+    );
+    expect(setHeader).toHaveBeenCalledWith('Retry-After', '42');
+    expect(status).toHaveBeenCalledWith(429);
+    expect(json).toHaveBeenCalledWith({
+      message: 'Too many requests.',
+      code: 'RATE_LIMITED',
+      statusCode: 429,
+      requestId: 'req-12345678',
+    });
   });
 });

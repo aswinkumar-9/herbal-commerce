@@ -7,6 +7,8 @@ import {
   Post,
 } from '@nestjs/common';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { ClientIp } from '../rate-limit/client-ip.decorator';
+import { RateLimit } from '../rate-limit/rate-limit.decorator';
 import {
   loginSchema,
   refreshTokenSchema,
@@ -33,6 +35,7 @@ export class AuthController {
   ) {}
 
   @Public()
+  @RateLimit('register')
   @Post('register')
   @HttpCode(HttpStatus.ACCEPTED)
   register(@Body(new ZodValidationPipe(registerSchema)) body: RegisterInput) {
@@ -40,6 +43,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit('verifyEmail')
   @Post('verify-email')
   @HttpCode(HttpStatus.OK)
   verifyEmail(
@@ -49,6 +53,7 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit('resendByIp')
   @Post('resend-verification')
   @HttpCode(HttpStatus.ACCEPTED)
   resendVerification(
@@ -59,15 +64,20 @@ export class AuthController {
   }
 
   @Public()
+  @RateLimit('login')
   @Post('login')
   @HttpCode(HttpStatus.OK)
   // Token responses must never be stored by browsers or proxies.
   @Header('Cache-Control', 'no-store')
-  login(@Body(new ZodValidationPipe(loginSchema)) body: LoginInput) {
-    return this.sessions.login(body);
+  login(
+    @Body(new ZodValidationPipe(loginSchema)) body: LoginInput,
+    @ClientIp() ip: string,
+  ) {
+    return this.sessions.login(body, ip);
   }
 
   @Public()
+  @RateLimit('refresh')
   @Post('refresh')
   @HttpCode(HttpStatus.OK)
   @Header('Cache-Control', 'no-store')
@@ -79,6 +89,7 @@ export class AuthController {
 
   // Public because the access token may already have expired. 204 either way.
   @Public()
+  @RateLimit('logout')
   @Post('logout')
   @HttpCode(HttpStatus.NO_CONTENT)
   logout(

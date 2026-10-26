@@ -1,7 +1,16 @@
+import { ConcurrencyLimit } from '../common/concurrency-limit';
+import { RetryLaterException } from '../common/retry-later.exception';
 import { PasswordService } from './password.service';
+
+const serverBusy = () =>
+  new RetryLaterException(503, 'The server is busy.', 'SERVER_BUSY', 5);
 
 describe('PasswordService', () => {
   const service = new PasswordService();
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
 
   it('produces an argon2id hash that does not contain the password', async () => {
     const hashed = await service.hash('correct horse battery staple');
@@ -35,4 +44,25 @@ describe('PasswordService', () => {
     expect(hashSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('passes "server busy" on instead of treating it as a wrong password', async () => {
+    const busy = serverBusy();
+    jest.spyOn(ConcurrencyLimit.prototype, 'run').mockRejectedValueOnce(busy);
+
+    await expect(service.verify('$argon2id$fake', 'any password')).rejects.toBe(
+      busy,
+    );
+  });
+
+  it('tries to make the dummy hash again if the first try was refused', async () => {
+    const fresh = new PasswordService();
+    const hashSpy = jest
+      .spyOn(fresh, 'hash')
+      .mockRejectedValueOnce(serverBusy());
+
+    await expect(fresh.verifyDummy('any password')).rejects.toBeInstanceOf(
+      RetryLaterException,
+    );
+    await expect(fresh.verifyDummy('any password')).resolves.toBe(false);
+    expect(hashSpy).toHaveBeenCalledTimes(2);
+  });
 });

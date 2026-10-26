@@ -60,6 +60,9 @@ importers:
       pino-http:
         specifier: ^11.0.0
         version: 11.0.0
+      rate-limiter-flexible:
+        specifier: 11.2.3
+        version: 11.2.3
       reflect-metadata:
         specifier: ^0.2.2
         version: 0.2.2
@@ -3146,6 +3149,9 @@ packages:
   range-parser@1.3.0:
     resolution: {integrity: sha512-hek2mFQpPuI4E1BBKrSto+BU3e3x4xuarsbiwr3+lf7p44juvFMV0XFWQAP3xUyqXA4RrXLIoaSUGbSt056ZMw==}
     engines: {node: '>= 0.6'}
+
+  rate-limiter-flexible@11.2.3:
+    resolution: {integrity: sha512-w4HX4toAsEbu1VksOauZwI9d6URb6/4WqJJ5Hg1bESihMt2KJfQ2iTwvDkhIg+y2HetLh65DGu/8xIkUz/xNPA==}
 
   raw-body@3.0.2:
     resolution: {integrity: sha512-K5zQjDllxWkf7Z5xJdV0/B0WTNqx6vxG70zJE4N0kBs4LovmEYWJzQGxC9bS9RAKu3bgM40lrd5zoLJ12MQ5BA==}
@@ -6828,6 +6834,8 @@ snapshots:
   quick-format-unescaped@4.0.4: {}
 
   range-parser@1.3.0: {}
+
+  rate-limiter-flexible@11.2.3: {}
 
   raw-body@3.0.2:
     dependencies:

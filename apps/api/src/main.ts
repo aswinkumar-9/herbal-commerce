@@ -13,16 +13,19 @@ async function bootstrap() {
     bodyParser: false,
   });
   app.useLogger(app.get(Logger));
+  const config = app.get<ConfigService<Env, true>>(ConfigService);
+  // Only the listed proxies may report the client IP (X-Forwarded-For). With
+  // none listed, req.ip is the address that connected, which cannot be faked.
+  const trustedProxies = config.get('TRUST_PROXY', { infer: true });
+  app.set('trust proxy', trustedProxies.length > 0 ? trustedProxies : false);
   // Security headers, and no X-Powered-By.
   app.use(helmet());
   // At most 100 kB, and compressed bodies are refused.
   app.useBodyParser('json', { limit: '100kb', inflate: false });
   app.setGlobalPrefix('v1', { exclude: ['health', 'health/ready'] });
-  const config = app.get<ConfigService<Env, true>>(ConfigService);
   app.enableShutdownHooks();
   // Listen on localhost only while developing.
   await app.listen(config.get('API_PORT', { infer: true }), '127.0.0.1');
 }
 
 void bootstrap();
-

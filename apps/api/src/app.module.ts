@@ -9,6 +9,9 @@ import { Env, validateEnv } from './config/env';
 import { HealthModule } from './health/health.module';
 import { buildLoggerParams } from './logging/logger.config';
 import { PrismaModule } from './prisma/prisma.module';
+import { RateLimitGuard } from './rate-limit/rate-limit.guard';
+import { RateLimitModule } from './rate-limit/rate-limit.module';
+import { ValkeyModule } from './valkey/valkey.module';
 
 @Module({
   imports: [
@@ -26,11 +29,16 @@ import { PrismaModule } from './prisma/prisma.module';
         }),
     }),
     PrismaModule,
+    ValkeyModule,
+    RateLimitModule,
     AuthModule,
     HealthModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
+    // Global guards run in this order. Rate limits first, so floods are
+    // refused before any token or database work.
+    { provide: APP_GUARD, useClass: RateLimitGuard },
     // Deny by default: every route needs a valid access token unless @Public().
     { provide: APP_GUARD, useClass: AccessTokenGuard },
   ],

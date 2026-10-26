@@ -4,6 +4,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { Env } from '../config/env';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { RateLimitService } from '../rate-limit/rate-limit.service';
 import type { RegisterInput } from './auth.schemas';
 import { PasswordService } from './password.service';
 import { generateToken, hashToken } from './token.util';
@@ -29,10 +30,15 @@ export class AuthService {
     private readonly passwords: PasswordService,
     private readonly mail: MailService,
     private readonly config: ConfigService<Env, true>,
+    private readonly limits: RateLimitService,
     @InjectPinoLogger(AuthService.name) private readonly logger: PinoLogger,
   ) {}
 
   async register(input: RegisterInput): Promise<{ message: string }> {
+    // Registering always emails this address (a link or an "account exists"
+    // notice), so it counts against the address's limit. Counted whether or
+    // not an account exists, and before any hashing.
+    await this.limits.consume('emailsToAddress', input.email);
     // Hash first on every path, so new and existing emails take a similar time.
     const passwordHash = await this.passwords.hash(input.password);
 
@@ -115,6 +121,8 @@ export class AuthService {
   }
 
   async resendVerification(email: string): Promise<{ message: string }> {
+    // Counted for every address, known or not, so a 429 reveals nothing.
+    await this.limits.consume('emailsToAddress', email);
     const user = await this.prisma.user.findUnique({
       where: { email },
       select: { id: true, fullName: true, emailVerifiedAt: true },

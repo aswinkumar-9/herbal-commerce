@@ -1,6 +1,8 @@
 import { HttpException } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
+import { RetryLaterException } from '../common/retry-later.exception';
 import { PrismaService } from '../prisma/prisma.service';
+import { RateLimitService } from '../rate-limit/rate-limit.service';
 import { AccessTokenService } from './access-token.service';
 import { PasswordService } from './password.service';
 import { SessionService } from './session.service';
@@ -15,6 +17,7 @@ type SessionCreateArgs = {
 };
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const IP = '203.0.113.7';
 const input = { email: 'asha@example.com', password: 'a-long-password-1' };
 const customer = {
   id: 'user-1',
@@ -32,6 +35,15 @@ const liveSession = {
   user: { id: 'user-1', role: 'CUSTOMER', status: 'ACTIVE' },
 };
 const storedToken = { id: 'token-1', usedAt: null, session: liveSession };
+// The three failed-login counters for `input` from `IP`.
+const FAILURE_COUNTERS = [
+  ['loginFailuresByEmailAndIp', `${IP}|${input.email}`],
+  ['loginFailuresByEmail', input.email],
+  ['loginFailuresByIp', IP],
+];
+
+const tooManyRequests = () =>
+  new RetryLaterException(429, 'Too many requests.', 'RATE_LIMITED', 900);
 
 function setup() {
   const tx = {
@@ -56,14 +68,20 @@ function setup() {
   const accessTokens = {
     sign: jest.fn().mockResolvedValue('signed-access-token'),
   };
+  const limits = {
+    check: jest.fn().mockResolvedValue(undefined),
+    consume: jest.fn().mockResolvedValue(undefined),
+    reset: jest.fn().mockResolvedValue(undefined),
+  };
   const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn() };
   const service = new SessionService(
     prisma as unknown as PrismaService,
     passwords as unknown as PasswordService,
     accessTokens as unknown as AccessTokenService,
+    limits as unknown as RateLimitService,
     logger as unknown as PinoLogger,
   );
-  return { service, prisma, tx, passwords, accessTokens, logger };
+  return { service, prisma, tx, passwords, accessTokens, limits, logger };
 }
 
 // Runs a call that must fail and returns the error the client would get.
@@ -80,7 +98,7 @@ async function rejection(run: () => Promise<unknown>): Promise<HttpException> {
 }
 
 const loginError = (service: SessionService) =>
-  rejection(() => service.login(input));
+  rejection(() => service.login(input, IP));
 const refreshError = (service: SessionService) =>
   rejection(() => service.refresh(RAW_REFRESH_TOKEN));
 
@@ -88,7 +106,7 @@ describe('SessionService.login', () => {
   it('starts a 30-day session and stores only the hash of the refresh token', async () => {
     const { service, prisma, accessTokens } = setup();
 
-    const tokens = await service.login(input);
+    const tokens = await service.login(input, IP);
 
     expect(tokens).toEqual({
       accessToken: 'signed-access-token',
@@ -173,7 +191,7 @@ describe('SessionService.login', () => {
 
   it('never logs the email, the password or the tokens', async () => {
     const success = setup();
-    const tokens = await success.service.login(input);
+    const tokens = await success.service.login(input, IP);
     const failure = setup();
     failure.passwords.verify.mockResolvedValue(false);
     await loginError(failure.service);
@@ -193,6 +211,56 @@ describe('SessionService.login', () => {
     ]) {
       expect(logged).not.toContain(secret);
     }
+  });
+
+  // New in Part 3D: brute-force protection.
+  it('counts every failed login against the three limits, unknown emails too', async () => {
+    const unknown = setup();
+    unknown.prisma.user.findUnique.mockResolvedValue(null);
+    const wrongPassword = setup();
+    wrongPassword.passwords.verify.mockResolvedValue(false);
+    const unverified = setup();
+    unverified.prisma.user.findUnique.mockResolvedValue({
+      ...customer,
+      emailVerifiedAt: null,
+    });
+
+    for (const { service, limits } of [unknown, wrongPassword, unverified]) {
+      await loginError(service);
+      expect(limits.consume.mock.calls).toEqual(FAILURE_COUNTERS);
+    }
+  });
+
+  it('refuses with 429 before any lookup or password check while a limit is exceeded', async () => {
+    const { service, prisma, passwords, limits } = setup();
+    limits.check.mockRejectedValueOnce(tooManyRequests());
+
+    expect((await loginError(service)).getStatus()).toBe(429);
+    expect(limits.check.mock.calls).toEqual(FAILURE_COUNTERS);
+    expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    expect(passwords.verify).not.toHaveBeenCalled();
+    expect(passwords.verifyDummy).not.toHaveBeenCalled();
+  });
+
+  it('answers 429 instead of 401 for the failure that goes over a limit', async () => {
+    const { service, passwords, limits, logger } = setup();
+    passwords.verify.mockResolvedValue(false);
+    limits.consume.mockRejectedValueOnce(tooManyRequests());
+
+    expect((await loginError(service)).getStatus()).toBe(429);
+    expect(logger.warn).toHaveBeenCalledWith(
+      { userId: 'user-1' },
+      expect.stringContaining('Too many failed sign-ins'),
+    );
+  });
+
+  it('after the right password, resets only this email and IP', async () => {
+    const { service, limits } = setup();
+
+    await service.login(input, IP);
+
+    expect(limits.reset.mock.calls).toEqual([FAILURE_COUNTERS[0]]);
+    expect(limits.consume).not.toHaveBeenCalled();
   });
 });
 
@@ -349,6 +417,7 @@ describe('SessionService.isActive', () => {
       { session: { findFirst } } as unknown as PrismaService,
       {} as PasswordService,
       {} as AccessTokenService,
+      {} as RateLimitService,
       {} as PinoLogger,
     );
     return { service, findFirst };
