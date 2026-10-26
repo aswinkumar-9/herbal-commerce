@@ -36,4 +36,38 @@ describe('MailService', () => {
     expect(message.text).not.toContain('http');
     expect(message.html).not.toContain('href');
   });
+
+  it('sends the reset link and says it is valid for 30 minutes', async () => {
+    await service.sendPasswordResetEmail(
+      'a@example.com',
+      'Aswin',
+      'http://localhost:3001/reset-password?token=abc',
+    );
+    const message = send.mock.calls[0][0];
+    expect(message.to).toBe('a@example.com');
+    expect(message.subject).toBe('Reset your password');
+    expect(message.text).toContain('http://localhost:3001/reset-password?token=abc');
+    expect(message.html).toContain('href="http://localhost:3001/reset-password?token=abc"');
+    expect(message.text).toContain('30 minutes');
+  });
+
+  it('escapes the name in the reset email', async () => {
+    await service.sendPasswordResetEmail(
+      'a@example.com',
+      '<img src=x onerror=alert(1)>',
+      'http://localhost:3001/reset-password?token=abc',
+    );
+    const message = send.mock.calls[0][0];
+    expect(message.html).not.toContain('<img');
+    expect(message.html).toContain('&lt;img');
+  });
+
+  it('sends the password-changed notice without any link', async () => {
+    await service.sendPasswordChangedNotice('a@example.com', 'Aswin');
+    const message = send.mock.calls[0][0];
+    expect(message.subject).toBe('Your password was changed');
+    expect(message.text).toContain('signed out on all devices');
+    expect(message.text).not.toContain('http');
+    expect(message.html).not.toContain('href');
+  });
 });
