@@ -23,6 +23,7 @@ describe('rate-limited routes', () => {
       refresh: ['refresh'],
       logout: ['logout'],
       forgotPassword: ['forgotPassword'],
+      resetPassword: ['resetPassword'],
     });
   });
 });

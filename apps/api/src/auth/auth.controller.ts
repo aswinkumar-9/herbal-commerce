@@ -15,6 +15,7 @@ import {
   refreshTokenSchema,
   registerSchema,
   resendVerificationSchema,
+  resetPasswordSchema,
   verifyEmailSchema,
 } from './auth.schemas';
 import type {
@@ -23,6 +24,7 @@ import type {
   RefreshTokenInput,
   RegisterInput,
   ResendVerificationInput,
+  ResetPasswordInput,
   VerifyEmailInput,
 } from './auth.schemas';
 import { AuthService } from './auth.service';
@@ -111,5 +113,17 @@ export class AuthController {
     @Body(new ZodValidationPipe(forgotPasswordSchema)) body: ForgotPasswordInput,
   ) {
     return this.passwordResets.requestReset(body.email);
+  }
+
+  // Public: the customer cannot sign in, which is why they are here.
+  @Public()
+  @RateLimit('resetPassword')
+  @Post('reset-password')
+  @HttpCode(HttpStatus.OK)
+  resetPassword(
+    @Body(new ZodValidationPipe(resetPasswordSchema)) body: ResetPasswordInput,
+    @ClientIp() ip: string,
+  ) {
+    return this.passwordResets.resetPassword(body, ip);
   }
 }

@@ -26,6 +26,7 @@ describe('public routes', () => {
       'refresh',
       'logout',
       'forgotPassword',
+      'resetPassword',
     ]);
     expect(publicHandlers(HealthController)).toEqual(['live', 'ready']);
     expect(publicHandlers(MeController)).toEqual([]);
