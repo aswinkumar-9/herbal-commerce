@@ -69,6 +69,20 @@ export class RateLimitService {
     }
   }
 
+  // Throws 429 while this key is over its limit, without counting anything.
+  // Lets callers refuse before doing expensive work.
+  async check(name: RateLimitName, key: string): Promise<void> {
+    const result = await this.limiters[name].get(this.hashKey(key));
+    if (result !== null && result.consumedPoints > RATE_LIMITS[name].points) {
+      throw tooManyRequests(result);
+    }
+  }
+
+  // Forgets everything counted for this key.
+  async reset(name: RateLimitName, key: string): Promise<void> {
+    await this.limiters[name].delete(this.hashKey(key));
+  }
+
   private hashKey(key: string): string {
     return createHmac('sha256', this.keySecret)
       .update(key)

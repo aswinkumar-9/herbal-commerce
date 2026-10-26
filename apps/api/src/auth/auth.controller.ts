@@ -7,6 +7,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { ClientIp } from '../rate-limit/client-ip.decorator';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
 import {
   loginSchema,
@@ -68,8 +69,11 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   // Token responses must never be stored by browsers or proxies.
   @Header('Cache-Control', 'no-store')
-  login(@Body(new ZodValidationPipe(loginSchema)) body: LoginInput) {
-    return this.sessions.login(body);
+  login(
+    @Body(new ZodValidationPipe(loginSchema)) body: LoginInput,
+    @ClientIp() ip: string,
+  ) {
+    return this.sessions.login(body, ip);
   }
 
   @Public()

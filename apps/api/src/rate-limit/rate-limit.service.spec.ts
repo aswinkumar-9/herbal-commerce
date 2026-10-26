@@ -9,6 +9,8 @@ const config = {
   get: () => 'test-secret-'.repeat(4),
 } as unknown as ConfigService<Env, true>;
 const LOGIN = RATE_LIMITS.login;
+const PAIR = RATE_LIMITS.loginFailuresByEmailAndIp;
+const PAIR_KEY = '203.0.113.7|aswin@example.com';
 
 // A stand-in for Valkey that counts like the real one: [count, ms left].
 function workingValkey() {
@@ -23,11 +25,12 @@ function workingValkey() {
   return { counts, valkey: client as unknown as ValkeyService };
 }
 
-// A stand-in for Valkey while it is down: every command fails.
+// A stand-in for Valkey while it is down: not ready, and commands fail.
 function brokenValkey(): ValkeyService {
   const client = {
+    status: 'reconnecting',
     defineCommand: jest.fn(),
-    rlflxIncr: jest.fn(() => Promise.reject(new Error('connection refused'))),
+    del: jest.fn(() => Promise.reject(new Error('connection refused'))),
   };
   return client as unknown as ValkeyService;
 }
@@ -35,6 +38,12 @@ function brokenValkey(): ValkeyService {
 async function useUpLogin(service: RateLimitService, key: string) {
   for (let i = 0; i < LOGIN.points; i += 1) {
     await service.consume('login', key);
+  }
+}
+
+async function failAtTheLimit(service: RateLimitService) {
+  for (let i = 0; i < PAIR.points; i += 1) {
+    await service.consume('loginFailuresByEmailAndIp', PAIR_KEY);
   }
 }
 
@@ -89,5 +98,33 @@ describe('RateLimitService', () => {
 
     const refused = await refusal(() => service.consume('login', '203.0.113.7'));
     expect(refused.getStatus()).toBe(429);
+  });
+
+  it('checks without counting, and blocks once a failure limit is exceeded', async () => {
+    const service = new RateLimitService(brokenValkey(), config);
+    await failAtTheLimit(service);
+    // At the limit but not over it; checking twice does not count.
+    await service.check('loginFailuresByEmailAndIp', PAIR_KEY);
+    await service.check('loginFailuresByEmailAndIp', PAIR_KEY);
+
+    const crossing = await refusal(() =>
+      service.consume('loginFailuresByEmailAndIp', PAIR_KEY),
+    );
+    expect(crossing.retryAfterSeconds).toBe(PAIR.blockDuration);
+    const blocked = await refusal(() =>
+      service.check('loginFailuresByEmailAndIp', PAIR_KEY),
+    );
+    expect(blocked.getStatus()).toBe(429);
+  });
+
+  it('forgets a key on reset', async () => {
+    const service = new RateLimitService(brokenValkey(), config);
+    await failAtTheLimit(service);
+    await refusal(() => service.consume('loginFailuresByEmailAndIp', PAIR_KEY));
+
+    await service.reset('loginFailuresByEmailAndIp', PAIR_KEY);
+    await expect(
+      service.check('loginFailuresByEmailAndIp', PAIR_KEY),
+    ).resolves.toBeUndefined();
   });
 });

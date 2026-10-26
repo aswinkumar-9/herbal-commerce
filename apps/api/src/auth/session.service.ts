@@ -4,7 +4,10 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import { RetryLaterException } from '../common/retry-later.exception';
 import { PrismaService } from '../prisma/prisma.service';
+import { RateLimitService } from '../rate-limit/rate-limit.service';
+import type { RateLimitName } from '../rate-limit/rate-limits';
 import {
   ACCESS_TOKEN_TTL_SECONDS,
   AccessTokenService,
@@ -32,6 +35,9 @@ type RefreshFailure =
   | 'token_reused'
   | 'account_not_allowed';
 
+// A failed-login limit and the key it counts.
+type FailureCounter = [RateLimitName, string];
+
 export interface TokenPair {
   accessToken: string;
   tokenType: 'Bearer';
@@ -46,10 +52,25 @@ export class SessionService {
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
     private readonly accessTokens: AccessTokenService,
+    private readonly limits: RateLimitService,
     @InjectPinoLogger(SessionService.name) private readonly logger: PinoLogger,
   ) {}
 
-  async login(input: LoginInput): Promise<TokenPair> {
+  async login(input: LoginInput, ip: string): Promise<TokenPair> {
+    const emailAndIp = `${ip}|${input.email}`;
+    const counters: FailureCounter[] = [
+      // One person guessing one account's password.
+      ['loginFailuresByEmailAndIp', emailAndIp],
+      // Many machines guessing one account's password.
+      ['loginFailuresByEmail', input.email],
+      // One machine trying many accounts.
+      ['loginFailuresByIp', ip],
+    ];
+    // While too many recent attempts failed, refuse before any password work.
+    await Promise.all(
+      counters.map(([name, key]) => this.limits.check(name, key)),
+    );
+
     const user = await this.prisma.user.findUnique({
       where: { email: input.email },
       select: {
@@ -64,17 +85,18 @@ export class SessionService {
     // Staff sign in through their own path (with MFA), so here they count as unknown.
     if (!user || user.role !== 'CUSTOMER') {
       await this.passwords.verifyDummy(input.password);
-      this.logFailure(user ? 'not_customer' : 'unknown_account', user?.id);
-      throw new UnauthorizedException(INVALID_CREDENTIALS);
+      return this.loginFailed(
+        user ? 'not_customer' : 'unknown_account',
+        counters,
+        user?.id,
+      );
     }
     if (!(await this.passwords.verify(user.passwordHash, input.password))) {
-      this.logFailure('wrong_password', user.id);
-      throw new UnauthorizedException(INVALID_CREDENTIALS);
+      return this.loginFailed('wrong_password', counters, user.id);
     }
     // Same answer as a wrong password, so login never reveals which emails are registered.
     if (!user.emailVerifiedAt) {
-      this.logFailure('email_not_verified', user.id);
-      throw new UnauthorizedException(INVALID_CREDENTIALS);
+      return this.loginFailed('email_not_verified', counters, user.id);
     }
     // Said only after the correct password, which nobody else can set for this account.
     if (user.status !== 'ACTIVE') {
@@ -84,6 +106,10 @@ export class SessionService {
         code: 'ACCOUNT_DISABLED',
       });
     }
+
+    // The right password: this person on this IP starts again from zero.
+    // The per-email and per-IP counters keep counting.
+    await this.limits.reset('loginFailuresByEmailAndIp', emailAndIp);
 
     // Only the hash is stored. The raw refresh token goes to the client once.
     const { token: refreshToken, tokenHash } = generateToken();
@@ -215,6 +241,28 @@ export class SessionService {
       where: { id: sessionId, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+  }
+
+  // Logs the failure, counts it, and answers 401. The attempt that goes over
+  // a limit answers 429 instead. Unknown emails count too, so a 429 never
+  // reveals whether an account exists.
+  private async loginFailed(
+    reason: LoginFailure,
+    counters: FailureCounter[],
+    userId?: string,
+  ): Promise<never> {
+    this.logFailure(reason, userId);
+    try {
+      await Promise.all(
+        counters.map(([name, key]) => this.limits.consume(name, key)),
+      );
+    } catch (error) {
+      if (error instanceof RetryLaterException) {
+        this.logger.warn({ userId }, 'Too many failed sign-ins: refusing for a while');
+      }
+      throw error;
+    }
+    throw new UnauthorizedException(INVALID_CREDENTIALS);
   }
 
   // The reason goes to the log only, never to the client. Emails are never logged.

@@ -178,6 +178,24 @@ async function main() {
     Number(refused?.response.headers.get('retry-after')) > 0 &&
       refused?.response.body?.code === 'RATE_LIMITED',
   );
+  // Brute-force protection. The successful logins above reset this email and
+  // IP to zero, so 5 wrong passwords are allowed and the 6th starts a block.
+  const attempts = [];
+  for (let i = 0; i < 6; i += 1) {
+    const attempt = await call('POST', '/v1/auth/login', {
+      json: { email, password: 'wrong-password-1' },
+    });
+    attempts.push(attempt.status);
+  }
+  check(
+    '5 wrong passwords in a row answer 401, the 6th answers 429',
+    attempts.join(',') === '401,401,401,401,401,429',
+  );
+  const blocked = await call('POST', '/v1/auth/login', { json: { email, password } });
+  check(
+    'while blocked, even the right password answers 429 (it is not even checked)',
+    blocked.status === 429 && Number(blocked.headers.get('retry-after')) > 0,
+  );
 
   console.log(
     failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`,
