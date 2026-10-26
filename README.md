@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout and `GET /v1/me`. Every endpoint is protected unless marked public. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -68,7 +68,11 @@ Then run the end-to-end smoke test of customer sign-up and sign-in:
 pnpm api:smoke
 ```
 
-It registers a throwaway customer (`smoke.<number>@example.com`), reads the verification email from Mailpit, then checks login, `GET /v1/me`, token refresh, refresh-token reuse detection and logout. Every line should say `PASS`, followed by `All checks passed.`
+It first clears the local rate-limit counters, so it can run again at once. Then it registers a throwaway customer (`smoke.<number>@example.com`) and reads the verification email from Mailpit. It checks:
+- login, `GET /v1/me`, token refresh, refresh-token reuse detection and logout;
+- the rate limits: a per-IP limit that a faked `X-Forwarded-For` cannot get around, the block after 5 wrong passwords, and at most 5 emails per hour to one address.
+
+Every line should say `PASS`, followed by `All checks passed.`
 
 Emails sent in development never leave your machine. Read them in Mailpit at http://localhost:8025.
 
@@ -80,7 +84,8 @@ Emails sent in development never leave your machine. Read them in Mailpit at htt
 | `pnpm api:test` | Run unit tests |
 | `pnpm api:lint` | Run the linter |
 | `pnpm api:build` | Compile the API |
-| `pnpm api:smoke` | End-to-end check of sign-up and sign-in (needs the API and Mailpit running) |
+| `pnpm api:smoke` | End-to-end check of sign-up, sign-in and the rate limits (needs the API and Mailpit running) |
+| `pnpm api:limits:clear` | Delete all rate-limit counters in the local Valkey (development only; refuses unless `NODE_ENV=development`) |
 | `pnpm audit` | List known vulnerabilities in dependencies |
 | `docker compose up -d` / `down` | Start / stop local services (data is kept) |
 | `docker compose down -v` | Stop and **delete all local data** (development only) |
@@ -103,9 +108,11 @@ Database commands (run from `apps/api`):
 ├── apps/
 │   └── api/                    NestJS backend (modular monolith)
 │       ├── prisma/             schema and migrations
-│       ├── scripts/            auth-smoke.cjs (end-to-end smoke test)
+│       ├── scripts/            auth-smoke.cjs (smoke test), clear-rate-limits.cjs
 │       └── src/
 │           ├── auth/           registration, login, tokens, sessions, guard, /v1/me
+│           ├── rate-limit/     limits, rate-limit guard, client IP
+│           ├── valkey/         the shared Valkey connection
 │           ├── mail/           email sending (SMTP; Mailpit in development)
 │           ├── config/         environment validation
 │           └── health/, logging/, prisma/, common/
@@ -117,7 +124,7 @@ Database commands (run from `apps/api`):
 │   └── decisions/              architecture decision records (ADRs)
 ├── docker-compose.yml          local PostgreSQL, Valkey and Mailpit
 ├── .env.example                template; the real .env is never committed
-├── package.json                root commands (api:dev, api:test, api:smoke, ...)
+├── package.json                root commands (api:dev, api:test, api:smoke, api:limits:clear, ...)
 └── pnpm-workspace.yaml         workspace, build approvals, 3-day minimum release age
 ```
 
@@ -128,7 +135,8 @@ Database commands (run from `apps/api`):
 - Access and refresh tokens are secrets too. Never paste them into chats, tickets or logs.
 - Use synthetic data in development. Never log passwords, tokens or personal data.
 - The generated database client (`apps/api/src/generated`) is not committed. Run `prisma generate` after cloning.
-- The API listens on `127.0.0.1` only, because it has no rate limiting yet. To test on an Android phone, connect it over USB and run `adb reverse tcp:3000 tcp:3000`.
+- The API listens on `127.0.0.1` only until it is deployed behind HTTPS (the remaining steps are listed in `docs/security.md`). To test on an Android phone, connect it over USB and run `adb reverse tcp:3000 tcp:3000`.
+- Leave `TRUST_PROXY` empty unless the API runs behind a proxy you control. Then list that proxy's address. Never use a hop count: it would let anyone fake their IP and dodge the rate limits.
 - The status of every security control is in `docs/security.md`.
 
 ## Troubleshooting
@@ -140,3 +148,4 @@ Database commands (run from `apps/api`):
 - **Changed a database password after the first start:** run `docker compose down -v` then `docker compose up -d` (this wipes local data).
 - **The API refuses to start with `Invalid environment configuration`:** the message names each setting that is wrong (never its value). For `JWT_ACCESS_SECRET`, generate a new secret with the command in step 1.
 - **`pnpm api:smoke` says "Smoke test stopped":** start the API (`pnpm api:dev`) and Mailpit (`docker compose up -d`), then run it again.
+- **`429 Too Many Requests` while testing by hand:** you used up a rate limit (the `Retry-After` header says for how long). Wait, or run `pnpm api:limits:clear`.

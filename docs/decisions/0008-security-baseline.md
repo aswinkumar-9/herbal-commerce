@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-25
+- Updated: 2026-10-26 (part 3D: rate limiting exists, `rate-limiter-flexible` is pinned exactly)
 
 ## Context
 
@@ -21,7 +22,7 @@ Every later endpoint inherits these defaults, so they are set once, here. The fu
 - **helmet** sets the standard security headers (among them `X-Content-Type-Options: nosniff`, `X-Frame-Options`, a Content Security Policy, `Referrer-Policy` and HSTS) and removes `X-Powered-By`.
 - **JSON bodies only.** Nest's built-in body parsers are switched off (`bodyParser: false`) and only a JSON parser is added, with a 100 kB limit and with compressed bodies refused (`inflate: false`). Form bodies fail validation with `400`, which closes form-based CSRF. Refusing compressed bodies stops "zip bombs": bodies that are small on the wire and huge in memory.
 - **CORS stays off** until the website exists. It will then allow a list of origins from the environment, never `*`.
-- **The API listens on `127.0.0.1` only** until rate limiting exists (ADR 0007, known gaps).
+- **The API listens on `127.0.0.1` only** until it is deployed behind HTTPS. Rate limiting has existed since part 3D (ADR 0009). The rest of the pre-production list is in `docs/security.md`.
 
 ### Configuration
 
@@ -33,7 +34,7 @@ Every later endpoint inherits these defaults, so they are set once, here. The fu
 ### Dependencies (supply chain)
 
 - **3-day minimum release age** (`minimumReleaseAge: 4320` in `pnpm-workspace.yaml`): pnpm installs only versions published at least 3 days ago. Compromised releases are usually found and removed within hours or days, so most never reach us. 3 days also matches npm's 72-hour window in which a release can still be unpublished. No exceptions: if a fix is too new, we wait.
-- **Exact versions** for the packages that guard security: `@nestjs/jwt` and `helmet`. Upgrading them is a deliberate change, with the changelog read first.
+- **Exact versions** for the packages that guard security: `@nestjs/jwt`, `helmet` and `rate-limiter-flexible`. Upgrading them is a deliberate change, with the changelog read first.
 - **Unused packages are removed.** `@nestjs/mau` alone brought 20 of the 26 findings.
 - **Vulnerable indirect packages** are patched with `overrides` in `pnpm-workspace.yaml` (pnpm 12 reads them there, not from `package.json`). Each override is removed once the package that pulls it in ships the fix.
 - Dependency build scripts stay blocked unless approved in `allowBuilds` (ADR 0005).
