@@ -1,8 +1,10 @@
 import {
+  forgotPasswordSchema,
   loginSchema,
   refreshTokenSchema,
   registerSchema,
   resendVerificationSchema,
+  resetPasswordSchema,
   verifyEmailSchema,
 } from './auth.schemas';
 
@@ -55,5 +57,23 @@ describe('auth schemas', () => {
     expect(
       refreshTokenSchema.safeParse({ refreshToken: 'a'.repeat(43) }).success,
     ).toBe(true);
+  });
+
+  it('normalises the email of a password reset request', () => {
+    expect(forgotPasswordSchema.parse({ email: ' Asha@Example.com ' }).email).toBe(
+      'asha@example.com',
+    );
+    expect(forgotPasswordSchema.safeParse({ email: 'nope' }).success).toBe(false);
+  });
+
+  it('holds a new password to the registration rules and needs a plausible token', () => {
+    const token = 'a'.repeat(43);
+    const ok = 'a-long-password-1';
+    expect(resetPasswordSchema.safeParse({ token, newPassword: ok }).success).toBe(true);
+    expect(resetPasswordSchema.safeParse({ token, newPassword: 'short' }).success).toBe(false);
+    expect(
+      resetPasswordSchema.safeParse({ token, newPassword: 'x'.repeat(129) }).success,
+    ).toBe(false);
+    expect(resetPasswordSchema.safeParse({ token: 'abc', newPassword: ok }).success).toBe(false);
   });
 });

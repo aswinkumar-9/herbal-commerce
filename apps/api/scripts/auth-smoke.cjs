@@ -5,6 +5,7 @@
 const API = process.env.API_URL ?? 'http://localhost:3000';
 const MAILPIT = process.env.MAILPIT_URL ?? 'http://localhost:8025';
 const LOGOUT_LIMIT = 120; // per IP per minute, see rate-limits.ts
+const EMAILS_PER_ADDRESS = 5; // per hour, see rate-limits.ts
 
 const email = `smoke.${Date.now()}@example.com`;
 const password = 'smoke-test-password-1';
@@ -38,14 +39,19 @@ async function call(method, path, { json, form, token, headers: extra } = {}) {
   };
 }
 
-// Reads the verification token from the email that Mailpit received.
-async function verificationToken(address) {
-  const query = encodeURIComponent(`to:${address}`);
+// How many emails Mailpit holds for this address with this subject.
+async function mailSearch(address, subject) {
+  const query = encodeURIComponent(`to:${address} subject:"${subject}"`);
+  return fetch(`${MAILPIT}/api/v1/search?query=${query}`).then((response) =>
+    response.json(),
+  );
+}
+
+// Reads the token from the newest email with this subject. Waits up to 5
+// seconds, because some emails are sent in the background.
+async function emailedToken(address, subject) {
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    const search = await fetch(`${MAILPIT}/api/v1/search?query=${query}`).then(
-      (response) => response.json(),
-    );
-    const id = search.messages?.[0]?.ID;
+    const id = (await mailSearch(address, subject)).messages?.[0]?.ID;
     if (id) {
       const message = await fetch(`${MAILPIT}/api/v1/message/${id}`).then(
         (response) => response.json(),
@@ -57,7 +63,7 @@ async function verificationToken(address) {
     }
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
-  throw new Error('no verification email found in Mailpit');
+  throw new Error(`no "${subject}" email found in Mailpit`);
 }
 
 async function main() {
@@ -83,7 +89,7 @@ async function main() {
   check('login before verifying the email answers 401', early.status === 401);
 
   const verified = await call('POST', '/v1/auth/verify-email', {
-    json: { token: await verificationToken(email) },
+    json: { token: await emailedToken(email, 'Verify your email address') },
   });
   check('verify-email answers 200', verified.status === 200);
 
@@ -178,6 +184,7 @@ async function main() {
     Number(refused?.response.headers.get('retry-after')) > 0 &&
       refused?.response.body?.code === 'RATE_LIMITED',
   );
+
   // Brute-force protection. The successful logins above reset this email and
   // IP to zero, so 5 wrong passwords are allowed and the 6th starts a block.
   const attempts = [];
@@ -196,18 +203,45 @@ async function main() {
     'while blocked, even the right password answers 429 (it is not even checked)',
     blocked.status === 429 && Number(blocked.headers.get('retry-after')) > 0,
   );
-  // At most 5 emails an hour to one address. Registering counted once above,
-  // so the 5th resend request below is the first one over the limit.
+
+  // Password recovery: the same answer for every email, a link only for a
+  // real account.
+  const nobody = `nobody.${Date.now()}@example.com`;
+  const forgotUnknown = await call('POST', '/v1/auth/forgot-password', {
+    json: { email: nobody },
+  });
+  const forgotKnown = await call('POST', '/v1/auth/forgot-password', {
+    json: { email },
+  });
+  check(
+    'forgot-password answers 202 with the same message for known and unknown emails',
+    forgotUnknown.status === 202 &&
+      forgotKnown.status === 202 &&
+      forgotUnknown.body?.message === forgotKnown.body?.message,
+  );
+  const resetToken = await emailedToken(email, 'Reset your password').catch(
+    () => undefined,
+  );
+  check('the real account receives a reset link by email', Boolean(resetToken));
+  check(
+    'an unknown address receives nothing',
+    ((await mailSearch(nobody, 'Reset your password')).messages ?? []).length ===
+      0,
+  );
+
+  // At most 5 emails an hour to one address. Register and forgot-password
+  // already sent 2, so only 3 more resend requests are allowed.
+  const alreadySent = 2;
   const resends = [];
-  for (let i = 0; i < 5; i += 1) {
+  for (let i = alreadySent; i <= EMAILS_PER_ADDRESS; i += 1) {
     const resend = await call('POST', '/v1/auth/resend-verification', {
       json: { email },
     });
     resends.push(resend.status);
   }
   check(
-    'one address gets at most 5 emails an hour: the 5th resend answers 429',
-    resends.join(',') === '202,202,202,202,429',
+    `one address gets at most ${EMAILS_PER_ADDRESS} emails an hour: the next resend answers 429`,
+    resends.join(',') === '202,202,202,429',
   );
 
   console.log(

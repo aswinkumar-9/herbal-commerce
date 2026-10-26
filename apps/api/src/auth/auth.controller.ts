@@ -10,6 +10,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { ClientIp } from '../rate-limit/client-ip.decorator';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
 import {
+  forgotPasswordSchema,
   loginSchema,
   refreshTokenSchema,
   registerSchema,
@@ -17,6 +18,7 @@ import {
   verifyEmailSchema,
 } from './auth.schemas';
 import type {
+  ForgotPasswordInput,
   LoginInput,
   RefreshTokenInput,
   RegisterInput,
@@ -24,6 +26,7 @@ import type {
   VerifyEmailInput,
 } from './auth.schemas';
 import { AuthService } from './auth.service';
+import { PasswordResetService } from './password-reset.service';
 import { Public } from './public.decorator';
 import { SessionService } from './session.service';
 
@@ -32,6 +35,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly sessions: SessionService,
+    private readonly passwordResets: PasswordResetService,
   ) {}
 
   @Public()
@@ -96,5 +100,16 @@ export class AuthController {
     @Body(new ZodValidationPipe(refreshTokenSchema)) body: RefreshTokenInput,
   ) {
     return this.sessions.logout(body.refreshToken);
+  }
+
+  // 202 with the same message, whether or not the email has an account.
+  @Public()
+  @RateLimit('forgotPassword')
+  @Post('forgot-password')
+  @HttpCode(HttpStatus.ACCEPTED)
+  forgotPassword(
+    @Body(new ZodValidationPipe(forgotPasswordSchema)) body: ForgotPasswordInput,
+  ) {
+    return this.passwordResets.requestReset(body.email);
   }
 }
