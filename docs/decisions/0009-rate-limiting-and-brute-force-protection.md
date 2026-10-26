@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 3D)
 - Date: 2026-10-26
+- Updated: 2026-10-26 (part 3A-4 added the password recovery limits, ADR 0010)
 
 ## Context
 
@@ -32,7 +33,7 @@ Most customers will use Indian mobile networks. Carrier-grade NAT (CGNAT) puts t
    - **Every failure is counted**: unknown email, wrong password, unverified email. Unknown emails count exactly like real ones, so a 429 never reveals whether an account exists.
    - The failure that **goes over** a limit answers 429 instead of 401, and starts the block.
    - A successful login **resets only the email + IP counter**, so an attacker's own login cannot wipe the per-email or per-IP counts.
-3. **Emails to one address.** Register (a verification link or an "account exists" notice) and resend both count against `emailsToAddress`. They count before any work, and for every address, known or not.
+3. **Emails to one address.** Register (a verification link or an "account exists" notice), resend and forgot-password (since part 3A-4) all count against `emailsToAddress`. They count before any work, and for every address, known or not.
 4. **Password hashing.** At most 2 argon2 operations run at once and 50 more wait their turn. Beyond that the answer is 503.
 
 ### Limits
@@ -43,7 +44,9 @@ Most customers will use Indian mobile networks. Carrier-grade NAT (CGNAT) puts t
 | `register` | IP | 20 per hour | 429 |
 | `verifyEmail` | IP | 60 per hour | 429 |
 | `resendByIp` | IP | 20 per hour | 429 |
-| `emailsToAddress` | email address | 5 emails per hour (register and resend together) | 429 |
+| `forgotPassword` | IP | 20 per hour | 429 |
+| `resetPassword` | IP | 20 per hour | 429 |
+| `emailsToAddress` | email address | 5 emails per hour (register, resend and forgot-password together) | 429 |
 | `login` | IP | 60 attempts per minute | 429 |
 | `refresh`, `logout` | IP | 120 per minute | 429 |
 | `loginFailuresByEmailAndIp` | email + IP | 5 failures per hour | blocked for 15 minutes; a successful login resets it |
@@ -74,7 +77,7 @@ These are starting values, to be tuned with real traffic.
 ## Consequences
 
 - Each request costs one or two extra Valkey round trips, and a login up to six more (three checks, then three counts or one reset). Locally that is well under a millisecond each.
-- **Someone can block a real customer's login for up to an hour** with 50 wrong passwords sent from many IPs. That is the price of the per-email limit; OWASP ASVS allows at most 100 failed attempts per hour per account. Password reset (planned) should keep working during such a block.
+- **Someone can block a real customer's login for up to an hour** with 50 wrong passwords sent from many IPs. That is the price of the per-email limit; OWASP ASVS allows at most 100 failed attempts per hour per account. Since part 3A-4 the owner has a way out: a password reset works during a block and lifts it (ADR 0010).
 - Customers behind the same CGNAT IP share the per-IP limits. The numbers must be watched (429s appear in the request logs) and tuned.
 - The in-memory fallback is per process. With several API instances, a Valkey outage makes the limits looser, per instance.
 - Replacing `JWT_ACCESS_SECRET` resets all counters, because the keys are derived from it.

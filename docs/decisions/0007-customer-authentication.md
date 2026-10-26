@@ -21,7 +21,7 @@ The mobile app and the website will use the same API. Tokens therefore travel in
 - **Registration only creates Customers.** The role is set by the server and the request schema drops unknown fields, so a client can never choose a role.
 - **No account enumeration.** Registration and "resend verification" return the same response whether or not the email exists. An existing address receives an "account already exists" notice instead of a second account. The password is hashed on both paths so response times are similar. Perfect timing equality is not claimed.
 - **Verification tokens:** 32 random bytes (base64url), stored only as a SHA-256 hash, valid for 24 hours, single use. The claim is an atomic conditional update, so two simultaneous requests cannot both succeed.
-- **Resend:** a new token is issued at most once per minute per account and replaces unused older tokens. Since part 3D, resend and register are also limited per IP, and to 5 emails per hour per address (ADR 0009).
+- **Resend:** a new token is issued at most once per minute per account and replaces unused older tokens. A proper rate limiter (Valkey) arrives in part 3D.
 
 ### Login
 
@@ -68,16 +68,13 @@ The mobile app and the website will use the same API. Tokens therefore travel in
 - Every authenticated request costs one small database query for the session check. It can move to Valkey if measurements show a need.
 - Replacing `JWT_ACCESS_SECRET` invalidates all access tokens at once. Clients simply refresh, because refresh tokens do not depend on the secret.
 
-## Known gaps
+## Known gaps until part 3D
 
-The open gaps are acceptable only while the API listens on `127.0.0.1` and has no real users. They must be closed before the API is reachable from outside the laptop.
+These are acceptable only while the API listens on `127.0.0.1` and has no real users. They must be closed before the API is reachable from outside the laptop.
 
-1. ~~**No rate limiting or brute-force protection.**~~ **Closed in part 3D (ADR 0009):**
-   - every route is limited per IP;
-   - login has three failure counters (email + IP, email, IP), checked before any password work;
-   - register and resend are limited to 5 emails per hour per address.
-2. ~~**Denial of service through password hashing.**~~ **Closed in part 3D (ADR 0009):** at most 2 argon2 operations run at once and 50 wait. Beyond that the answer is `503 SERVER_BUSY`.
-3. **The API stays on `127.0.0.1`** until it is deployed behind HTTPS, with its proxy listed in `TRUST_PROXY` (see the pre-production list in `docs/security.md`). To test on a phone, connect it over USB and run `adb reverse tcp:3000 tcp:3000`. Do not open the API on Wi-Fi.
+1. **No rate limiting or brute-force protection** on login, registration, refresh or resend. Part 3D adds per-IP and per-account limits in Valkey, with back-off.
+2. **Denial of service through password hashing.** argon2 runs on Node's thread pool (4 threads by default), so a burst of logins or registrations slows the whole API down. Part 3D adds a cap on concurrent hashing.
+3. **The API stays on `127.0.0.1`.** To test on a phone, connect it over USB and run `adb reverse tcp:3000 tcp:3000`. Do not open the API on Wi-Fi.
 4. **Pre-account takeover.** Someone can register an email address that is not theirs and wait for the owner to verify it. Follow-ups: delete unverified accounts after a few days, and let the password reset (item 5) mark the email verified, because a reset proves the owner controls the address.
 5. **No password reset yet.** When it is built, a reset must revoke every session of the account.
 6. **No breached-password check and no Unicode normalization of passwords yet.** Decide on normalization before there are real users.

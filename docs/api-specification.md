@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.3.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.4.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned.
 
@@ -61,7 +61,9 @@ The per-IP limits are checked before anything else, so a `429` can arrive even f
 | `register` | client IP | 20 per hour |
 | `verify-email` | client IP | 60 per hour |
 | `resend-verification` | client IP | 20 per hour |
-| `register` and `resend-verification` together | email address | 5 per hour |
+| `forgot-password` | client IP | 20 per hour |
+| `reset-password` | client IP | 20 per hour |
+| `register`, `resend-verification` and `forgot-password` together | email address | 5 per hour |
 | `login` | client IP | 60 attempts per minute |
 | `login`, failed attempts | email + client IP | 5 per hour, then blocked for 15 minutes |
 | `login`, failed attempts | email | 50 per hour, then blocked for 1 hour |
@@ -84,7 +86,7 @@ Rules for clients:
 
 ## Authentication (customers)
 
-All six endpoints are **Public**: they work without an access token.
+All eight endpoints are **Public**: they work without an access token.
 
 ### POST `/v1/auth/register`
 
@@ -188,6 +190,54 @@ Errors: `400` validation failed; `429` per-IP limit.
 
 The client deletes both tokens locally, whatever the answer.
 
+### POST `/v1/auth/forgot-password`
+
+Asks for a link to choose a new password. The link goes by email and is valid for **30 minutes, once**.
+
+Request: `{ "email": "aswin@example.com" }` (normalised as for registration)
+
+Response `202`, always the same, whether or not the email has an account:
+```json
+{ "message": "If this email address has an account, we have sent a link to choose a new password. Please check your inbox." }
+```
+- A link is sent only to an active customer account, verified or not. Staff and disabled accounts get nothing.
+- The email is sent after the response, so it can take a few seconds to arrive.
+- A new request replaces any earlier unused link.
+
+Errors: `400` validation failed; `429` (per-IP limit, or 5 emails per hour to this address).
+
+### POST `/v1/auth/reset-password`
+
+Sets a new password with the token from the email link. The link points to the website (`/reset-password?token=...`), which posts the token here.
+
+Request:
+```json
+{ "token": "<token from the email>", "newPassword": "a-new-long-password-2" }
+```
+Rules: the token is 20 to 200 characters; the new password follows the registration rules (10 to 128 characters).
+
+Response `200`:
+```json
+{ "message": "Your password has been changed. Please sign in with your new password." }
+```
+What a reset also does:
+- **Every session of the account ends.** All refresh and access tokens stop working at once.
+- The email address counts as verified from now on.
+- Any login block for this email is lifted, so the new password works straight away.
+- A "your password was changed" email is sent to the account (without a link).
+- The customer is **not** signed in. The client sends them to the login screen.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | Missing fields, or the new password breaks the rules |
+| `400` | `Invalid or expired reset link` | Unknown, used or expired link, or an account that can no longer sign in. One answer for all cases. |
+| `429` | `code: "RATE_LIMITED"` | Per-IP limit |
+| `503` | `code: "SERVER_BUSY"` | Too many password hashes at once; try again after `Retry-After` |
+
+Client tip: on `400 Invalid or expired reset link`, offer to send a new link.
+
 ## Account
 
 ### GET `/v1/me`
@@ -212,4 +262,4 @@ Errors: `401` (see "Authentication errors on protected endpoints"); `429` (the 6
 
 ## Not yet implemented
 
-Password recovery, profile changes, "sign out everywhere", staff authentication (separate path, with MFA). See `docs/requirements.md`, ADR 0007 and `docs/security.md`.
+Profile changes, changing the password while signed in, "sign out everywhere", staff authentication (separate path, with MFA). See `docs/requirements.md`, ADR 0007 and `docs/security.md`.
