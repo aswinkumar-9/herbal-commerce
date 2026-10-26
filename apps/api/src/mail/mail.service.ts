@@ -51,4 +51,44 @@ export class MailService {
         '<p>If this was you, please sign in instead. If not, you can ignore this email.</p>',
     });
   }
+
+  async sendPasswordResetEmail(
+    to: string,
+    fullName: string,
+    resetUrl: string,
+  ): Promise<void> {
+    await this.transport.send({
+      to,
+      subject: 'Reset your password',
+      text:
+        `Hello ${fullName},\n\n` +
+        `Use this link to choose a new password (valid for 30 minutes, and only once):\n` +
+        `${resetUrl}\n\n` +
+        `If you did not ask for this, you can ignore this email. Your password stays the same.`,
+      html:
+        `<p>Hello ${escapeHtml(fullName)},</p>` +
+        `<p>Use this link to choose a new password (valid for 30 minutes, and only once):</p>` +
+        `<p><a href="${escapeHtml(resetUrl)}">${escapeHtml(resetUrl)}</a></p>` +
+        `<p>If you did not ask for this, you can ignore this email. Your password stays the same.</p>`,
+    });
+  }
+
+  // Sent after every password reset. No link on purpose: a security notice
+  // with a link teaches people to click links in emails.
+  async sendPasswordChangedNotice(to: string, fullName: string): Promise<void> {
+    await this.transport.send({
+      to,
+      subject: 'Your password was changed',
+      text:
+        `Hello ${fullName},\n\n` +
+        `The password of your account was just changed, and you were signed out on all devices.\n\n` +
+        `If this was you, there is nothing else to do. If it was not, open the app or website ` +
+        `yourself, choose "Forgot password" to set a new one, and contact our support.`,
+      html:
+        `<p>Hello ${escapeHtml(fullName)},</p>` +
+        `<p>The password of your account was just changed, and you were signed out on all devices.</p>` +
+        `<p>If this was you, there is nothing else to do. If it was not, open the app or website ` +
+        `yourself, choose "Forgot password" to set a new one, and contact our support.</p>`,
+    });
+  }
 }

@@ -5,9 +5,11 @@
 const API = process.env.API_URL ?? 'http://localhost:3000';
 const MAILPIT = process.env.MAILPIT_URL ?? 'http://localhost:8025';
 const LOGOUT_LIMIT = 120; // per IP per minute, see rate-limits.ts
+const EMAILS_PER_ADDRESS = 5; // per hour, see rate-limits.ts
 
 const email = `smoke.${Date.now()}@example.com`;
 const password = 'smoke-test-password-1';
+const newPassword = 'smoke-new-password-2';
 let failures = 0;
 
 function check(name, ok) {
@@ -38,14 +40,31 @@ async function call(method, path, { json, form, token, headers: extra } = {}) {
   };
 }
 
-// Reads the verification token from the email that Mailpit received.
-async function verificationToken(address) {
-  const query = encodeURIComponent(`to:${address}`);
+const pause = () => new Promise((resolve) => setTimeout(resolve, 500));
+
+// The emails Mailpit holds for this address with this subject, newest first.
+async function mailSearch(address, subject) {
+  const query = encodeURIComponent(`to:${address} subject:"${subject}"`);
+  return fetch(`${MAILPIT}/api/v1/search?query=${query}`).then((response) =>
+    response.json(),
+  );
+}
+
+// Waits up to 5 seconds, because some emails are sent in the background.
+async function waitForEmail(address, subject) {
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    const search = await fetch(`${MAILPIT}/api/v1/search?query=${query}`).then(
-      (response) => response.json(),
-    );
-    const id = search.messages?.[0]?.ID;
+    if (((await mailSearch(address, subject)).messages ?? []).length > 0) {
+      return true;
+    }
+    await pause();
+  }
+  return false;
+}
+
+// Reads the token from the newest email with this subject.
+async function emailedToken(address, subject) {
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const id = (await mailSearch(address, subject)).messages?.[0]?.ID;
     if (id) {
       const message = await fetch(`${MAILPIT}/api/v1/message/${id}`).then(
         (response) => response.json(),
@@ -55,9 +74,9 @@ async function verificationToken(address) {
         return match[1];
       }
     }
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await pause();
   }
-  throw new Error('no verification email found in Mailpit');
+  throw new Error(`no "${subject}" email found in Mailpit`);
 }
 
 async function main() {
@@ -83,7 +102,7 @@ async function main() {
   check('login before verifying the email answers 401', early.status === 401);
 
   const verified = await call('POST', '/v1/auth/verify-email', {
-    json: { token: await verificationToken(email) },
+    json: { token: await emailedToken(email, 'Verify your email address') },
   });
   check('verify-email answers 200', verified.status === 200);
 
@@ -178,8 +197,12 @@ async function main() {
     Number(refused?.response.headers.get('retry-after')) > 0 &&
       refused?.response.body?.code === 'RATE_LIMITED',
   );
-  // Brute-force protection. The successful logins above reset this email and
-  // IP to zero, so 5 wrong passwords are allowed and the 6th starts a block.
+
+  // A session that is still live, to prove later that a password reset ends it.
+  // (It also resets this email and IP to zero failed logins.)
+  const live = await call('POST', '/v1/auth/login', { json: { email, password } });
+
+  // Brute-force protection: 5 wrong passwords are allowed, the 6th starts a block.
   const attempts = [];
   for (let i = 0; i < 6; i += 1) {
     const attempt = await call('POST', '/v1/auth/login', {
@@ -196,18 +219,80 @@ async function main() {
     'while blocked, even the right password answers 429 (it is not even checked)',
     blocked.status === 429 && Number(blocked.headers.get('retry-after')) > 0,
   );
-  // At most 5 emails an hour to one address. Registering counted once above,
-  // so the 5th resend request below is the first one over the limit.
+
+  // Password recovery: the same answer for every email, a link only for a
+  // real account.
+  const nobody = `nobody.${Date.now()}@example.com`;
+  const forgotUnknown = await call('POST', '/v1/auth/forgot-password', {
+    json: { email: nobody },
+  });
+  const forgotKnown = await call('POST', '/v1/auth/forgot-password', {
+    json: { email },
+  });
+  check(
+    'forgot-password answers 202 with the same message for known and unknown emails',
+    forgotUnknown.status === 202 &&
+      forgotKnown.status === 202 &&
+      forgotUnknown.body?.message === forgotKnown.body?.message,
+  );
+  const resetToken = await emailedToken(email, 'Reset your password').catch(
+    () => undefined,
+  );
+  check('the real account receives a reset link by email', Boolean(resetToken));
+  check(
+    'an unknown address receives nothing',
+    ((await mailSearch(nobody, 'Reset your password')).messages ?? []).length ===
+      0,
+  );
+
+  // Choosing a new password with the link.
+  const reset = await call('POST', '/v1/auth/reset-password', {
+    json: { token: resetToken, newPassword },
+  });
+  check('reset-password answers 200 with the link from the email', reset.status === 200);
+  check(
+    'the reset ended every session: the live access and refresh tokens are refused',
+    (await call('GET', '/v1/me', { token: live.body?.accessToken })).status ===
+      401 &&
+      (
+        await call('POST', '/v1/auth/refresh', {
+          json: { refreshToken: live.body?.refreshToken },
+        })
+      ).status === 401,
+  );
+  check(
+    'the reset lifted the login block: the new password works at once',
+    (await call('POST', '/v1/auth/login', { json: { email, password: newPassword } }))
+      .status === 200,
+  );
+  check(
+    'the old password no longer works',
+    (await call('POST', '/v1/auth/login', { json: { email, password } })).status ===
+      401,
+  );
+  const reusedLink = await call('POST', '/v1/auth/reset-password', {
+    json: { token: resetToken, newPassword: 'another-password-3' },
+  });
+  check('a reset link works only once', reusedLink.status === 400);
+  check(
+    'the owner is told by email that the password was changed',
+    await waitForEmail(email, 'Your password was changed'),
+  );
+
+  // At most 5 emails an hour to one address. Register and forgot-password
+  // already sent 2, so only 3 more resend requests are allowed. (The
+  // "password changed" notice is not counted: nobody can request it.)
+  const alreadySent = 2;
   const resends = [];
-  for (let i = 0; i < 5; i += 1) {
+  for (let i = alreadySent; i <= EMAILS_PER_ADDRESS; i += 1) {
     const resend = await call('POST', '/v1/auth/resend-verification', {
       json: { email },
     });
     resends.push(resend.status);
   }
   check(
-    'one address gets at most 5 emails an hour: the 5th resend answers 429',
-    resends.join(',') === '202,202,202,202,429',
+    `one address gets at most ${EMAILS_PER_ADDRESS} emails an hour: the next resend answers 429`,
+    resends.join(',') === '202,202,202,429',
   );
 
   console.log(

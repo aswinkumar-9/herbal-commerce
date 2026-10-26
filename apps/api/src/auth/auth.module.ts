@@ -5,6 +5,7 @@ import { AccessTokenService } from './access-token.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { MeController } from './me.controller';
+import { PasswordResetService } from './password-reset.service';
 import { PasswordService } from './password.service';
 import { SessionService } from './session.service';
 
@@ -12,7 +13,13 @@ import { SessionService } from './session.service';
   // No module-wide JWT options: every rule lives in AccessTokenService.
   imports: [MailModule, JwtModule.register({})],
   controllers: [AuthController, MeController],
-  providers: [AuthService, PasswordService, AccessTokenService, SessionService],
+  providers: [
+    AuthService,
+    PasswordService,
+    AccessTokenService,
+    SessionService,
+    PasswordResetService,
+  ],
   // The global guard in AppModule needs these two.
   exports: [AccessTokenService, SessionService],
 })

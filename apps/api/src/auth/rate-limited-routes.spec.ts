@@ -14,7 +14,7 @@ function routeLimits(controller: { prototype: object }) {
 }
 
 describe('rate-limited routes', () => {
-  it('give every sign-up and sign-in endpoint its own per-IP limit', () => {
+  it('give every sign-up, sign-in and password reset endpoint its own per-IP limit', () => {
     expect(routeLimits(AuthController)).toEqual({
       register: ['register'],
       verifyEmail: ['verifyEmail'],
@@ -22,6 +22,8 @@ describe('rate-limited routes', () => {
       login: ['login'],
       refresh: ['refresh'],
       logout: ['logout'],
+      forgotPassword: ['forgotPassword'],
+      resetPassword: ['resetPassword'],
     });
   });
 });

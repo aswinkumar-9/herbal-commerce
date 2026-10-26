@@ -13,6 +13,7 @@ import {
   AccessTokenService,
 } from './access-token.service';
 import type { LoginInput } from './auth.schemas';
+import { emailAndIpKey } from './login-limits';
 import { PasswordService } from './password.service';
 import { generateToken, hashToken } from './token.util';
 
@@ -57,7 +58,7 @@ export class SessionService {
   ) {}
 
   async login(input: LoginInput, ip: string): Promise<TokenPair> {
-    const emailAndIp = `${ip}|${input.email}`;
+    const emailAndIp = emailAndIpKey(input.email, ip);
     const counters: FailureCounter[] = [
       // One person guessing one account's password.
       ['loginFailuresByEmailAndIp', emailAndIp],
