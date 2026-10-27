@@ -92,3 +92,22 @@ model RefreshToken {
   @@index([sessionId])
   @@map("refresh_tokens")
 }
+
+// Append-only: database triggers refuse UPDATE, DELETE and TRUNCATE (ADR 0012).
+// No foreign keys on purpose: an entry must outlive the user or row it describes.
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  createdAt  DateTime @default(now())
+  // The staff user who acted, or null for a developer command or the system.
+  actorId    String?  @db.Uuid
+  // What happened, as "thing.verb", for example "super_user.created".
+  action     String
+  targetType String?
+  targetId   String?
+  before     Json?
+  after      Json?
+  ip         String?
+  requestId  String?
+
+  @@map("audit_log")
+}
