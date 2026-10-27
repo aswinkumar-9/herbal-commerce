@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, and staff changes go into an append-only audit log; staff login comes next. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -87,6 +87,7 @@ Emails sent in development never leave your machine. Read them in Mailpit at htt
 | `pnpm api:build` | Compile the API |
 | `pnpm api:smoke` | End-to-end check of sign-up, sign-in, password recovery and the rate limits (needs the API and Mailpit running) |
 | `pnpm api:limits:clear` | Delete all rate-limit counters in the local Valkey (development only; refuses unless `NODE_ENV=development`) |
+| `pnpm api:create-super-user` | Create a Super User (developers only, at most 3). See "Create a Super User" below. |
 | `pnpm audit` | List known vulnerabilities in dependencies |
 | `docker compose up -d` / `down` | Start / stop local services (data is kept) |
 | `docker compose down -v` | Stop and **delete all local data** (development only) |
@@ -99,8 +100,29 @@ Database commands (run from `apps/api`):
 |---------|---------|
 | `pnpm exec prisma generate` | Rebuild the client after the schema changes |
 | `pnpm exec prisma migrate dev --name <name>` | Create and apply a new migration (development) |
+| `pnpm exec prisma migrate dev --create-only --name <name>` | Create a migration without applying it, so you can add SQL by hand (for example triggers), then apply it with `pnpm exec prisma migrate dev` |
 | `pnpm exec prisma migrate deploy` | Apply existing migrations without creating new ones |
 | `pnpm exec prisma migrate status` | Show migration state |
+
+After every change to `schema.prisma`, run both `migrate dev` (changes the database) and `generate` (updates the TypeScript client).
+
+## Create a Super User
+
+Super Users can only be created this way, by a developer, never through the API (ADR 0004, ADR 0012). There can be at most 3. Each one is written to the audit log.
+
+Stop `pnpm api:dev` first, because the command rebuilds the API. Then, in the repository root:
+
+```powershell
+$env:SUPER_USER_EMAIL = 'dev.super1@example.com'
+$env:SUPER_USER_NAME = 'Dev Super One'
+$env:SUPER_USER_PASSWORD = [System.Net.NetworkCredential]::new('', (Read-Host 'Super User password' -AsSecureString)).Password
+pnpm api:create-super-user
+Remove-Item Env:SUPER_USER_EMAIL, Env:SUPER_USER_NAME, Env:SUPER_USER_PASSWORD
+```
+
+- The password needs at least 16 characters. `Read-Host -AsSecureString` keeps it hidden, so it never appears on the screen or in the PowerShell history.
+- The email must not already have an account: customers are never turned into staff.
+- In development, use made-up `example.com` addresses.
 
 ## Repository structure
 
@@ -111,7 +133,10 @@ Database commands (run from `apps/api`):
 │       ├── prisma/             schema and migrations
 │       ├── scripts/            auth-smoke.cjs (smoke test), clear-rate-limits.cjs
 │       └── src/
+│           ├── audit/          the append-only audit log
 │           ├── auth/           registration, login, tokens, sessions, password reset, guard, /v1/me
+│           ├── cli/            developer commands (create a Super User), without HTTP
+│           ├── staff/          staff accounts (Super Users so far)
 │           ├── rate-limit/     limits, rate-limit guard, client IP
 │           ├── retention/      hourly cleanup of data past its retention period
 │           ├── valkey/         the shared Valkey connection
@@ -138,6 +163,7 @@ Database commands (run from `apps/api`):
 - Use synthetic data in development. Never log passwords, tokens or personal data.
 - The generated database client (`apps/api/src/generated`) is not committed. Run `prisma generate` after cloning.
 - The API listens on `127.0.0.1` only until it is deployed behind HTTPS (the remaining steps are listed in `docs/security.md`). To test on an Android phone, connect it over USB and run `adb reverse tcp:3000 tcp:3000`.
+- Never put Super User credentials in `.env` or type the password on the command line. Use `Read-Host` as shown above, and remove the variables afterwards.
 - Leave `TRUST_PROXY` empty unless the API runs behind a proxy you control. Then list that proxy's address. Never use a hop count: it would let anyone fake their IP and dodge the rate limits.
 - The status of every security control is in `docs/security.md`.
 
@@ -150,4 +176,5 @@ Database commands (run from `apps/api`):
 - **Changed a database password after the first start:** run `docker compose down -v` then `docker compose up -d` (this wipes local data).
 - **The API refuses to start with `Invalid environment configuration`:** the message names each setting that is wrong (never its value). For `JWT_ACCESS_SECRET`, generate a new secret with the command in step 1.
 - **`pnpm api:smoke` says "Smoke test stopped":** start the API (`pnpm api:dev`) and Mailpit (`docker compose up -d`), then run it again.
+- **TypeScript says a Prisma model or field does not exist, although the migration ran:** the client is out of date. Run `pnpm exec prisma generate` in `apps/api`.
 - **`429 Too Many Requests` while testing by hand:** you used up a rate limit (the `Retry-After` header says for how long). Wait, or run `pnpm api:limits:clear`.

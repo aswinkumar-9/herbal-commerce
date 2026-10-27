@@ -1,8 +1,8 @@
 # Security
 
-Status: **living document.** Last reviewed on 2026-10-27, at the end of part 3A-5 (data retention cleanup).
+Status: **living document.** Last reviewed on 2026-10-27, at the end of part 3B-1 (Super Users and the audit log).
 
-Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisions behind this page are in ADR 0007 (customer authentication), ADR 0008 (security baseline), ADR 0009 (rate limiting), ADR 0010 (password recovery) and ADR 0011 (data retention). This page records the status of each control and the rules for features that do not exist yet.
+Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisions behind this page are in ADR 0007 (customer authentication), ADR 0008 (security baseline), ADR 0009 (rate limiting), ADR 0010 (password recovery), ADR 0011 (data retention) and ADR 0012 (Super Users and the audit log). This page records the status of each control and the rules for features that do not exist yet.
 
 ## 1. Threat model in short
 
@@ -18,7 +18,7 @@ Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisi
 |---|---|
 | Deny by default | One global guard protects every endpoint. Only handlers marked `@Public()` are open. |
 | Never trust the client | The server sets roles and, later, prices. The user ID comes from the token, never from the request. |
-| Least privilege | Admin and Super User are separate roles. The database gets a data-only runtime role before production. |
+| Least privilege | Admin and Super User are separate roles. Super Users can only be created by a developer command, at most 3. The database gets a data-only runtime role before production. |
 | Defense in depth | Refresh tokens are stored hashed and rotate on every use, and reusing one revokes the session. The session is also checked on every request. |
 | Fail closed | The API refuses to start with invalid, missing or (in production) placeholder configuration. |
 | Small attack surface | The API accepts JSON only and stays on localhost until it is deployed behind HTTPS. |
@@ -59,7 +59,7 @@ Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisi
 | Session management | Done | Each login creates a 30-day session. Access tokens last 15 minutes. Refresh tokens rotate on every use, and reusing one revokes the session. Logout revokes the session. A password reset revokes every session of the account. The session is checked on every request, so all of this takes effect at once. Ended sessions are deleted after 30 days (ADR 0007, ADR 0010, ADR 0011). | Later: "sign out everywhere" and a list of active sessions. |
 | Password recovery | Done (part 3A-4) | Reset links are 32 random bytes, stored only as a SHA-256 hash in their own table, valid for 30 minutes and once. They go only to active customers. The link is checked before any hashing, and every refused link gets the same 400. A reset sets the new password, marks the email verified, ends every session, lifts the login blocks for the owner and sends a "password changed" notice without a link (ADR 0010). | Staff reset (staff part). The website must post the token from the URL straight away and keep it out of its logs. |
 | MFA | Later (staff login) | Not built. | Staff: TOTP or passkeys, required (ADR 0004), with MFA secrets encrypted and recovery codes hashed. Customers: password only for now (the owner's choice); optional MFA later. |
-| Server-side permission enforcement | Done (customers) | The server sets the role at registration, and zod drops unknown fields such as `role`. A global deny-by-default guard checks the token and the session on every request. Only active Customers pass. | Staff part: a roles guard, a separate token audience, an append-only audit log. |
+| Server-side permission enforcement | Done (customers) | The server sets the role at registration, and zod drops unknown fields such as `role`. A global deny-by-default guard checks the token and the session on every request. Only active Customers pass. | Staff: a separate token audience with MFA (part 3B-2), then a roles guard (part 3B-3). The append-only audit log exists since part 3B-1. |
 | Row-level security (RLS) | Decision: not now | The app connects as the database user that Docker creates, which is a superuser and bypasses RLS anyway. | Before production: separate database roles for migrations and for the running app (data access only, no schema changes). Ownership checks in the app stay the main control. RLS is optional later for orders, addresses and invoices. |
 
 ### 4.3 Secrets and tokens
@@ -70,7 +70,7 @@ Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisi
 | Refresh and verification tokens | Done | 32 random bytes each, stored only as SHA-256 hashes, single use, claimed atomically. Deleted once no longer needed: used refresh tokens after 7 days, verification links once expired (ADR 0011). | None. |
 | Server-side API key storage | Not applicable yet | No third-party keys yet. Logs already hide the `x-api-key` header. | Payment, SMS and courier secrets stay on the server (environment or secret manager). The apps get only publishable IDs. Keys we issue to others are stored hashed. |
 | Secure local storage usage | Not applicable yet (clients) | No clients yet. | Mobile: refresh token in Keychain (iOS) or Keystore (Android) through a secure-storage library, access token in memory only, email links opened through verified App Links / Universal Links. Web: never put tokens in `localStorage` or `sessionStorage`. The refresh token goes in an HttpOnly cookie, and the access token stays in memory. |
-| No default credentials | Done (API) | In production the API refuses any database, Valkey or JWT setting that still contains `change_me`, and a `WEB_BASE_URL` that is not `https://` (ADR 0008). Local containers listen on `127.0.0.1` only. | Super User script (staff part): require a strong password. |
+| No default credentials | Done (API) | In production the API refuses any database, Valkey or JWT setting that still contains `change_me`, and a `WEB_BASE_URL` that is not `https://` (ADR 0008). Local containers listen on `127.0.0.1` only. The Super User command requires a password of at least 16 characters, typed hidden (ADR 0012). | Admin accounts (part 3B-3): the same 16-character rule. |
 
 ### 4.4 Security configuration
 
@@ -88,12 +88,12 @@ Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisi
 
 | Control | Status | Rule or next action |
 |---|---|---|
-| Security logging | Done (basic) | Every failed login and refresh is logged with a reason, never with the email. These are logged as warnings: a staff email on the customer login, a reused refresh token, a blocked account, and a login that goes over a failure limit. Refused reset links and completed resets are logged with a reason and the user ID. Valkey outages are logged once. Later: alerts on those warnings. |
+| Security logging | Done (basic) | Every failed login and refresh is logged with a reason, never with the email. These are logged as warnings: a staff email on the customer login, a reused refresh token, a blocked account, and a login that goes over a failure limit. Refused reset links and completed resets are logged with a reason and the user ID. Super User creation is written to the audit log. Valkey outages are logged once. Later: alerts on those warnings. |
 | Denial of service through password hashing | Done (part 3D) | At most 2 argon2 operations run at once and 50 wait in line. Beyond that the answer is `503 SERVER_BUSY` with `Retry-After`, so a burst cannot use up Node's 4 worker threads (ADR 0009). |
 | Email flooding | Done (part 3D) | Register, resend and forgot-password send email to the address in the request, so all three count against one limit of 5 emails per hour per address, for known and unknown addresses alike. |
 | Pre-account takeover | Done (parts 3A-4 and 3A-5) | Someone registers an email address that is not theirs and waits for the real owner to verify it. A password reset by the real owner sets their password, marks the address verified and ends every session (ADR 0010). A sign-up still unverified after 7 days is deleted, which frees the address (ADR 0011). |
 | Business logic (orders, payments) | Later | The server calculates prices, tax and totals. Orders and payments carry idempotency keys, stock reservations expire, and coupons have limits. Add checks against cash-on-delivery abuse. |
-| Audit log and Super User limit | Later (staff) | The audit log is append-only, enforced in the database (the app's role cannot update or delete rows). The limit of 3 Super Users is enforced in the database too. |
+| Audit log and Super User limit | Partly (part 3B-1) | Done for what exists (ADR 0012):<br>• `audit_log` is append-only: database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`;<br>• entries have no foreign keys, so they outlive what they describe;<br>• each entry is written in the same transaction as its change, with secret-looking fields redacted;<br>• Super User creation is audited;<br>• the limit of 3 Super Users is enforced by the app and by a database trigger with a lock.<br>Still to do: audit every Admin and Super User change (part 3B-3), and give the app a database role that may only insert and read audit entries (before production). |
 | Supply chain beyond npm | Later (before production) | Pin Docker images by digest and add secret scanning in CI (for example gitleaks). The AI-skill files in `apps/api/.agents` give instructions to AI tools, so review changes to them like code. |
 | Privacy (India's DPDP Act) | Partly (part 3A-5) | Retention periods for sessions, tokens and unverified accounts are enforced by an hourly job inside the API (ADR 0011). Still to do: a list of the personal data held, a log retention period, deletion on request, consent, and a breach plan. Data stays in India. |
 | Backups and email | Later (before production) | Encrypted backups with a rehearsed restore. SPF, DKIM and DMARC on the sending domain. |
@@ -123,7 +123,7 @@ Rate limiting, brute-force protection and the hashing cap were on this list and 
 
 1. HTTPS everywhere, so HSTS takes effect, and TLS to the database.
 2. The reverse proxy or load balancer listed in `TRUST_PROXY`. Without it, every customer would share the proxy's IP in the rate limits.
-3. Separate database roles for migrations and for the running app.
+3. Separate database roles for migrations and for the running app. The app's role may only insert and read `audit_log`, so not even a compromised API can rewrite history or drop the triggers.
 4. Secrets in a secret manager, one set per environment.
 5. `/health/ready` details hidden from the public.
 6. A log retention period. (The cleanup of expired sessions and tokens has run since part 3A-5.)

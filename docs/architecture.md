@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Draft v0.4.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
+Status: **Draft v0.5.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
 
 ## 1. Principles
 
@@ -28,7 +28,7 @@ Built so far:
 |------|-------|
 | Configuration | Environment variables validated at startup. The app refuses to start on invalid config and never prints secret values. In production it also refuses placeholder secrets and a non-HTTPS website URL (ADR 0008). |
 | Health | `GET /health` (liveness) and `GET /health/ready` (PostgreSQL and Valkey reachable, 503 otherwise) |
-| Database | Prisma 7 with the PostgreSQL driver adapter. Tables: `users` (roles `CUSTOMER`, `ADMIN`, `SUPER_USER`), `email_verification_tokens`, `password_reset_tokens`, `sessions` and `refresh_tokens` |
+| Database | Prisma 7 with the PostgreSQL driver adapter. Tables: `users` (roles `CUSTOMER`, `ADMIN`, `SUPER_USER`), `email_verification_tokens`, `password_reset_tokens`, `sessions`, `refresh_tokens` and `audit_log` |
 | HTTP baseline | Security headers (helmet), JSON-only bodies up to 100 kB, compressed bodies refused, listening on `127.0.0.1` only (ADR 0008) |
 | Valkey | One shared connection (`ValkeyService`) that fails fast while Valkey is down and logs only changes of state |
 | Rate limiting | A global guard limits every route per client IP, and each sign-up and sign-in endpoint further. Login has three failure counters with temporary blocks, and register and resend are limited per email address. Counters live in Valkey, falling back to memory, with hashed keys. Only proxies in `TRUST_PROXY` may report the client IP (ADR 0009). |
@@ -37,19 +37,21 @@ Built so far:
 | Password recovery | Forgot-password sends a 30-minute, single-use link (in the background, so every address answers equally fast). Reset-password sets the new password, marks the email verified, ends every session and lifts the login blocks (ADR 0010). |
 | Customer sign-in | Login, refresh with rotation and reuse detection, logout. 15-minute access tokens (JWT, HS256) and 30-day sessions (ADR 0007) |
 | Data retention | An hourly job inside the API (`RetentionScheduler`) deletes ended sessions after 30 days, used refresh tokens after 7 days, expired verification and reset links, and customer sign-ups still unverified after 7 days. It logs counts only (ADR 0011). |
+| Audit log | The append-only `audit_log` table: database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`. `AuditService.record(tx, entry)` writes in the same transaction as the change and redacts secret-looking fields (ADR 0012). |
+| Super Users | Created only with `pnpm api:create-super-user`, a standalone Nest context without HTTP. At most 3, enforced by the app and a database trigger. Each creation is audited (ADR 0012). |
 | Access control | A global deny-by-default guard. Each request needs a valid access token and a live session, unless its handler is `@Public()`. `GET /v1/me` returns the caller's own account. |
 | Email | Sent through SMTP behind a swappable mail service. Mailpit catches all mail in development. TLS is required in production. |
 | Logging | Structured JSON logs with a request ID on every request (ADR 0006). No emails, passwords or tokens in logs. |
 | Errors | One consistent error format that includes the request ID, plus a `code` field where clients must react to a specific case, and `Retry-After` on `429` and `503` (ADR 0006, `docs/api-specification.md`) |
-| Tests | Unit tests for every module (144 tests in 25 suites), plus an end-to-end smoke test against the running API (`pnpm api:smoke`, 31 checks, including the rate limits and password recovery) |
+| Tests | Unit tests for every module (153 tests in 28 suites), plus an end-to-end smoke test against the running API (`pnpm api:smoke`, 31 checks, including the rate limits and password recovery) |
 
-Not built yet: changing the password while signed in, staff authentication with MFA, product catalog, inventory, cart, orders, payments, admin console, customer app and website, notifications, support tickets, CI/CD.
+Not built yet: changing the password while signed in, staff login with MFA, Admin management, product catalog, inventory, cart, orders, payments, admin console, customer app and website, notifications, support tickets, CI/CD.
 
 ## 3. Roles
 
-Three roles: Customer, Admin, Super User (ADR 0004). Customers self-register. Admins are created only by a Super User. Super Users (maximum three) are created by developers with a command-line script, never through the application.
+Three roles: Customer, Admin, Super User (ADR 0004). Customers self-register. Admins are created only by a Super User. Super Users (maximum three) are created by developers with `pnpm api:create-super-user`, never through the application (ADR 0012).
 
-Only Customers can sign in so far. Staff will get a separate login path with MFA and their own token audience.
+Only Customers can sign in so far. Staff will get a separate login path with MFA and their own token audience (part 3B-2).
 
 ## 4. Request flows
 
@@ -84,10 +86,10 @@ Only Customers can sign in so far. Staff will get a separate login path with MFA
 - API: REST with OpenAPI documentation (ADR 0002). Business endpoints live under `/v1`. The documentation tooling will be added later.
 - Database: forward-only migrations committed to Git (ADR 0003).
 - Secrets: only in the untracked `.env` locally; `.env.example` holds placeholders.
-- Module layout: one folder per module under `apps/api/src` (today `auth`, `config`, `health`, `logging`, `mail`, `prisma`, `rate-limit`, `retention`, `valkey`, `common`), each with its controller, services and unit tests next to the code.
+- Module layout: one folder per module under `apps/api/src` (today `audit`, `auth`, `cli`, `config`, `health`, `logging`, `mail`, `prisma`, `rate-limit`, `retention`, `staff`, `valkey`, `common`), each with its controller, services and unit tests next to the code. `cli` holds developer commands, which run in their own Nest context without HTTP.
 - New endpoints are protected by default. Mark a handler `@Public()` only on purpose, and never a whole controller.
 - New endpoints get the per-IP baseline automatically. Add `@RateLimit()` to endpoints that are expensive or attractive to abuse, and add each new limit to `rate-limits.ts`.
 
 ## 6. Planned direction
 
-See `docs/requirements.md` for scope and open decisions. Next in identity and access: staff login with MFA and role enforcement. Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.
+See `docs/requirements.md` for scope and open decisions. Next in identity and access: staff login with TOTP MFA (part 3B-2), then a roles guard and Admin management by Super Users, with every change audit-logged (part 3B-3). Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.
