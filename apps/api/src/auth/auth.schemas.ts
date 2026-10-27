@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-const email = z.string().trim().toLowerCase().email().max(254);
+export const email = z.string().trim().toLowerCase().email().max(254);
 // The rules for choosing a password: at registration and at a reset.
 const newPassword = z
   .string()
