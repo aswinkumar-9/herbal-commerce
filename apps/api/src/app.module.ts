@@ -11,6 +11,7 @@ import { buildLoggerParams } from './logging/logger.config';
 import { PrismaModule } from './prisma/prisma.module';
 import { RateLimitGuard } from './rate-limit/rate-limit.guard';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
+import { RetentionModule } from './retention/retention.module';
 import { ValkeyModule } from './valkey/valkey.module';
 
 @Module({
@@ -33,6 +34,7 @@ import { ValkeyModule } from './valkey/valkey.module';
     RateLimitModule,
     AuthModule,
     HealthModule,
+    RetentionModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
