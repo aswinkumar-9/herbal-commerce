@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
+import { AuditModule } from './audit/audit.module';
 import { AccessTokenGuard } from './auth/access-token.guard';
 import { AuthModule } from './auth/auth.module';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
@@ -30,6 +31,7 @@ import { ValkeyModule } from './valkey/valkey.module';
         }),
     }),
     PrismaModule,
+    AuditModule,
     ValkeyModule,
     RateLimitModule,
     AuthModule,
