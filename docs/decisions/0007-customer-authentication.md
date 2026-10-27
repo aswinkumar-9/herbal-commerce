@@ -4,6 +4,8 @@
 - Date: 2026-10-21
 - Updated: 2026-10-25 (part 3A-3: login, tokens, sessions, endpoint protection)
 - Updated: 2026-10-26 (part 3D closed known gaps 1 and 2, see ADR 0009)
+- Updated: 2026-10-26 (part 3A-4 closed gap 5, see ADR 0010)
+- Updated: 2026-10-27 (part 3A-5 closed gaps 4 and 7, see ADR 0011)
 
 ## Context
 
@@ -21,7 +23,7 @@ The mobile app and the website will use the same API. Tokens therefore travel in
 - **Registration only creates Customers.** The role is set by the server and the request schema drops unknown fields, so a client can never choose a role.
 - **No account enumeration.** Registration and "resend verification" return the same response whether or not the email exists. An existing address receives an "account already exists" notice instead of a second account. The password is hashed on both paths so response times are similar. Perfect timing equality is not claimed.
 - **Verification tokens:** 32 random bytes (base64url), stored only as a SHA-256 hash, valid for 24 hours, single use. The claim is an atomic conditional update, so two simultaneous requests cannot both succeed.
-- **Resend:** a new token is issued at most once per minute per account and replaces unused older tokens. A proper rate limiter (Valkey) arrives in part 3D.
+- **Resend:** a new token is issued at most once per minute per account and replaces unused older tokens. Since part 3D, resend and register are also limited per IP, and to 5 emails per hour per address (ADR 0009).
 
 ### Login
 
@@ -43,7 +45,7 @@ The mobile app and the website will use the same API. Tokens therefore travel in
 
 ### Protecting endpoints
 
-- **Deny by default.** A global guard protects every endpoint. Only handlers marked `@Public()` are open: the two health checks and the six `/v1/auth` endpoints. `@Public()` works on single handlers only, never on a whole controller, so a new handler is protected even in a controller with public ones.
+- **Deny by default.** A global guard protects every endpoint. Only handlers marked `@Public()` are open: the two health checks and the eight `/v1/auth` endpoints (sign-up, sign-in and password recovery). `@Public()` works on single handlers only, never on a whole controller, so a new handler is protected even in a controller with public ones.
 - **The session is checked on every request**, not only the token signature. The session must exist, belong to the user, be neither revoked nor expired, and the user must still be an active Customer. So logout, reuse detection and disabling an account take effect at once, not up to 15 minutes later.
 - **The user ID comes from the token**, never from the URL or the body (`GET /v1/me`).
 - **No caching:** token responses and every authenticated response carry `Cache-Control: no-store`.
@@ -65,17 +67,29 @@ The mobile app and the website will use the same API. Tokens therefore travel in
 - A customer whose verification email fails to send can request a new one.
 - The "account exists" email tells the real owner about the attempt without revealing anything to the requester.
 - **Clients must never refresh in parallel.** Two requests with the same refresh token count as reuse and end the session. The app must run one refresh at a time and share the result. If a refresh response is lost (for example, the network drops), the next refresh sends the old token and the customer has to sign in again. This is the accepted cost of reuse detection.
+- **Reuse detection covers 7 days after a refresh token was used** (ADR 0011). After that, used tokens are deleted, so a stolen one that comes back later is simply unknown: still `401`, but the session is not ended.
 - Every authenticated request costs one small database query for the session check. It can move to Valkey if measurements show a need.
 - Replacing `JWT_ACCESS_SECRET` invalidates all access tokens at once. Clients simply refresh, because refresh tokens do not depend on the secret.
 
-## Known gaps until part 3D
+## Known gaps
 
-These are acceptable only while the API listens on `127.0.0.1` and has no real users. They must be closed before the API is reachable from outside the laptop.
+The open gaps are acceptable only while the API listens on `127.0.0.1` and has no real users. They must be closed before the API is reachable from outside the laptop.
 
-1. **No rate limiting or brute-force protection** on login, registration, refresh or resend. Part 3D adds per-IP and per-account limits in Valkey, with back-off.
-2. **Denial of service through password hashing.** argon2 runs on Node's thread pool (4 threads by default), so a burst of logins or registrations slows the whole API down. Part 3D adds a cap on concurrent hashing.
-3. **The API stays on `127.0.0.1`.** To test on a phone, connect it over USB and run `adb reverse tcp:3000 tcp:3000`. Do not open the API on Wi-Fi.
-4. **Pre-account takeover.** Someone can register an email address that is not theirs and wait for the owner to verify it. Follow-ups: delete unverified accounts after a few days, and let the password reset (item 5) mark the email verified, because a reset proves the owner controls the address.
-5. **No password reset yet.** When it is built, a reset must revoke every session of the account.
+1. ~~**No rate limiting or brute-force protection.**~~ **Closed in part 3D (ADR 0009):**
+   - every route is limited per IP;
+   - login has three failure counters (email + IP, email, IP), checked before any password work;
+   - register, resend and (since part 3A-4) forgot-password are limited to 5 emails per hour per address.
+2. ~~**Denial of service through password hashing.**~~ **Closed in part 3D (ADR 0009):** at most 2 argon2 operations run at once and 50 wait. Beyond that the answer is `503 SERVER_BUSY`.
+3. **The API stays on `127.0.0.1`** until it is deployed behind HTTPS, with its proxy listed in `TRUST_PROXY` (see the pre-production list in `docs/security.md`). To test on a phone, connect it over USB and run `adb reverse tcp:3000 tcp:3000`. Do not open the API on Wi-Fi.
+4. ~~**Pre-account takeover.**~~ **Closed in parts 3A-4 and 3A-5 (ADR 0010, ADR 0011).** Someone could register an email address that is not theirs and wait for the owner to verify it. Now:
+   - a password reset by the real owner sets their password, marks the address verified and ends every session;
+   - a sign-up that is still unverified after 7 days is deleted, which frees the address.
+5. ~~**No password reset yet.**~~ **Closed in part 3A-4 (ADR 0010):** `forgot-password` and `reset-password`. A reset revokes every session of the account.
 6. **No breached-password check and no Unicode normalization of passwords yet.** Decide on normalization before there are real users.
-7. **Nothing is ever deleted.** Expired sessions, used refresh tokens and old verification tokens stay in the database. A cleanup job with a retention period is needed (DPDP Act).
+7. ~~**Nothing is ever deleted.**~~ **Closed in part 3A-5 (ADR 0011):** an hourly job deletes:
+   - ended sessions after 30 days;
+   - used refresh tokens after 7 days;
+   - expired verification and reset links;
+   - unverified sign-ups after 7 days.
+
+   A retention period for logs is still open (`docs/security.md`).

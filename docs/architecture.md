@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Draft v0.3.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
+Status: **Draft v0.4.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
 
 ## 1. Principles
 
@@ -36,11 +36,12 @@ Built so far:
 | Customer accounts | Registration, email verification and resend, without revealing which emails are registered (ADR 0007) |
 | Password recovery | Forgot-password sends a 30-minute, single-use link (in the background, so every address answers equally fast). Reset-password sets the new password, marks the email verified, ends every session and lifts the login blocks (ADR 0010). |
 | Customer sign-in | Login, refresh with rotation and reuse detection, logout. 15-minute access tokens (JWT, HS256) and 30-day sessions (ADR 0007) |
+| Data retention | An hourly job inside the API (`RetentionScheduler`) deletes ended sessions after 30 days, used refresh tokens after 7 days, expired verification and reset links, and customer sign-ups still unverified after 7 days. It logs counts only (ADR 0011). |
 | Access control | A global deny-by-default guard. Each request needs a valid access token and a live session, unless its handler is `@Public()`. `GET /v1/me` returns the caller's own account. |
 | Email | Sent through SMTP behind a swappable mail service. Mailpit catches all mail in development. TLS is required in production. |
 | Logging | Structured JSON logs with a request ID on every request (ADR 0006). No emails, passwords or tokens in logs. |
 | Errors | One consistent error format that includes the request ID, plus a `code` field where clients must react to a specific case, and `Retry-After` on `429` and `503` (ADR 0006, `docs/api-specification.md`) |
-| Tests | Unit tests for every module (135 tests in 23 suites), plus an end-to-end smoke test against the running API (`pnpm api:smoke`, 31 checks, including the rate limits and password recovery) |
+| Tests | Unit tests for every module (144 tests in 25 suites), plus an end-to-end smoke test against the running API (`pnpm api:smoke`, 31 checks, including the rate limits and password recovery) |
 
 Not built yet: changing the password while signed in, staff authentication with MFA, product catalog, inventory, cart, orders, payments, admin console, customer app and website, notifications, support tickets, CI/CD.
 
@@ -83,10 +84,10 @@ Only Customers can sign in so far. Staff will get a separate login path with MFA
 - API: REST with OpenAPI documentation (ADR 0002). Business endpoints live under `/v1`. The documentation tooling will be added later.
 - Database: forward-only migrations committed to Git (ADR 0003).
 - Secrets: only in the untracked `.env` locally; `.env.example` holds placeholders.
-- Module layout: one folder per module under `apps/api/src` (today `auth`, `config`, `health`, `logging`, `mail`, `prisma`, `rate-limit`, `valkey`, `common`), each with its controller, services and unit tests next to the code.
+- Module layout: one folder per module under `apps/api/src` (today `auth`, `config`, `health`, `logging`, `mail`, `prisma`, `rate-limit`, `retention`, `valkey`, `common`), each with its controller, services and unit tests next to the code.
 - New endpoints are protected by default. Mark a handler `@Public()` only on purpose, and never a whole controller.
 - New endpoints get the per-IP baseline automatically. Add `@RateLimit()` to endpoints that are expensive or attractive to abuse, and add each new limit to `rate-limits.ts`.
 
 ## 6. Planned direction
 
-See `docs/requirements.md` for scope and open decisions. Next in identity and access: staff login with MFA and role enforcement, and a cleanup job for expired sessions and tokens. Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.
+See `docs/requirements.md` for scope and open decisions. Next in identity and access: staff login with MFA and role enforcement. Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.

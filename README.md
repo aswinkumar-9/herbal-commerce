@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -113,6 +113,7 @@ Database commands (run from `apps/api`):
 │       └── src/
 │           ├── auth/           registration, login, tokens, sessions, password reset, guard, /v1/me
 │           ├── rate-limit/     limits, rate-limit guard, client IP
+│           ├── retention/      hourly cleanup of data past its retention period
 │           ├── valkey/         the shared Valkey connection
 │           ├── mail/           email sending (SMTP; Mailpit in development)
 │           ├── config/         environment validation

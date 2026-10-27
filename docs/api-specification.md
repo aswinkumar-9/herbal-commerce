@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.4.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.5.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned.
 
@@ -103,6 +103,8 @@ Response `202 Accepted` (identical whether or not the email already has an accou
 { "message": "If this email address can be used, we have sent you a message. Please check your inbox." }
 ```
 Errors: `400` validation failed or malformed JSON; `429` (per-IP limit, or 5 emails per hour to this address); `503` server busy.
+
+An account whose email is still not verified 7 days after sign-up is deleted (ADR 0011). Registering again with the same address then starts from scratch.
 
 ### POST `/v1/auth/verify-email`
 
