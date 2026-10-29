@@ -29,6 +29,11 @@ model User {
   emailVerifiedAt DateTime?
   createdAt       DateTime   @default(now())
   updatedAt       DateTime   @updatedAt
+  // Staff MFA (ADR 0013): the TOTP secret, encrypted and bound to this user's
+  // ID; when it was set up; the last time step used, so no code works twice.
+  mfaSecret       String?
+  mfaEnabledAt    DateTime?
+  mfaLastUsedStep Int?
 
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]

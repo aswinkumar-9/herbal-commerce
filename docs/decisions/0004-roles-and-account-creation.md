@@ -3,6 +3,7 @@
 - Status: Accepted (permission matrix still to be confirmed by the owner)
 - Date: 2026-10-20
 - Updated: 2026-10-27 (part 3B-1: Super User command, limit of 3 and audit log implemented, see ADR 0012)
+- Updated: 2026-10-29 (part 3B-2: staff MFA setup implemented, see ADR 0013)
 
 ## Context
 
@@ -30,8 +31,9 @@ The detailed permission matrix is in `docs/requirements.md`.
 | Customers self-register, and registration only creates Customers | Done (ADR 0007) |
 | Super Users: developers only, created with a command, at most 3 (in code and in the database) | Done in part 3B-1: `pnpm api:create-super-user` (ADR 0012) |
 | Append-only audit log | Done in part 3B-1 (ADR 0012). Super User creation is audited; Admin and Super User changes follow with the features that make them. |
-| Separate staff login with MFA | Planned: part 3B-2 |
-| Admins created, disabled and removed only by a Super User; server-side role checks | Planned: part 3B-3 |
+| Staff MFA (authenticator app, TOTP) | Setup done in part 3B-2: `pnpm api:setup-staff-mfa` (ADR 0013) |
+| Separate staff login, with password and MFA code together | Planned: part 3B-3 |
+| Admins created, disabled and removed only by a Super User; server-side role checks | Planned: part 3B-4 |
 
 ## Consequences
 

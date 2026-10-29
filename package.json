@@ -8,6 +8,7 @@
     "api:lint": "pnpm --filter api lint",
     "api:build": "pnpm --filter api build",
     "api:create-super-user": "pnpm --filter api build && pnpm --filter api cli:create-super-user",
+    "api:setup-staff-mfa": "pnpm --filter api build && pnpm --filter api cli:setup-staff-mfa",
     "api:limits:clear": "node apps/api/scripts/clear-rate-limits.cjs",
     "api:smoke": "node apps/api/scripts/clear-rate-limits.cjs && node apps/api/scripts/auth-smoke.cjs"
   }
