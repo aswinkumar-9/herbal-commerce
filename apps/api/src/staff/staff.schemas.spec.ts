@@ -1,4 +1,4 @@
-import { superUserSchema } from './staff.schemas';
+import { staffLoginSchema, superUserSchema } from './staff.schemas';
 
 describe('superUserSchema', () => {
   const valid = {
@@ -19,5 +19,31 @@ describe('superUserSchema', () => {
     expect(withPassword('x'.repeat(15))).toBe(false);
     expect(withPassword('x'.repeat(16))).toBe(true);
     expect(withPassword('x'.repeat(129))).toBe(false);
+  });
+});
+
+describe('staffLoginSchema', () => {
+  const valid = {
+    email: ' Dev.Admin@Example.com ',
+    password: 'a-staff-pass-16ch',
+    code: ' 123456 ',
+  };
+
+  it('normalises the email and trims the code', () => {
+    const parsed = staffLoginSchema.parse(valid);
+    expect(parsed.email).toBe('dev.admin@example.com');
+    expect(parsed.code).toBe('123456');
+  });
+
+  it('accepts only a 6-digit code and checks only the password length', () => {
+    const accepts = (changes: object) =>
+      staffLoginSchema.safeParse({ ...valid, ...changes }).success;
+    for (const code of ['12345', '1234567', 'abcdef', '123 456', '']) {
+      expect(accepts({ code })).toBe(false);
+    }
+    expect(accepts({ code: undefined })).toBe(false);
+    expect(accepts({ password: '' })).toBe(false);
+    expect(accepts({ password: 'short' })).toBe(true);
+    expect(accepts({ password: 'x'.repeat(129) })).toBe(false);
   });
 });

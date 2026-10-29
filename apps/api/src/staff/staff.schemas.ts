@@ -14,3 +14,16 @@ export const superUserSchema = z.object({
   password: staffPassword,
 });
 export type SuperUserInput = z.infer<typeof superUserSchema>;
+
+// Staff sign in with the password and the code their authenticator app shows
+// now, in one request. Like the customer login, only the password's length is
+// checked, so passwords made under older rules keep working.
+export const staffLoginSchema = z.object({
+  email,
+  password: z
+    .string()
+    .min(1, 'Password is required')
+    .max(128, 'Password must be at most 128 characters'),
+  code: z.string().trim().regex(/^\d{6}$/, 'The code must be 6 digits'),
+});
+export type StaffLoginInput = z.infer<typeof staffLoginSchema>;
