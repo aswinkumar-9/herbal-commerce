@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, and staff changes go into an append-only audit log; staff login comes next. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app, and staff changes go into an append-only audit log; staff login comes next. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -25,6 +25,7 @@ Run everything from the repository root unless stated otherwise.
    ```powershell
    node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
    ```
+   Run the same command again for `MFA_ENCRYPTION_KEY`, which encrypts staff MFA secrets. It must be a **different** value: the API refuses to start if the two are the same. Keep it safe: if it is lost, every staff member has to set up MFA again.
 2. Start PostgreSQL, Valkey and Mailpit:
    ```powershell
    docker compose up -d
@@ -88,6 +89,7 @@ Emails sent in development never leave your machine. Read them in Mailpit at htt
 | `pnpm api:smoke` | End-to-end check of sign-up, sign-in, password recovery and the rate limits (needs the API and Mailpit running) |
 | `pnpm api:limits:clear` | Delete all rate-limit counters in the local Valkey (development only; refuses unless `NODE_ENV=development`) |
 | `pnpm api:create-super-user` | Create a Super User (developers only, at most 3). See "Create a Super User" below. |
+| `pnpm api:setup-staff-mfa` | Set up, or replace, a staff member's authenticator app. See "Set up staff MFA" below. |
 | `pnpm audit` | List known vulnerabilities in dependencies |
 | `docker compose up -d` / `down` | Start / stop local services (data is kept) |
 | `docker compose down -v` | Stop and **delete all local data** (development only) |
@@ -123,6 +125,26 @@ Remove-Item Env:SUPER_USER_EMAIL, Env:SUPER_USER_NAME, Env:SUPER_USER_PASSWORD
 - The password needs at least 16 characters. `Read-Host -AsSecureString` keeps it hidden, so it never appears on the screen or in the PowerShell history.
 - The email must not already have an account: customers are never turned into staff.
 - In development, use made-up `example.com` addresses.
+
+## Set up staff MFA
+
+Every staff member needs an authenticator app (Google Authenticator, Microsoft Authenticator or similar) before they can sign in. Only a developer can set it up (ADR 0013).
+
+Stop `pnpm api:dev` first, then in the repository root:
+
+```powershell
+$env:STAFF_EMAIL = 'dev.super1@example.com'
+pnpm api:setup-staff-mfa
+```
+
+1. The command shows a **key** in 8 groups of 4.
+2. In the app, add an account with **"Enter a setup key"**, type the key and choose **Time based**.
+3. Type the 6-digit code the app shows into the waiting command. Only a valid code saves the key. Saving also ends that person's sessions and is written to the audit log.
+4. Then run `Clear-Host` and `Remove-Item Env:STAFF_EMAIL`.
+
+- Running it again gives a new key, and the old one stops working. That's how a lost phone is handled for now; delete the old entry from the app.
+- The key only contains the letters `A`–`Z` and the digits `2`–`7`. A round character is the letter **O**, and a straight one the letter **I**.
+- Never paste the key into chats or tickets.
 
 ## Repository structure
 
@@ -164,6 +186,7 @@ Remove-Item Env:SUPER_USER_EMAIL, Env:SUPER_USER_NAME, Env:SUPER_USER_PASSWORD
 - The generated database client (`apps/api/src/generated`) is not committed. Run `prisma generate` after cloning.
 - The API listens on `127.0.0.1` only until it is deployed behind HTTPS (the remaining steps are listed in `docs/security.md`). To test on an Android phone, connect it over USB and run `adb reverse tcp:3000 tcp:3000`.
 - Never put Super User credentials in `.env` or type the password on the command line. Use `Read-Host` as shown above, and remove the variables afterwards.
+- Treat an MFA setup key like a password: it is shown once, typed into the app, and then cleared from the screen. Back up `MFA_ENCRYPTION_KEY` with the other production secrets.
 - Leave `TRUST_PROXY` empty unless the API runs behind a proxy you control. Then list that proxy's address. Never use a hop count: it would let anyone fake their IP and dodge the rate limits.
 - The status of every security control is in `docs/security.md`.
 
@@ -177,4 +200,7 @@ Remove-Item Env:SUPER_USER_EMAIL, Env:SUPER_USER_NAME, Env:SUPER_USER_PASSWORD
 - **The API refuses to start with `Invalid environment configuration`:** the message names each setting that is wrong (never its value). For `JWT_ACCESS_SECRET`, generate a new secret with the command in step 1.
 - **`pnpm api:smoke` says "Smoke test stopped":** start the API (`pnpm api:dev`) and Mailpit (`docker compose up -d`), then run it again.
 - **TypeScript says a Prisma model or field does not exist, although the migration ran:** the client is out of date. Run `pnpm exec prisma generate` in `apps/api`.
+- **The API refuses to start: `MFA_ENCRYPTION_KEY: ...`:** add your own value to `.env` (see First-time setup, step 1). It must differ from `JWT_ACCESS_SECRET`.
+- **The authenticator app says "illegal character":** a `0`, `1`, `8` or `9` was typed. The key only has `A`–`Z` and `2`–`7`, so type the letters O, I or B instead.
+- **The setup command refuses every code:** the key in the app differs from the one shown (often `0` for O), or the entry is not **Time based**, or the phone's clock is off. Set the phone's time automatically, delete the app entry and run the command again.
 - **`429 Too Many Requests` while testing by hand:** you used up a rate limit (the `Retry-After` header says for how long). Wait, or run `pnpm api:limits:clear`.

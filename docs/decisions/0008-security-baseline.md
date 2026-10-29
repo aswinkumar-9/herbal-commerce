@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-25
 - Updated: 2026-10-26 (part 3D: rate limiting exists, `rate-limiter-flexible` is pinned exactly)
+- Updated: 2026-10-29 (part 3B-2: `MFA_ENCRYPTION_KEY`)
 
 ## Context
 
@@ -28,7 +29,8 @@ Every later endpoint inherits these defaults, so they are set once, here. The fu
 
 - The API refuses to start with invalid or missing configuration. Error messages name the setting, never its value.
 - `JWT_ACCESS_SECRET` must be at least 43 base64url characters (256 bits, as the generator in `.env.example` produces) and must not be repetitive (at least 16 different characters). A test checks that the `.env.example` placeholder is refused.
-- **In production** the API also refuses a database, Valkey or JWT setting that still contains `change_me`, and a `WEB_BASE_URL` that is not `https://`.
+- `MFA_ENCRYPTION_KEY` (since part 3B-2, ADR 0013) follows the same rule, and must not be the same as `JWT_ACCESS_SECRET`: one secret, one job.
+- **In production** the API also refuses a database, Valkey, JWT or MFA setting that still contains `change_me`, and a `WEB_BASE_URL` that is not `https://`.
 - **SMTP in production** must switch to TLS (`requireTLS`) or fail, so emails, which carry verification links, are never sent in clear text. Plain SMTP is allowed only in development, for Mailpit.
 
 ### Dependencies (supply chain)

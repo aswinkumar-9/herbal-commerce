@@ -1,8 +1,8 @@
 # Security
 
-Status: **living document.** Last reviewed on 2026-10-27, at the end of part 3B-1 (Super Users and the audit log).
+Status: **living document.** Last reviewed on 2026-10-29, at the end of part 3B-2 (staff MFA setup).
 
-Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisions behind this page are in ADR 0007 (customer authentication), ADR 0008 (security baseline), ADR 0009 (rate limiting), ADR 0010 (password recovery), ADR 0011 (data retention) and ADR 0012 (Super Users and the audit log). This page records the status of each control and the rules for features that do not exist yet.
+Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisions behind this page are in ADR 0007 (customer authentication), ADR 0008 (security baseline), ADR 0009 (rate limiting), ADR 0010 (password recovery), ADR 0011 (data retention), ADR 0012 (Super Users and the audit log) and ADR 0013 (staff MFA). This page records the status of each control and the rules for features that do not exist yet.
 
 ## 1. Threat model in short
 
@@ -58,7 +58,7 @@ Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisi
 | Account enumeration | Done | Registration, resend and forgot-password always give the same answer. Forgot-password does its lookup and sends its email after the response, so it is equally fast for every address. Login gives the same 401 for an unknown email, a wrong password and an unverified email, and runs a dummy hash for unknown emails. Response times are similar, not identical. The rate limits count unknown emails exactly like real ones, so a 429 reveals nothing either. | Every new endpoint that takes an email must follow the same rule. |
 | Session management | Done | Each login creates a 30-day session. Access tokens last 15 minutes. Refresh tokens rotate on every use, and reusing one revokes the session. Logout revokes the session. A password reset revokes every session of the account. The session is checked on every request, so all of this takes effect at once. Ended sessions are deleted after 30 days (ADR 0007, ADR 0010, ADR 0011). | Later: "sign out everywhere" and a list of active sessions. |
 | Password recovery | Done (part 3A-4) | Reset links are 32 random bytes, stored only as a SHA-256 hash in their own table, valid for 30 minutes and once. They go only to active customers. The link is checked before any hashing, and every refused link gets the same 400. A reset sets the new password, marks the email verified, ends every session, lifts the login blocks for the owner and sends a "password changed" notice without a link (ADR 0010). | Staff reset (staff part). The website must post the token from the URL straight away and keep it out of its logs. |
-| MFA | Later (staff login) | Not built. | Staff: TOTP or passkeys, required (ADR 0004), with MFA secrets encrypted and recovery codes hashed. Customers: password only for now (the owner's choice); optional MFA later. |
+| MFA | Partly (part 3B-2) | Staff MFA setup is done (ADR 0013):<br>• TOTP from authenticator apps, our own implementation proven against the RFC test vectors;<br>• ±30 seconds of clock drift allowed;<br>• no code works twice (atomic);<br>• secrets encrypted with AES-256-GCM, bound to the user, under a separate `MFA_ENCRYPTION_KEY`;<br>• set up only with `pnpm api:setup-staff-mfa`, which saves only after a valid code, ends all sessions and is audited. | Part 3B-3: a staff login that asks for the password and a code together. Later: recovery codes (hashed), passkeys and a QR code in the admin console. Customers: password only for now (the owner's choice); optional MFA later. |
 | Server-side permission enforcement | Done (customers) | The server sets the role at registration, and zod drops unknown fields such as `role`. A global deny-by-default guard checks the token and the session on every request. Only active Customers pass. | Staff: a separate token audience with MFA (part 3B-2), then a roles guard (part 3B-3). The append-only audit log exists since part 3B-1. |
 | Row-level security (RLS) | Decision: not now | The app connects as the database user that Docker creates, which is a superuser and bypasses RLS anyway. | Before production: separate database roles for migrations and for the running app (data access only, no schema changes). Ownership checks in the app stay the main control. RLS is optional later for orders, addresses and invoices. |
 
@@ -66,11 +66,11 @@ Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisi
 
 | Control | Status | Today | Rule or next action |
 |---|---|---|---|
-| JWT secret management | Done | Only in `.env`, never printed. At least 43 base64url characters, not repetitive, and the `.env.example` placeholder is refused, which a test checks (`config/env.ts`). Tokens are signed and checked with HS256 only, with issuer, audience and a maximum age of 15 minutes. | Production: a secret manager, one secret per environment. To rotate: replace the secret and restart. Clients simply refresh. |
+| JWT secret management | Done | Only in `.env`, never printed. At least 43 base64url characters, not repetitive, and the `.env.example` placeholder is refused, which a test checks (`config/env.ts`). Tokens are signed and checked with HS256 only, with issuer, audience and a maximum age of 15 minutes. `MFA_ENCRYPTION_KEY` follows the same rules and must differ from the JWT secret (ADR 0013). | Production: a secret manager, one secret per environment. To rotate the JWT secret: replace it and restart; clients simply refresh. **Never lose or change `MFA_ENCRYPTION_KEY` casually:** without it no MFA secret opens, and all staff must set up MFA again. |
 | Refresh and verification tokens | Done | 32 random bytes each, stored only as SHA-256 hashes, single use, claimed atomically. Deleted once no longer needed: used refresh tokens after 7 days, verification links once expired (ADR 0011). | None. |
 | Server-side API key storage | Not applicable yet | No third-party keys yet. Logs already hide the `x-api-key` header. | Payment, SMS and courier secrets stay on the server (environment or secret manager). The apps get only publishable IDs. Keys we issue to others are stored hashed. |
 | Secure local storage usage | Not applicable yet (clients) | No clients yet. | Mobile: refresh token in Keychain (iOS) or Keystore (Android) through a secure-storage library, access token in memory only, email links opened through verified App Links / Universal Links. Web: never put tokens in `localStorage` or `sessionStorage`. The refresh token goes in an HttpOnly cookie, and the access token stays in memory. |
-| No default credentials | Done (API) | In production the API refuses any database, Valkey or JWT setting that still contains `change_me`, and a `WEB_BASE_URL` that is not `https://` (ADR 0008). Local containers listen on `127.0.0.1` only. The Super User command requires a password of at least 16 characters, typed hidden (ADR 0012). | Admin accounts (part 3B-3): the same 16-character rule. |
+| No default credentials | Done (API) | In production the API refuses any database, Valkey, JWT or MFA setting that still contains `change_me`, and a `WEB_BASE_URL` that is not `https://` (ADR 0008). Local containers listen on `127.0.0.1` only. The Super User command requires a password of at least 16 characters, typed hidden (ADR 0012). | Admin accounts (part 3B-3): the same 16-character rule. |
 
 ### 4.4 Security configuration
 
@@ -106,6 +106,13 @@ Security reference: OWASP ASVS 5.0, Level 2 (`docs/requirements.md`). The decisi
 | 2026-10-24 | 6 findings (2 high) | `@nestjs/mau` removed |
 | 2026-10-25 | No known vulnerabilities | `overrides` for the 3 packages below |
 | 2026-10-26 | No known vulnerabilities | `rate-limiter-flexible` 11.2.3 added, which has no dependencies of its own |
+| 2026-10-29 | 1 low, development only; `pnpm audit --prod`: none | A new advisory for `deepmerge`, which only Jest uses (see "Accepted findings" below) |
+
+**Accepted findings.** Recorded here and in the pull request (ADR 0008), and checked again at every milestone:
+
+| Package | Finding | Why it is accepted for now |
+|---|---|---|
+| `deepmerge` 4.3.1 | 1 low: prototype poisoning in `mergeObject()` ([GHSA-gcqx-w48m-w2h4](https://github.com/advisories/GHSA-gcqx-w48m-w2h4)). No fixed version exists yet. | Only Jest's config loader uses it, through `ts-jest`, `jest` and `jest-config`, to merge our own test configuration. It never sees outside input and is not in the running API (`pnpm audit --prod` is clean). Patch it with an override as soon as a fix is published. |
 
 Active overrides in `pnpm-workspace.yaml`. Remove each one once the package that pulls it in ships the fix itself, and check them at every upgrade of Nest or Express.
 
