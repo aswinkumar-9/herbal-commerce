@@ -55,10 +55,11 @@ describe('AccessTokenService', () => {
 
   it('puts only the expected claims in an HS256 token', async () => {
     const token = await service.sign(USER);
-    const { header, payload } = new JwtService().decode<{
-      header: { alg: string };
-      payload: Record<string, string | number>;
-    }>(token, { complete: true });
+    // With complete: true, the type argument is the payload's type.
+    const { header, payload } = new JwtService().decode<
+      Record<string, string | number>
+    >(token, { complete: true });
+
     expect(header.alg).toBe('HS256');
     expect(Object.keys(payload).sort()).toEqual([
       'aud',

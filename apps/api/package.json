@@ -15,6 +15,7 @@
     "cli:create-super-user": "node dist/cli/create-super-user.js",
     "cli:setup-staff-mfa": "node dist/cli/setup-staff-mfa.js",
     "lint": "oxlint --type-aware src/ test/",
+    "typecheck": "tsc --noEmit --incremental false",
     "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js",
     "test:watch": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --watch",
     "test:cov": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --coverage",
