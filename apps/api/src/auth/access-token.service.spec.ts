@@ -137,4 +137,22 @@ describe('AccessTokenService', () => {
     );
     await expect(service.verify(notAUserId)).rejects.toThrow();
   });
+
+  it('signs staff tokens with their own audience', async () => {
+    const token = await service.sign(USER, 'staff');
+    const payload = new JwtService().decode<{ aud: string }>(token);
+
+    expect(payload.aud).toBe('staff');
+    await expect(service.verify(token, 'staff')).resolves.toEqual(USER);
+  });
+
+  it('never accepts a token for the other audience', async () => {
+    const customerToken = await service.sign(USER, 'customer');
+    const staffToken = await service.sign(USER, 'staff');
+
+    await expect(service.verify(customerToken, 'staff')).rejects.toThrow();
+    await expect(service.verify(staffToken, 'customer')).rejects.toThrow();
+    // The default is "customer": a staff token never passes by accident.
+    await expect(service.verify(staffToken)).rejects.toThrow();
+  });
 });
