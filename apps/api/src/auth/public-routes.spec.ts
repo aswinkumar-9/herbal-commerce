@@ -1,5 +1,7 @@
 import { Reflector } from '@nestjs/core';
 import { HealthController } from '../health/health.controller';
+import { StaffAuthController } from '../staff/staff-auth.controller';
+import { StaffMeController } from '../staff/staff-me.controller';
 import { AuthController } from './auth.controller';
 import { MeController } from './me.controller';
 import { IS_PUBLIC } from './public.decorator';
@@ -30,5 +32,11 @@ describe('public routes', () => {
     ]);
     expect(publicHandlers(HealthController)).toEqual(['live', 'ready']);
     expect(publicHandlers(MeController)).toEqual([]);
+    expect(publicHandlers(StaffAuthController)).toEqual([
+      'login',
+      'refresh',
+      'logout',
+    ]);
+    expect(publicHandlers(StaffMeController)).toEqual([]);
   });
 });

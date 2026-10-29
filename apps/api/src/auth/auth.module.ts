@@ -22,7 +22,13 @@ import { SessionService } from './session.service';
     SessionService,
     PasswordResetService,
   ],
-  // The global guard in AppModule needs these two.
-  exports: [AccessTokenService, SessionService],
+  // The global guard in AppModule needs the first two; the staff login
+  // (StaffModule) needs the rest.
+  exports: [
+    AccessTokenService,
+    SessionService,
+    PasswordService,
+    LoginAttemptsService,
+  ],
 })
 export class AuthModule {}
