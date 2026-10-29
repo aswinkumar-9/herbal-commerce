@@ -5,6 +5,7 @@ import { validateEnv } from './env';
 // Obviously fake, but long and varied enough to pass the secret rules.
 const SECRET =
   'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_';
+const OTHER_SECRET = SECRET.split('').reverse().join('');
 
 function errorMessage(run: () => unknown): string {
   try {
@@ -20,6 +21,7 @@ describe('validateEnv', () => {
     DATABASE_URL: 'postgresql://user:pass@localhost:5432/db',
     VALKEY_URL: 'redis://:pass@localhost:6379',
     JWT_ACCESS_SECRET: SECRET,
+    MFA_ENCRYPTION_KEY: OTHER_SECRET,
   };
 
   it('accepts a valid configuration and applies defaults', () => {
@@ -75,19 +77,21 @@ describe('validateEnv', () => {
     ).toThrow('JWT_ACCESS_SECRET');
   });
 
-  it('refuses the .env.example secret without echoing it', () => {
+  it('refuses the .env.example secrets without echoing them', () => {
     const example = readFileSync(
       join(__dirname, '../../../../.env.example'),
       'utf8',
     );
-    const committed =
-      /^JWT_ACCESS_SECRET=(.*)$/m.exec(example)?.[1]?.trim() ?? '';
-    expect(committed).not.toBe('');
-    const message = errorMessage(() =>
-      validateEnv({ ...valid, JWT_ACCESS_SECRET: committed }),
-    );
-    expect(message).toContain('JWT_ACCESS_SECRET');
-    expect(message).not.toContain(committed);
+    for (const key of ['JWT_ACCESS_SECRET', 'MFA_ENCRYPTION_KEY']) {
+      const committed =
+        new RegExp(`^${key}=(.*)$`, 'm').exec(example)?.[1]?.trim() ?? '';
+      expect(committed).not.toBe('');
+      const message = errorMessage(() =>
+        validateEnv({ ...valid, [key]: committed }),
+      );
+      expect(message).toContain(key);
+      expect(message).not.toContain(committed);
+    }
   });
 
   it('refuses placeholders and plain-http links in production', () => {
@@ -141,5 +145,21 @@ describe('validateEnv', () => {
         'TRUST_PROXY',
       );
     }
+  });
+
+  it('requires an MFA encryption key that differs from the JWT secret', () => {
+    expect(() =>
+      validateEnv({
+        DATABASE_URL: valid.DATABASE_URL,
+        VALKEY_URL: valid.VALKEY_URL,
+        JWT_ACCESS_SECRET: SECRET,
+      }),
+    ).toThrow('MFA_ENCRYPTION_KEY');
+
+    const message = errorMessage(() =>
+      validateEnv({ ...valid, MFA_ENCRYPTION_KEY: SECRET }),
+    );
+    expect(message).toContain('must not be the same as JWT_ACCESS_SECRET');
+    expect(message).not.toContain(SECRET);
   });
 });
