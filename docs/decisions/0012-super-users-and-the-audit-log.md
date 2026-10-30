@@ -61,4 +61,4 @@ Staff never get a password-only login, not even for a while. Their login arrives
 - **The protection is only as strong as the database role.** Today the API connects as the database superuser, who could drop the triggers. Before production, the running app needs its own role that may only insert and read `audit_log` (`docs/security.md`, section 6).
 - Creating a Super User needs shell access to a machine with the production configuration, deliberately.
 - Adding a fourth Super User means removing one of the three first, which is a deliberate developer step.
-- Next: part 3B-2 (staff login with TOTP MFA), then part 3B-3 (a roles guard and Admin management, every change audit-logged).
+- Next: part 3B-2 (staff MFA setup, ADR 0013) and part 3B-3 (staff login, ADR 0014), both done, then part 3B-4 (a roles guard and Admin management, every change audit-logged).

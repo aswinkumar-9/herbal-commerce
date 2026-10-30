@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app, and staff changes go into an append-only audit log; staff login comes next. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -72,7 +72,8 @@ pnpm api:smoke
 It first clears the local rate-limit counters, so it can run again at once. Then it registers a throwaway customer (`smoke.<number>@example.com`) and reads the verification email from Mailpit. It checks:
 - login, `GET /v1/me`, token refresh, refresh-token reuse detection and logout;
 - password recovery: the reset link arrives only for a real account, the reset ends every session, the new password works at once and the old one doesn't, the link works only once, and the "password changed" email arrives;
-- the rate limits: a per-IP limit that a faked `X-Forwarded-For` cannot get around, the block after 5 wrong passwords, and at most 5 emails per hour to one address.
+- the rate limits: a per-IP limit that a faked `X-Forwarded-For` cannot get around, the block after 5 wrong passwords, and at most 5 emails per hour to one address;
+- that a customer's password and tokens never open the staff routes. (The staff login itself needs a phone; see "Sign in as staff".)
 
 Every line should say `PASS`, followed by `All checks passed.`
 
@@ -85,6 +86,7 @@ Emails sent in development never leave your machine. Read them in Mailpit at htt
 | `pnpm api:dev` | Start the API with auto-restart |
 | `pnpm api:test` | Run unit tests |
 | `pnpm api:lint` | Run the linter |
+| `pnpm api:typecheck` | Type-check all API code, tests included (the tests themselves run without a type check) |
 | `pnpm api:build` | Compile the API |
 | `pnpm api:smoke` | End-to-end check of sign-up, sign-in, password recovery and the rate limits (needs the API and Mailpit running) |
 | `pnpm api:limits:clear` | Delete all rate-limit counters in the local Valkey (development only; refuses unless `NODE_ENV=development`) |
@@ -94,7 +96,7 @@ Emails sent in development never leave your machine. Read them in Mailpit at htt
 | `docker compose up -d` / `down` | Start / stop local services (data is kept) |
 | `docker compose down -v` | Stop and **delete all local data** (development only) |
 
-Before opening a pull request, run `pnpm api:test`, `pnpm api:lint`, `pnpm api:build`, `pnpm audit` and `pnpm api:smoke`.
+Before opening a pull request, run `pnpm api:typecheck`, `pnpm api:test`, `pnpm api:lint`, `pnpm api:build`, `pnpm audit` and `pnpm api:smoke`.
 
 Database commands (run from `apps/api`):
 
@@ -142,9 +144,27 @@ pnpm api:setup-staff-mfa
 3. Type the 6-digit code the app shows into the waiting command. Only a valid code saves the key. Saving also ends that person's sessions and is written to the audit log.
 4. Then run `Clear-Host` and `Remove-Item Env:STAFF_EMAIL`.
 
-- Running it again gives a new key, and the old one stops working. That's how a lost phone is handled for now; delete the old entry from the app.
+- Running it again gives a new key, and the old one stops working. That's how a lost phone is handled for now. **Only the newest key works:** delete every older entry for that account from the app, or its codes will be refused.
 - The key only contains the letters `A`–`Z` and the digits `2`–`7`. A round character is the letter **O**, and a straight one the letter **I**.
 - Never paste the key into chats or tickets.
+
+## Sign in as staff
+
+There is no admin console yet, so the staff login is tried by hand (ADR 0014). With the API running, in PowerShell:
+
+```powershell
+$secure = Read-Host 'Staff password' -AsSecureString
+$code = Read-Host 'The code your authenticator app shows now'
+$body = @{ email = 'dev.super1@example.com'; password = [System.Net.NetworkCredential]::new('', $secure).Password; code = $code } | ConvertTo-Json
+$login = Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/login -ContentType 'application/json' -Body $body
+Invoke-RestMethod -Uri http://localhost:3000/v1/staff/me -Headers @{ Authorization = "Bearer $($login.accessToken)" }
+Remove-Variable secure, code, body, login
+```
+
+- Type the code last, just after the app shows a new one. Each code works once, for about a minute.
+- `Read-Host` shows the question in quotes; type your answer after it. Never put the code or the password in the command itself.
+- A `401 Invalid email, password or code` never says which part was wrong. The API log does: see Troubleshooting.
+- Staff sessions last 12 hours, and staff tokens work only on `/v1/staff/...` routes.
 
 ## Repository structure
 
@@ -156,9 +176,9 @@ pnpm api:setup-staff-mfa
 │       ├── scripts/            auth-smoke.cjs (smoke test), clear-rate-limits.cjs
 │       └── src/
 │           ├── audit/          the append-only audit log
-│           ├── auth/           registration, login, tokens, sessions, password reset, guard, /v1/me
-│           ├── cli/            developer commands (create a Super User), without HTTP
-│           ├── staff/          staff accounts (Super Users so far)
+│           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset, guard, /v1/me
+│           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
+│           ├── staff/          staff accounts: Super Users, MFA, staff sign-in and /v1/staff/me
 │           ├── rate-limit/     limits, rate-limit guard, client IP
 │           ├── retention/      hourly cleanup of data past its retention period
 │           ├── valkey/         the shared Valkey connection
@@ -204,3 +224,7 @@ pnpm api:setup-staff-mfa
 - **The authenticator app says "illegal character":** a `0`, `1`, `8` or `9` was typed. The key only has `A`–`Z` and `2`–`7`, so type the letters O, I or B instead.
 - **The setup command refuses every code:** the key in the app differs from the one shown (often `0` for O), or the entry is not **Time based**, or the phone's clock is off. Set the phone's time automatically, delete the app entry and run the command again.
 - **`429 Too Many Requests` while testing by hand:** you used up a rate limit (the `Retry-After` header says for how long). Wait, or run `pnpm api:limits:clear`.
+- **The staff login answers `401`:** find `Staff sign-in failed` in the API log. Its `reason` says why, without the email, password or code:
+  - `wrong_code` (the password was right): usually the app shows codes from an **older** key. After a second setup, only the newest key works. Delete the old entries from the app, or run `pnpm api:setup-staff-mfa` again if you're unsure which one is right.
+  - `wrong_password`: not the password chosen when the account was created.
+  - `mfa_not_set_up`: run `pnpm api:setup-staff-mfa` first.

@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Draft v0.6.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
+Status: **Draft v0.7.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
 
 ## 1. Principles
 
@@ -31,28 +31,29 @@ Built so far:
 | Database | Prisma 7 with the PostgreSQL driver adapter. Tables: `users` (roles `CUSTOMER`, `ADMIN`, `SUPER_USER`), `email_verification_tokens`, `password_reset_tokens`, `sessions`, `refresh_tokens` and `audit_log` |
 | HTTP baseline | Security headers (helmet), JSON-only bodies up to 100 kB, compressed bodies refused, listening on `127.0.0.1` only (ADR 0008) |
 | Valkey | One shared connection (`ValkeyService`) that fails fast while Valkey is down and logs only changes of state |
-| Rate limiting | A global guard limits every route per client IP, and each sign-up and sign-in endpoint further. Login has three failure counters with temporary blocks, and register and resend are limited per email address. Counters live in Valkey, falling back to memory, with hashed keys. Only proxies in `TRUST_PROXY` may report the client IP (ADR 0009). |
+| Rate limiting | A global guard limits every route per client IP, and each sign-up and sign-in endpoint further. Login has three failure counters with temporary blocks, shared by the customer and the staff login (`LoginAttemptsService`), and register and resend are limited per email address. Counters live in Valkey, falling back to memory, with hashed keys. Only proxies in `TRUST_PROXY` may report the client IP (ADR 0009). |
 | Password hashing | At most 2 argon2 operations at once and 50 waiting; beyond that `503 SERVER_BUSY` (ADR 0009) |
 | Customer accounts | Registration, email verification and resend, without revealing which emails are registered (ADR 0007) |
 | Password recovery | Forgot-password sends a 30-minute, single-use link (in the background, so every address answers equally fast). Reset-password sets the new password, marks the email verified, ends every session and lifts the login blocks (ADR 0010). |
-| Customer sign-in | Login, refresh with rotation and reuse detection, logout. 15-minute access tokens (JWT, HS256) and 30-day sessions (ADR 0007) |
+| Customer sign-in | Login, refresh with rotation and reuse detection, logout. 15-minute access tokens (JWT, HS256, audience `customer`) and 30-day sessions (ADR 0007) |
 | Data retention | An hourly job inside the API (`RetentionScheduler`) deletes ended sessions after 30 days, used refresh tokens after 7 days, expired verification and reset links, and customer sign-ups still unverified after 7 days. It logs counts only (ADR 0011). |
 | Audit log | The append-only `audit_log` table: database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`. `AuditService.record(tx, entry)` writes in the same transaction as the change and redacts secret-looking fields (ADR 0012). |
 | Super Users | Created only with `pnpm api:create-super-user`, a standalone Nest context without HTTP. At most 3, enforced by the app and a database trigger. Each creation is audited (ADR 0012). |
 | Staff MFA | TOTP from authenticator apps (our own implementation, proven against the RFC test vectors), with no code accepted twice. Secrets are encrypted with `SecretBox` (AES-256-GCM, bound to the user). Set up only with `pnpm api:setup-staff-mfa`, which saves after a valid code, ends the person's sessions and is audited (ADR 0013). |
-| Access control | A global deny-by-default guard. Each request needs a valid access token and a live session, unless its handler is `@Public()`. `GET /v1/me` returns the caller's own account. |
+| Staff sign-in | `POST /v1/staff/auth/login` takes the password and a code together and gives one `401` for every failure. Staff tokens carry the audience `staff`, and staff sessions last 12 hours. Refresh and logout at `/v1/staff/auth/*`, and `GET /v1/staff/me` for the own account (ADR 0014). |
+| Access control | A global deny-by-default guard. Each request needs a valid access token and a live session, unless its handler is `@Public()`. Each protected route has one audience: routes marked `@StaffOnly()` take staff tokens, every other route customer tokens. `GET /v1/me` and `GET /v1/staff/me` return the caller's own account. |
 | Email | Sent through SMTP behind a swappable mail service. Mailpit catches all mail in development. TLS is required in production. |
-| Logging | Structured JSON logs with a request ID on every request (ADR 0006). No emails, passwords or tokens in logs. |
+| Logging | Structured JSON logs with a request ID on every request (ADR 0006). No emails, passwords, codes or tokens in logs. |
 | Errors | One consistent error format that includes the request ID, plus a `code` field where clients must react to a specific case, and `Retry-After` on `429` and `503` (ADR 0006, `docs/api-specification.md`) |
-| Tests | Unit tests for every module (176 tests in 31 suites), plus an end-to-end smoke test against the running API (`pnpm api:smoke`, 31 checks, including the rate limits and password recovery) |
+| Tests | Unit tests for every module (207 tests in 35 suites), a type check of all code including the tests (`pnpm api:typecheck`), and an end-to-end smoke test against the running API (`pnpm api:smoke`, 34 checks, including the rate limits, password recovery and that customers cannot use the staff routes). The staff login is tested by hand with a phone (README). |
 
-Not built yet: changing the password while signed in, staff login with MFA, Admin management, product catalog, inventory, cart, orders, payments, admin console, customer app and website, notifications, support tickets, CI/CD.
+Not built yet: changing the password while signed in, a roles guard and Admin management, product catalog, inventory, cart, orders, payments, admin console, customer app and website, notifications, support tickets, CI/CD.
 
 ## 3. Roles
 
 Three roles: Customer, Admin, Super User (ADR 0004). Customers self-register. Admins are created only by a Super User. Super Users (maximum three) are created by developers with `pnpm api:create-super-user`, never through the application (ADR 0012).
 
-Only Customers can sign in so far. Staff can already set up MFA (`pnpm api:setup-staff-mfa`, ADR 0013). They will get a separate login path, which asks for the password and a code together, with their own token audience (part 3B-3).
+Customers sign in at `/v1/auth/login`. Staff (Admins and Super Users) sign in at `/v1/staff/auth/login`, with the password and a code from their authenticator app together, once a developer has set up their MFA (`pnpm api:setup-staff-mfa`, ADR 0013). Staff tokens have their own audience and open only staff routes (ADR 0014). What each staff role may do on those routes comes with part 3B-4.
 
 ## 4. Request flows
 
@@ -70,8 +71,9 @@ Only Customers can sign in so far. Staff can already set up MFA (`pnpm api:setup
    1. **`RateLimitGuard`** counts the request for the client IP (`req.ip`, see `TRUST_PROXY`): first the baseline, then the route's own `@RateLimit()` limits. Once a limit is used up: `429` with `Retry-After`, before any token or database work.
    2. **`AccessTokenGuard`:**
       - `@Public()` on the handler: let it through.
-      - Otherwise read `Authorization: Bearer <token>` and verify the JWT: HS256 only, issuer `herbal-api`, audience `customer`, at most 15 minutes old.
-      - Look up the session: it must exist, belong to the user, be neither revoked nor expired, and the user must still be an active Customer.
+      - Otherwise, take the route's audience: `staff` if the handler or its controller is marked `@StaffOnly()`, `customer` otherwise.
+      - Read `Authorization: Bearer <token>` and verify the JWT: HS256 only, issuer `herbal-api`, the route's audience, at most 15 minutes old. A token for the other audience fails here.
+      - Look up the session: it must exist, belong to the user, and be neither revoked nor expired. On a customer route the user must still be an active Customer; on a staff route, an active Admin or Super User with MFA set up.
       - Any failure: `401`. Success: the user (`id`, `sessionId`) is attached to the request, and the response gets `Cache-Control: no-store`.
 3. The handler reads the user with `@CurrentUser()`, never from the URL or the body.
 
@@ -81,6 +83,11 @@ Only Customers can sign in so far. Staff can already set up MFA (`pnpm api:setup
 2. **Refresh** swaps the refresh token for a new pair. The old token is marked used in the same transaction. If a used token ever comes back, the whole session is revoked.
 3. **Logout** revokes the session. Because the guard checks the session on every request, its access tokens stop working at once.
 4. **Password reset** revokes **every** session of the account in the same transaction that sets the new password, so all devices are signed out at once. The customer then logs in again with the new password.
+5. **Staff sign-in** works the same way, with these differences (ADR 0014):
+   - the request also carries the code from the authenticator app, which is checked only after the right password and is used up;
+   - every failure, a disabled account included, gets the same `401`;
+   - the session lasts 12 hours;
+   - refresh and logout use `/v1/staff/auth/*`, and a refresh token from the other sign-in path is refused without touching its session.
 
 ## 5. Conventions
 
@@ -89,8 +96,9 @@ Only Customers can sign in so far. Staff can already set up MFA (`pnpm api:setup
 - Secrets: only in the untracked `.env` locally; `.env.example` holds placeholders.
 - Module layout: one folder per module under `apps/api/src` (today `audit`, `auth`, `cli`, `config`, `health`, `logging`, `mail`, `prisma`, `rate-limit`, `retention`, `staff`, `valkey`, `common`), each with its controller, services and unit tests next to the code. `cli` holds developer commands, which run in their own Nest context without HTTP.
 - New endpoints are protected by default. Mark a handler `@Public()` only on purpose, and never a whole controller.
+- Staff endpoints go in `src/staff`, in controllers marked `@StaffOnly()` as a whole, so a route added later cannot be missed. Every other protected endpoint is for customers.
 - New endpoints get the per-IP baseline automatically. Add `@RateLimit()` to endpoints that are expensive or attractive to abuse, and add each new limit to `rate-limits.ts`.
 
 ## 6. Planned direction
 
-See `docs/requirements.md` for scope and open decisions. Next in identity and access: the staff login with password and MFA code, staff tokens and sessions (part 3B-3), then a roles guard and Admin management by Super Users, with every change audit-logged (part 3B-4). Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.
+See `docs/requirements.md` for scope and open decisions. Next in identity and access: a roles guard and Admin management by Super Users, with every change audit-logged (part 3B-4). Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.
