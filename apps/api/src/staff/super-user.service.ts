@@ -2,19 +2,12 @@ import { Injectable } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
 import { PasswordService } from '../auth/password.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { isUniqueViolation } from '../prisma/prisma-errors';
 import type { SuperUserInput } from './staff.schemas';
 
 // ADR 0004: at most 3 Super Users. A database trigger enforces it too.
 export const MAX_SUPER_USERS = 3;
 const EMAIL_TAKEN = 'An account with this email address already exists.';
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { code?: unknown }).code === 'P2002'
-  );
-}
 
 // Creates Super Users for the developer command only (ADR 0004). It is not
 // part of any API module, so no endpoint can ever reach it.

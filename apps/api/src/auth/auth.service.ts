@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { RateLimitService } from '../rate-limit/rate-limit.service';
 import type { RegisterInput } from './auth.schemas';
 import { PasswordService } from './password.service';
+import { isUniqueViolation } from '../prisma/prisma-errors';
 import { generateToken, hashToken } from './token.util';
 
 const VERIFICATION_TTL_MS = 24 * 60 * 60 * 1000;
@@ -14,14 +15,6 @@ const RESEND_COOLDOWN_MS = 60 * 1000;
 const INVALID_LINK = 'Invalid or expired verification link';
 const GENERIC_ACCEPTED =
   'If this email address can be used, we have sent you a message. Please check your inbox.';
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { code?: unknown }).code === 'P2002'
-  );
-}
 
 @Injectable()
 export class AuthService {
