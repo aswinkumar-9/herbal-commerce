@@ -2,7 +2,7 @@ import { UnauthorizedException } from '@nestjs/common';
 import { StaffAuthService } from './staff-auth.service';
 import { StaffMeController } from './staff-me.controller';
 
-const USER = { id: 'staff-1', sessionId: 'session-1' };
+const USER = { id: 'staff-1', sessionId: 'session-1', role: 'SUPER_USER' as const };
 
 function controllerWith(profile: unknown) {
   const staffAuth = { getProfile: jest.fn().mockResolvedValue(profile) };

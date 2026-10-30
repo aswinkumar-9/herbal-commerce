@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import { z } from 'zod';
 import { Env } from '../config/env';
-import type { AuthUser } from './auth-user';
+import type { TokenSubject } from './auth-user';
 
 // Short-lived on purpose: the refresh token is used to get a new one.
 export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
@@ -28,7 +28,7 @@ export class AccessTokenService {
   }
 
   // No email, name or role in the token: anyone holding it can read it.
-  sign(user: AuthUser, audience: Audience = 'customer'): Promise<string> {
+  sign(user: TokenSubject, audience: Audience = 'customer'): Promise<string> {
     return this.jwt.signAsync(
       { sid: user.sessionId },
       {
@@ -44,7 +44,10 @@ export class AccessTokenService {
 
   // Throws if the token is forged, expired, or not an access token for this
   // audience.
-  async verify(token: string, audience: Audience = 'customer'): Promise<AuthUser> {
+  async verify(
+    token: string,
+    audience: Audience = 'customer',
+  ): Promise<TokenSubject> {
     const payload: unknown = await this.jwt.verifyAsync(token, {
       secret: this.secret,
       algorithms: ['HS256'],
