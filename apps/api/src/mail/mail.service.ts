@@ -91,4 +91,27 @@ export class MailService {
         `yourself, choose "Forgot password" to set a new one, and contact our support.</p>`,
     });
   }
+
+  // An invitation for a new Admin (ADR 0015). The link lets them choose their
+  // own password, so nobody else ever knows it.
+  async sendAdminInvitation(to: string, fullName: string, invitationUrl: string): Promise<void> {
+    await this.transport.send({
+      to,
+      subject: 'You are invited to Herbal Commerce as an Admin',
+      text:
+        `Hello ${fullName},\n\n` +
+        `You have been invited to Herbal Commerce as an Admin. Use this link to choose your password (valid for 72 hours, and only once):\n` +
+        `${invitationUrl}\n\n` +
+        `Your password needs at least 16 characters. Before you can sign in, ` +
+        `a developer will set up an authenticator app on your phone with you.\n\n` +
+        `If you did not expect this invitation, you can ignore this email.`,
+      html:
+        `<p>Hello ${escapeHtml(fullName)},</p>` +
+        `<p>You have been invited to Herbal Commerce as an Admin. Use this link to choose your password (valid for 72 hours, and only once):</p>` +
+        `<p><a href="${escapeHtml(invitationUrl)}">${escapeHtml(invitationUrl)}</a></p>` +
+        `<p>Your password needs at least 16 characters. Before you can sign in, ` +
+        `a developer will set up an authenticator app on your phone with you.</p>` +
+        `<p>If you did not expect this invitation, you can ignore this email.</p>`,
+    });
+  }
 }

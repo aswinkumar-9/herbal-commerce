@@ -28,6 +28,8 @@ export const RATE_LIMITS = {
   logout: { points: 120, duration: MINUTE },
   // Staff are few, so their login gets a much tighter per-IP limit.
   staffLogin: { points: 10, duration: MINUTE },
+  // Each invitation creates an account and sends an email.
+  staffInvites: { points: 20, duration: HOUR },
   // Failed logins only. A successful login clears the first one.
   loginFailuresByEmailAndIp: {
     points: 5,
