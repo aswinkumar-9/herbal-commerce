@@ -22,6 +22,7 @@ export interface PurgeResult {
   refreshTokens: number;
   verificationTokens: number;
   resetTokens: number;
+  staffInvitations: number;
   unverifiedAccounts: number;
 }
 
@@ -57,6 +58,11 @@ export class RetentionService {
     const resetTokens = await this.prisma.passwordResetToken.deleteMany({
       where: { expiresAt: { lt: now } },
     });
+    // Only the invitation: an Admin who never accepted it keeps the account,
+    // and a Super User decides what happens to it.
+    const staffInvitations = await this.prisma.staffInvitation.deleteMany({
+      where: { expiresAt: { lt: now } },
+    });
     // Customers only: staff accounts are managed by people, never by a timer.
     const unverifiedAccounts = await this.prisma.user.deleteMany({
       where: {
@@ -71,6 +77,7 @@ export class RetentionService {
       refreshTokens: refreshTokens.count,
       verificationTokens: verificationTokens.count,
       resetTokens: resetTokens.count,
+      staffInvitations: staffInvitations.count,
       unverifiedAccounts: unverifiedAccounts.count,
     };
     // Counts only: nothing personal goes into the log.

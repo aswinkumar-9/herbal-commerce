@@ -70,4 +70,33 @@ describe('MailService', () => {
     expect(message.text).not.toContain('http');
     expect(message.html).not.toContain('href');
   });
+
+  it('sends the Admin invitation with its link, valid for 72 hours', async () => {
+    await service.sendAdminInvitation(
+      'dev.admin1@example.com',
+      'Dev Admin',
+      'http://localhost:3001/staff/accept-invite?token=abc',
+    );
+    const message = send.mock.calls[0][0];
+    expect(message.to).toBe('dev.admin1@example.com');
+    expect(message.subject).toBe('You are invited to Herbal Commerce as an Admin');
+    expect(message.text).toContain(
+      'http://localhost:3001/staff/accept-invite?token=abc',
+    );
+    expect(message.html).toContain(
+      'href="http://localhost:3001/staff/accept-invite?token=abc"',
+    );
+    expect(message.text).toContain('72 hours');
+  });
+
+  it('escapes the name in the invitation', async () => {
+    await service.sendAdminInvitation(
+      'dev.admin1@example.com',
+      '<b onmouseover=alert(1)>',
+      'http://localhost:3001/staff/accept-invite?token=abc',
+    );
+    const message = send.mock.calls[0][0];
+    expect(message.html).not.toContain('<b ');
+    expect(message.html).toContain('&lt;b onmouseover');
+  });
 });

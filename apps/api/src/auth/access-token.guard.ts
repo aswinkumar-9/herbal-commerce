@@ -8,7 +8,7 @@ import { Reflector } from '@nestjs/core';
 import type { Request, Response } from 'express';
 import { AccessTokenService } from './access-token.service';
 import type { Audience } from './access-token.service';
-import type { AuthUser } from './auth-user';
+import type { AuthUser, TokenSubject } from './auth-user';
 import { IS_PUBLIC } from './public.decorator';
 import { SessionService } from './session.service';
 import { STAFF_ONLY } from './staff-only.decorator';
@@ -52,19 +52,25 @@ export class AccessTokenGuard implements CanActivate {
       throw new UnauthorizedException('Missing access token');
     }
 
-    let user: AuthUser;
+    let subject: TokenSubject;
     try {
       // A token for the other audience fails here, like a forged one.
-      user = await this.accessTokens.verify(token, audience);
+      subject = await this.accessTokens.verify(token, audience);
     } catch {
       throw new UnauthorizedException(INVALID_ACCESS_TOKEN);
     }
-    // The signature alone is not enough: the session must still be live.
-    if (!(await this.sessions.isActive(user.id, user.sessionId, audience))) {
+    // The signature alone is not enough: the session must still be live. The
+    // role comes from the database too, never from the token.
+    const role = await this.sessions.liveSessionRole(
+      subject.id,
+      subject.sessionId,
+      audience,
+    );
+    if (!role) {
       throw new UnauthorizedException(INVALID_ACCESS_TOKEN);
     }
 
-    request.user = user;
+    request.user = { ...subject, role };
     // Responses for a signed-in user are personal: never keep them in a cache.
     http.getResponse<Response>().setHeader('Cache-Control', 'no-store');
     return true;

@@ -13,6 +13,7 @@ function setup() {
     refreshToken: { deleteMany: deleted(40) },
     emailVerificationToken: { deleteMany: deleted(5) },
     passwordResetToken: { deleteMany: deleted(2) },
+    staffInvitation: { deleteMany: deleted(4) },
     user: { deleteMany: deleted(1) },
   };
   const logger = { info: jest.fn() };
@@ -59,6 +60,15 @@ describe('RetentionService.purge', () => {
     });
   });
 
+  it('deletes Admin invitations once they have expired, used or not', async () => {
+    const { service, prisma } = setup();
+    await service.purge(NOW);
+
+    expect(prisma.staffInvitation.deleteMany).toHaveBeenCalledWith({
+      where: { expiresAt: { lt: NOW } },
+    });
+  });
+
   it('deletes customer sign-ups still unverified after 7 days, and never staff', async () => {
     const { service, prisma } = setup();
     await service.purge(NOW);
@@ -80,6 +90,7 @@ describe('RetentionService.purge', () => {
       refreshTokens: 40,
       verificationTokens: 5,
       resetTokens: 2,
+      staffInvitations: 4,
       unverifiedAccounts: 1,
     };
     await expect(service.purge(NOW)).resolves.toEqual(counts);

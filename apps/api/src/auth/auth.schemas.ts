@@ -7,7 +7,7 @@ const newPassword = z
   .min(10, 'Password must be at least 10 characters')
   .max(128, 'Password must be at most 128 characters');
 // A single-use token from an email link (43 characters in practice).
-const emailedToken = z.string().min(20).max(200);
+export const emailedToken = z.string().min(20).max(200);
 
 // Unknown fields (for example "role") are dropped by zod, never passed on.
 export const registerSchema = z.object({

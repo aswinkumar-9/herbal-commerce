@@ -532,8 +532,8 @@ describe('SessionService.logout', () => {
   });
 });
 
-describe('SessionService.isActive', () => {
-  function withSession(found: { id: string } | null) {
+describe('SessionService.liveSessionRole', () => {
+  function withSession(found: { user: { role: string } } | null) {
     const findFirst = jest.fn().mockResolvedValue(found);
     const service = new SessionService(
       { session: { findFirst } } as unknown as PrismaService,
@@ -545,10 +545,12 @@ describe('SessionService.isActive', () => {
     return { service, findFirst };
   }
 
-  it('accepts only a live session of an active customer', async () => {
-    const { service, findFirst } = withSession({ id: 'session-1' });
+  it("returns the role of an active customer's live session", async () => {
+    const { service, findFirst } = withSession({ user: { role: 'CUSTOMER' } });
 
-    await expect(service.isActive('user-1', 'session-1')).resolves.toBe(true);
+    await expect(service.liveSessionRole('user-1', 'session-1')).resolves.toBe(
+      'CUSTOMER',
+    );
     expect(findFirst).toHaveBeenCalledWith({
       where: {
         id: 'session-1',
@@ -557,16 +559,16 @@ describe('SessionService.isActive', () => {
         expiresAt: { gt: expect.any(Date) },
         user: { role: { in: ['CUSTOMER'] }, status: 'ACTIVE' },
       },
-      select: { id: true },
+      select: { user: { select: { role: true } } },
     });
   });
 
   it('for staff, accepts only an active Admin or Super User with MFA set up', async () => {
-    const { service, findFirst } = withSession({ id: 'session-1' });
+    const { service, findFirst } = withSession({ user: { role: 'SUPER_USER' } });
 
     await expect(
-      service.isActive('user-1', 'session-1', 'staff'),
-    ).resolves.toBe(true);
+      service.liveSessionRole('user-1', 'session-1', 'staff'),
+    ).resolves.toBe('SUPER_USER');
     expect(findFirst).toHaveBeenCalledWith({
       where: {
         id: 'session-1',
@@ -579,13 +581,15 @@ describe('SessionService.isActive', () => {
           mfaEnabledAt: { not: null },
         },
       },
-      select: { id: true },
+      select: { user: { select: { role: true } } },
     });
   });
 
-  it('says no when the session is revoked, expired or not this user', async () => {
+  it('returns null when the session is revoked, expired or not this user', async () => {
     const { service } = withSession(null);
 
-    await expect(service.isActive('user-1', 'session-1')).resolves.toBe(false);
+    await expect(
+      service.liveSessionRole('user-1', 'session-1'),
+    ).resolves.toBeNull();
   });
 });

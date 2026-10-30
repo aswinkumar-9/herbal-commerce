@@ -1,4 +1,9 @@
-import { staffLoginSchema, superUserSchema } from './staff.schemas';
+import {
+  acceptInviteSchema,
+  adminInviteSchema,
+  staffLoginSchema,
+  superUserSchema,
+} from './staff.schemas';
 
 describe('superUserSchema', () => {
   const valid = {
@@ -45,5 +50,54 @@ describe('staffLoginSchema', () => {
     expect(accepts({ password: '' })).toBe(false);
     expect(accepts({ password: 'short' })).toBe(true);
     expect(accepts({ password: 'x'.repeat(129) })).toBe(false);
+  });
+});
+
+describe('adminInviteSchema', () => {
+  it('takes only the email and the name, normalised', () => {
+    const parsed = adminInviteSchema.parse({
+      email: ' Dev.Admin1@Example.com ',
+      fullName: ' Dev Admin ',
+      role: 'SUPER_USER',
+      password: 'chosen-by-someone-else',
+    });
+    expect(parsed).toEqual({
+      email: 'dev.admin1@example.com',
+      fullName: 'Dev Admin',
+    });
+  });
+
+  it('requires a valid email and a name', () => {
+    expect(adminInviteSchema.safeParse({ fullName: 'Dev Admin' }).success).toBe(
+      false,
+    );
+    expect(
+      adminInviteSchema.safeParse({ email: 'not-an-email', fullName: 'Dev Admin' })
+        .success,
+    ).toBe(false);
+    expect(
+      adminInviteSchema.safeParse({ email: 'a@example.com', fullName: ' ' })
+        .success,
+    ).toBe(false);
+  });
+});
+
+describe('acceptInviteSchema', () => {
+  const valid = { token: 'x'.repeat(43), password: 'a-staff-pass-16ch' };
+
+  it('requires the token from the link', () => {
+    const accepts = (changes: object) =>
+      acceptInviteSchema.safeParse({ ...valid, ...changes }).success;
+    expect(accepts({})).toBe(true);
+    expect(accepts({ token: undefined })).toBe(false);
+    expect(accepts({ token: 'too-short' })).toBe(false);
+  });
+
+  it('requires a staff password of 16 to 128 characters', () => {
+    const withPassword = (password: string) =>
+      acceptInviteSchema.safeParse({ ...valid, password }).success;
+    expect(withPassword('x'.repeat(15))).toBe(false);
+    expect(withPassword('x'.repeat(16))).toBe(true);
+    expect(withPassword('x'.repeat(129))).toBe(false);
   });
 });

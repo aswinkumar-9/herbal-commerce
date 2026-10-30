@@ -249,13 +249,14 @@ export class SessionService {
     }
   }
 
-  // Checked on every authenticated request, so logout, reuse detection and
-  // disabled accounts take effect at once.
-  async isActive(
+  // Checked on every authenticated request, so logout, reuse detection,
+  // disabled accounts and role changes take effect at once. While the session
+  // is live, returns its user's current role; otherwise null.
+  async liveSessionRole(
     userId: string,
     sessionId: string,
     audience: Audience = 'customer',
-  ): Promise<boolean> {
+  ): Promise<UserRole | null> {
     const session = await this.prisma.session.findFirst({
       where: {
         id: sessionId,
@@ -264,9 +265,9 @@ export class SessionService {
         expiresAt: { gt: new Date() },
         user: liveUser(audience),
       },
-      select: { id: true },
+      select: { user: { select: { role: true } } },
     });
-    return session !== null;
+    return session?.user.role ?? null;
   }
 
   private async issueTokens(

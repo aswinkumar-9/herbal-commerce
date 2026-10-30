@@ -1,4 +1,4 @@
-import { clientIpKey } from './client-ip';
+import { clientAddress, clientIpKey } from './client-ip';
 
 describe('clientIpKey', () => {
   it('uses an IPv4 address as it is', () => {
@@ -29,5 +29,24 @@ describe('clientIpKey', () => {
     );
     expect(clientIpKey({})).toBe('unknown');
     expect(clientIpKey({ ip: 'not-an-ip' })).toBe('unknown');
+  });
+});
+
+// New in Part 3B-4: the exact address, for the audit log.
+describe('clientAddress', () => {
+  it('gives the exact address: IPv4 unwrapped, IPv6 kept whole', () => {
+    expect(clientAddress({ ip: '203.0.113.7' })).toBe('203.0.113.7');
+    expect(clientAddress({ ip: '::ffff:203.0.113.7' })).toBe('203.0.113.7');
+    expect(clientAddress({ ip: '2001:db8:abcd:12:1:2:3:4' })).toBe(
+      '2001:db8:abcd:12:1:2:3:4',
+    );
+  });
+
+  it('falls back to the socket address, and gives nothing for anything else', () => {
+    expect(clientAddress({ socket: { remoteAddress: '198.51.100.2' } })).toBe(
+      '198.51.100.2',
+    );
+    expect(clientAddress({})).toBeUndefined();
+    expect(clientAddress({ ip: 'not-an-ip' })).toBeUndefined();
   });
 });

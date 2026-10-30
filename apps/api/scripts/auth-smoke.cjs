@@ -167,6 +167,26 @@ async function main() {
     (await call('GET', '/v1/staff/me', { token: login.body.accessToken }))
       .status === 401,
   );
+  check(
+    'a customer access token cannot invite an Admin on POST /v1/staff/admins',
+    (
+      await call('POST', '/v1/staff/admins', {
+        json: { email: `smoke.admin.${Date.now()}@example.com`, fullName: 'Smoke Admin' },
+        token: login.body.accessToken,
+      })
+    ).status === 401,
+  );
+  // Accepting an invitation is public, but only a real link works. (A real
+  // invitation is tried by hand: only a signed-in Super User can send one.)
+  const madeUpInvite = await call('POST', '/v1/staff/auth/accept-invite', {
+    json: { token: 'x'.repeat(43), password: 'smoke-staff-password-1' },
+  });
+  check(
+    'accept-invite refuses a made-up link with 400',
+    madeUpInvite.status === 400 &&
+      madeUpInvite.body?.message === 'Invalid or expired invitation link',
+  );
+
   // Refused and left alone: the next check still refreshes with this token.
   check(
     'a customer refresh token is refused on the staff refresh',

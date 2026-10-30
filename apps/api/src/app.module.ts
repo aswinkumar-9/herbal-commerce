@@ -5,6 +5,7 @@ import { LoggerModule } from 'nestjs-pino';
 import { AuditModule } from './audit/audit.module';
 import { AccessTokenGuard } from './auth/access-token.guard';
 import { AuthModule } from './auth/auth.module';
+import { RolesGuard } from './auth/roles.guard';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { Env, validateEnv } from './config/env';
 import { HealthModule } from './health/health.module';
@@ -47,6 +48,9 @@ import { ValkeyModule } from './valkey/valkey.module';
     { provide: APP_GUARD, useClass: RateLimitGuard },
     // Deny by default: every route needs a valid access token unless @Public().
     { provide: APP_GUARD, useClass: AccessTokenGuard },
+    // Then permissions: @SuperUserOnly() routes refuse Admins (403). It needs
+    // the caller the access-token guard attached, so it must come after it.
+    { provide: APP_GUARD, useClass: RolesGuard },
   ],
 })
 export class AppModule {}

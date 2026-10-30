@@ -43,7 +43,9 @@ type Controller = { prototype: object };
 // The guard with the real Reflector, so the decorators above really count.
 function setup(controller: Controller, handler: string, authorization?: string) {
   const accessTokens = { verify: jest.fn().mockResolvedValue(USER) };
-  const sessions = { isActive: jest.fn().mockResolvedValue(true) };
+  const sessions = {
+    liveSessionRole: jest.fn().mockResolvedValue('CUSTOMER'),
+  };
   const request: { headers: { authorization?: string }; user?: unknown } = {
     headers: { authorization },
   };
@@ -101,7 +103,7 @@ describe('AccessTokenGuard', () => {
     await expect(guard.canActivate(context)).rejects.toThrow(
       'Invalid or expired access token',
     );
-    expect(sessions.isActive).not.toHaveBeenCalled();
+    expect(sessions.liveSessionRole).not.toHaveBeenCalled();
   });
 
   it('rejects a valid token whose session has ended', async () => {
@@ -110,7 +112,7 @@ describe('AccessTokenGuard', () => {
       'me',
       'Bearer good.token',
     );
-    sessions.isActive.mockResolvedValue(false);
+    sessions.liveSessionRole.mockResolvedValue(null);
 
     await expect(guard.canActivate(context)).rejects.toThrow(
       'Invalid or expired access token',
@@ -124,12 +126,12 @@ describe('AccessTokenGuard', () => {
 
     await expect(guard.canActivate(context)).resolves.toBe(true);
     expect(accessTokens.verify).toHaveBeenCalledWith('good.token', 'customer');
-    expect(sessions.isActive).toHaveBeenCalledWith(
+    expect(sessions.liveSessionRole).toHaveBeenCalledWith(
       'user-1',
       'session-1',
       'customer',
     );
-    expect(request.user).toEqual(USER);
+    expect(request.user).toEqual({ ...USER, role: 'CUSTOMER' });
     expect(response.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-store');
   });
 
@@ -150,7 +152,7 @@ describe('AccessTokenGuard', () => {
 
       await expect(guard.canActivate(context)).resolves.toBe(true);
       expect(accessTokens.verify).toHaveBeenCalledWith('good.token', audience);
-      expect(sessions.isActive).toHaveBeenCalledWith(
+      expect(sessions.liveSessionRole).toHaveBeenCalledWith(
         'user-1',
         'session-1',
         audience,
@@ -194,8 +196,21 @@ describe('AccessTokenGuard', () => {
         await expect(guard.canActivate(context)).rejects.toThrow(
           'Invalid or expired access token',
         );
-        expect(sessions.isActive).not.toHaveBeenCalled();
+        expect(sessions.liveSessionRole).not.toHaveBeenCalled();
       }
     }
+  });
+
+  // New in Part 3B-4: the role, for the permission checks on staff routes.
+  it("sets the caller's role as the database has it now, never from the token", async () => {
+    const { guard, context, sessions, request } = setup(
+      StaffRoutes,
+      'me',
+      'Bearer good.token',
+    );
+    sessions.liveSessionRole.mockResolvedValue('SUPER_USER');
+
+    await expect(guard.canActivate(context)).resolves.toBe(true);
+    expect(request.user).toEqual({ ...USER, role: 'SUPER_USER' });
   });
 });

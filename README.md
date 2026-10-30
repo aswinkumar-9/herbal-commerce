@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -73,7 +73,10 @@ It first clears the local rate-limit counters, so it can run again at once. Then
 - login, `GET /v1/me`, token refresh, refresh-token reuse detection and logout;
 - password recovery: the reset link arrives only for a real account, the reset ends every session, the new password works at once and the old one doesn't, the link works only once, and the "password changed" email arrives;
 - the rate limits: a per-IP limit that a faked `X-Forwarded-For` cannot get around, the block after 5 wrong passwords, and at most 5 emails per hour to one address;
-- that a customer's password and tokens never open the staff routes. (The staff login itself needs a phone; see "Sign in as staff".)
+- that a customer's password and tokens never open the staff routes, and cannot invite an Admin;
+- that a made-up invitation link is refused.
+
+The staff login and a real invitation need a phone, so they are tried by hand: see "Sign in as staff" and "Invite an Admin".
 
 Every line should say `PASS`, followed by `All checks passed.`
 
@@ -145,6 +148,7 @@ pnpm api:setup-staff-mfa
 4. Then run `Clear-Host` and `Remove-Item Env:STAFF_EMAIL`.
 
 - Running it again gives a new key, and the old one stops working. That's how a lost phone is handled for now. **Only the newest key works:** delete every older entry for that account from the app, or its codes will be refused.
+- **Each staff account has its own entry.** Keep the entries of other accounts: a deleted entry cannot be brought back, only replaced by running the setup again for that account.
 - The key only contains the letters `A`–`Z` and the digits `2`–`7`. A round character is the letter **O**, and a straight one the letter **I**.
 - Never paste the key into chats or tickets.
 
@@ -166,6 +170,47 @@ Remove-Variable secure, code, body, login
 - A `401 Invalid email, password or code` never says which part was wrong. The API log does: see Troubleshooting.
 - Staff sessions last 12 hours, and staff tokens work only on `/v1/staff/...` routes.
 
+## Invite an Admin
+
+Only a Super User can invite an Admin (ADR 0015). The Admin then chooses their own password with the link from the email, and a developer sets up their MFA. There is no admin console yet, so the link is not clicked: the token is read from Mailpit instead.
+
+1. **Sign in as a Super User**, as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`: `$login` is needed in the next step.
+2. **Send the invitation, then sign the Super User out:**
+   ```powershell
+   $invite = @{ email = 'dev.admin1@example.com'; fullName = 'Dev Admin One' } | ConvertTo-Json
+   Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/admins -ContentType 'application/json' -Body $invite -Headers @{ Authorization = "Bearer $($login.accessToken)" }
+   Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/logout -ContentType 'application/json' -Body (@{ refreshToken = $login.refreshToken } | ConvertTo-Json)
+   Remove-Variable invite, login
+   ```
+   The answer shows `role` `ADMIN`, `invitationExpiresAt` (72 hours from now) and `invitationSent` `True`. It never shows the token.
+3. **Read the token from the email** in Mailpit, without printing it:
+   ```powershell
+   $query = [uri]::EscapeDataString('to:dev.admin1@example.com subject:"You are invited"')
+   $found = Invoke-RestMethod "http://localhost:8025/api/v1/search?query=$query"
+   $message = Invoke-RestMethod "http://localhost:8025/api/v1/message/$($found.messages[0].ID)"
+   $inviteToken = [regex]::Match($message.Text, 'token=([A-Za-z0-9_-]+)').Groups[1].Value
+   $inviteToken.Length
+   ```
+   It should say `43`.
+4. **Choose the Admin's password** (at least 16 characters, different from every other account's). Save it where you keep your dev passwords first. You type it twice, because nothing on screen shows a typo:
+   ```powershell
+   $first = Read-Host 'New password for the Admin (16+ characters)' -AsSecureString
+   $second = Read-Host 'The same password again' -AsSecureString
+   $password = [System.Net.NetworkCredential]::new('', $first).Password
+   if ($password -ceq [System.Net.NetworkCredential]::new('', $second).Password) {
+     $accept = @{ token = $inviteToken; password = $password } | ConvertTo-Json
+     Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/accept-invite -ContentType 'application/json' -Body $accept
+   } else { 'The two passwords differ. Nothing was sent: run these lines again.' }
+   Remove-Variable first, second, password, accept, inviteToken, query, found, message -ErrorAction SilentlyContinue
+   ```
+   The answer says the password has been set. `-ceq` compares case-sensitively; PowerShell's `-eq` ignores case.
+5. **Set up the Admin's MFA** as in "Set up staff MFA", with `$env:STAFF_EMAIL = 'dev.admin1@example.com'`. Add it as a **new** entry in the app, next to the Super User's.
+6. **Sign in as the Admin**, as in "Sign in as staff", with the Admin's email, password and app entry.
+
+- The link works for 72 hours, once. Sending an invitation again comes in part 3B-5.
+- An Admin who calls a Super-User-only route, such as `POST /v1/staff/admins`, gets `403 Only a Super User may do this.`
+- Each step is in the audit log: `admin.invited` (by the Super User), `admin.invite_accepted` (by the Admin) and `staff.mfa_set_up`.
+
 ## Repository structure
 
 ```
@@ -175,10 +220,10 @@ Remove-Variable secure, code, body, login
 │       ├── prisma/             schema and migrations
 │       ├── scripts/            auth-smoke.cjs (smoke test), clear-rate-limits.cjs
 │       └── src/
-│           ├── audit/          the append-only audit log
-│           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset, guard, /v1/me
+│           ├── audit/          the append-only audit log and a request's audit context
+│           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset, access and roles guards, /v1/me
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
-│           ├── staff/          staff accounts: Super Users, MFA, staff sign-in and /v1/staff/me
+│           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, Admin invitations and /v1/staff/me
 │           ├── rate-limit/     limits, rate-limit guard, client IP
 │           ├── retention/      hourly cleanup of data past its retention period
 │           ├── valkey/         the shared Valkey connection
@@ -225,6 +270,22 @@ Remove-Variable secure, code, body, login
 - **The setup command refuses every code:** the key in the app differs from the one shown (often `0` for O), or the entry is not **Time based**, or the phone's clock is off. Set the phone's time automatically, delete the app entry and run the command again.
 - **`429 Too Many Requests` while testing by hand:** you used up a rate limit (the `Retry-After` header says for how long). Wait, or run `pnpm api:limits:clear`.
 - **The staff login answers `401`:** find `Staff sign-in failed` in the API log. Its `reason` says why, without the email, password or code:
-  - `wrong_code` (the password was right): usually the app shows codes from an **older** key. After a second setup, only the newest key works. Delete the old entries from the app, or run `pnpm api:setup-staff-mfa` again if you're unsure which one is right.
-  - `wrong_password`: not the password chosen when the account was created.
+  - `wrong_code` (the password was right): usually the app shows codes from an **older** key. After a second setup, only the newest key works. Delete the old entries from the app, or run `pnpm api:setup-staff-mfa` again if you're unsure which one is right. Also check that the code comes from the entry with **this** account's email.
+  - `wrong_password`: not the password chosen when the account was created (for an Admin: when the invitation was accepted). Each staff account has its own password: check that it isn't another account's.
   - `mfa_not_set_up`: run `pnpm api:setup-staff-mfa` first.
+
+  After 5 failures in an hour, the login answers `429` for 15 minutes, even with the right password. So find the reason before trying again.
+- **A staff member's entry was deleted from the authenticator app:** it cannot be brought back. Run `pnpm api:setup-staff-mfa` again for that account and add the new entry.
+- **Inviting an Admin answers `409`:** the email already has an account, maybe a customer's. Customers are never turned into staff, so use another address.
+- **Inviting an Admin answers `403 Only a Super User may do this.`:** you are signed in as an Admin. Sign in as a Super User.
+- **`accept-invite` answers `400 Invalid or expired invitation link`:** find `Admin invitation refused` in the API log. Its `reason` says why:
+  - `unknown_token`: the token was copied incompletely;
+  - `already_used`: the password was already set with this link;
+  - `expired`: the 72 hours have passed;
+  - `not_allowed`: the account is not an active Admin;
+  - `lost_race`: the same link was sent twice at the same moment, and the other request set the password.
+
+  Sending an invitation again comes in part 3B-5. Until then, in development only, delete the pending Admin and invite again. Its invitation and sessions go with it; its audit entries stay. (`herbal_app` and `herbal_dev` are the `POSTGRES_USER` and `POSTGRES_DB` from `.env.example`; use yours if you changed them.)
+  ```powershell
+  docker exec herbal-postgres psql -U herbal_app -d herbal_dev -c "DELETE FROM users WHERE email = 'dev.admin1@example.com' AND role = 'ADMIN';"
+  ```

@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 3A-5)
 - Date: 2026-10-27
+- Updated: 2026-10-30 (part 3B-4: expired Admin invitations are deleted too, ADR 0015)
 
 ## Context
 
@@ -24,13 +25,14 @@ Unverified sign-ups are also the last piece of pre-account takeover (ADR 0007, g
 | Sessions, together with their refresh tokens | 30 days after they expired or were revoked | Recent history helps when looking into an incident. The logs keep the IDs anyway. |
 | Used refresh tokens in live sessions | 7 days after use | Reuse detection only needs the recent ones. |
 | Email verification and password reset links | once expired | An expired link is useless. |
+| Admin invitations (since part 3B-4) | once expired, used or not | An expired link is useless. Only the invitation goes: the Admin account stays, and a Super User decides about it (ADR 0015). |
 | Unverified customer accounts, with their tokens | 7 days after sign-up | Data minimisation, and it frees the address for its real owner. Staff accounts are never deleted by the job. |
 
 All periods are in one place: `RETENTION` in `apps/api/src/retention/retention.service.ts`.
 
 ### How it runs
 
-- **`RetentionService.purge()`** runs the five deletes. Each is a plain conditional `deleteMany`, so a run can be repeated, interrupted, or run by several API instances at once without harm. Deleting a session or a user deletes its dependent rows through the foreign keys (`ON DELETE CASCADE`).
+- **`RetentionService.purge()`** runs the deletes, one per row of the table (six since part 3B-4). Each is a plain conditional `deleteMany`, so a run can be repeated, interrupted, or run by several API instances at once without harm. Deleting a session or a user deletes its dependent rows through the foreign keys (`ON DELETE CASCADE`).
 - **`RetentionScheduler`** runs it inside the API: 1 minute after startup, then every hour.
   - Two runs never overlap.
   - A failed run is logged (error name and code only), and the next run tries again.
