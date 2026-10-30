@@ -1,4 +1,5 @@
 import {
+  acceptInviteSchema,
   adminInviteSchema,
   staffLoginSchema,
   superUserSchema,
@@ -78,5 +79,25 @@ describe('adminInviteSchema', () => {
       adminInviteSchema.safeParse({ email: 'a@example.com', fullName: ' ' })
         .success,
     ).toBe(false);
+  });
+});
+
+describe('acceptInviteSchema', () => {
+  const valid = { token: 'x'.repeat(43), password: 'a-staff-pass-16ch' };
+
+  it('requires the token from the link', () => {
+    const accepts = (changes: object) =>
+      acceptInviteSchema.safeParse({ ...valid, ...changes }).success;
+    expect(accepts({})).toBe(true);
+    expect(accepts({ token: undefined })).toBe(false);
+    expect(accepts({ token: 'too-short' })).toBe(false);
+  });
+
+  it('requires a staff password of 16 to 128 characters', () => {
+    const withPassword = (password: string) =>
+      acceptInviteSchema.safeParse({ ...valid, password }).success;
+    expect(withPassword('x'.repeat(15))).toBe(false);
+    expect(withPassword('x'.repeat(16))).toBe(true);
+    expect(withPassword('x'.repeat(129))).toBe(false);
   });
 });

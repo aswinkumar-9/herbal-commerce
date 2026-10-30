@@ -6,6 +6,8 @@ import {
   HttpStatus,
   Post,
 } from '@nestjs/common';
+import type { AuditContext } from '../audit/audit-context';
+import { CurrentAuditContext } from '../audit/audit-context.decorator';
 import { refreshTokenSchema } from '../auth/auth.schemas';
 import type { RefreshTokenInput } from '../auth/auth.schemas';
 import { Public } from '../auth/public.decorator';
@@ -14,9 +16,10 @@ import { StaffOnly } from '../auth/staff-only.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { ClientIp } from '../rate-limit/client-ip.decorator';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
+import { AdminInvitationService } from './admin-invitation.service';
 import { StaffAuthService } from './staff-auth.service';
-import { staffLoginSchema } from './staff.schemas';
-import type { StaffLoginInput } from './staff.schemas';
+import { acceptInviteSchema, staffLoginSchema } from './staff.schemas';
+import type { AcceptInviteInput, StaffLoginInput } from './staff.schemas';
 
 // The staff sign-in path. Separate from the customer one: it asks for an
 // authenticator code too, and its tokens open only staff routes.
@@ -26,6 +29,7 @@ export class StaffAuthController {
   constructor(
     private readonly staffAuth: StaffAuthService,
     private readonly sessions: SessionService,
+    private readonly invitations: AdminInvitationService,
   ) {}
 
   @Public()
@@ -61,5 +65,18 @@ export class StaffAuthController {
     @Body(new ZodValidationPipe(refreshTokenSchema)) body: RefreshTokenInput,
   ) {
     return this.sessions.logout(body.refreshToken, 'staff');
+  }
+
+  // Public: an invited Admin has no password yet. They choose it here with
+  // the token from the invitation email (ADR 0015).
+  @Public()
+  @RateLimit('acceptInvite')
+  @Post('accept-invite')
+  @HttpCode(HttpStatus.OK)
+  acceptInvite(
+    @Body(new ZodValidationPipe(acceptInviteSchema)) body: AcceptInviteInput,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.invitations.accept(body, context);
   }
 }

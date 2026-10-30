@@ -1,21 +1,35 @@
 import { randomBytes } from 'node:crypto';
-import { ConflictException, Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { AuditContext } from '../audit/audit-context';
 import { AuditService } from '../audit/audit.service';
 import { PasswordService } from '../auth/password.service';
-import { generateToken } from '../auth/token.util';
+import { generateToken, hashToken } from '../auth/token.util';
 import { Env } from '../config/env';
 import { MailService } from '../mail/mail.service';
 import { isUniqueViolation } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
-import type { AdminInviteInput } from './staff.schemas';
+import type { AcceptInviteInput, AdminInviteInput } from './staff.schemas';
 
 // People do not always read their email at once, so an invitation waits a
 // few days. It still works only once.
 export const INVITATION_TTL_MS = 72 * 60 * 60 * 1000;
 const EMAIL_TAKEN = 'An account with this email address already exists.';
+const INVALID_INVITATION = 'Invalid or expired invitation link';
+const PASSWORD_SET =
+  'Your password has been set. Before you can sign in, a developer will set up an authenticator app on your phone with you.';
+
+type AcceptFailure =
+  | 'unknown_token'
+  | 'already_used'
+  | 'expired'
+  | 'not_allowed'
+  | 'lost_race';
 
 export interface InvitedAdmin {
   id: string;
@@ -107,6 +121,82 @@ export class AdminInvitationService {
     };
   }
 
+  // Public: the Admin has no password yet. The link proves they control the
+  // invited inbox, and it works only once.
+  async accept(
+    input: AcceptInviteInput,
+    context: AuditContext,
+  ): Promise<{ message: string }> {
+    const invitation = await this.prisma.staffInvitation.findUnique({
+      where: { tokenHash: hashToken(input.token) },
+      select: {
+        id: true,
+        userId: true,
+        expiresAt: true,
+        usedAt: true,
+        user: { select: { role: true, status: true } },
+      },
+    });
+    // Checked before hashing, so a made-up token costs no password work.
+    if (!invitation) {
+      throw this.acceptFailure('unknown_token');
+    }
+    const { userId, user } = invitation;
+    if (invitation.usedAt) {
+      throw this.acceptFailure('already_used', userId);
+    }
+    if (invitation.expiresAt <= new Date()) {
+      throw this.acceptFailure('expired', userId);
+    }
+    // A disabled Admin stays out, even with a valid link.
+    if (user.role !== 'ADMIN' || user.status !== 'ACTIVE') {
+      throw this.acceptFailure('not_allowed', userId);
+    }
+
+    const passwordHash = await this.passwords.hash(input.password);
+    const now = new Date();
+    const accepted = await this.prisma.$transaction(async (tx) => {
+      // Atomic claim: if two requests send the same link, only one wins.
+      const claim = await tx.staffInvitation.updateMany({
+        where: { id: invitation.id, usedAt: null, expiresAt: { gt: now } },
+        data: { usedAt: now },
+      });
+      if (claim.count === 0) {
+        return false;
+      }
+      await tx.user.update({
+        where: { id: userId },
+        // The link proves the Admin controls this inbox, so the email
+        // counts as verified.
+        data: { passwordHash, emailVerifiedAt: now },
+      });
+      // Whenever a password is set, every session of the account ends.
+      await tx.session.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: now },
+      });
+      // Any other unused invitation for this Admin stops working too.
+      await tx.staffInvitation.deleteMany({
+        where: { userId, usedAt: null },
+      });
+      // Nobody is signed in here: the Admin is the one acting.
+      await this.audit.record(tx, {
+        ...context,
+        actorId: userId,
+        action: 'admin.invite_accepted',
+        targetType: 'user',
+        targetId: userId,
+      });
+      return true;
+    });
+    if (!accepted) {
+      throw this.acceptFailure('lost_race', userId);
+    }
+
+    this.logger.info({ userId }, 'Admin invitation accepted: password set');
+    return { message: PASSWORD_SET };
+  }
+
   // A failed email must not undo the invitation, which is already saved.
   private async sendInvitation(
     admin: { id: string; email: string; fullName: string },
@@ -130,6 +220,15 @@ export class AdminInvitationService {
       );
       return false;
     }
+  }
+
+  // Logs the reason and builds the one answer every refused link gets.
+  private acceptFailure(
+    reason: AcceptFailure,
+    userId?: string,
+  ): BadRequestException {
+    this.logger.info({ userId, reason }, 'Admin invitation refused');
+    return new BadRequestException(INVALID_INVITATION);
   }
 
   private invitationUrl(token: string): string {

@@ -31,6 +31,7 @@ describe('rate-limited routes', () => {
       login: ['staffLogin'],
       refresh: ['refresh'],
       logout: ['logout'],
+      acceptInvite: ['acceptInvite'],
     });
     expect(routeLimits(StaffAdminsController)).toEqual({
       invite: ['staffInvites'],

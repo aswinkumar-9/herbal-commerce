@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { email } from '../auth/auth.schemas';
+import { email, emailedToken } from '../auth/auth.schemas';
 
 // A staff password protects far more than one customer account, so it must
 // be longer. MFA comes on top of it (part 3B-2).
@@ -34,3 +34,12 @@ export type StaffLoginInput = z.infer<typeof staffLoginSchema>;
 // as a role or a password, are dropped.
 export const adminInviteSchema = z.object({ email, fullName });
 export type AdminInviteInput = z.infer<typeof adminInviteSchema>;
+
+
+// The invited Admin chooses their password with the token from the link.
+export const acceptInviteSchema = z.object({
+  token: emailedToken,
+  password: staffPassword,
+});
+export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
+

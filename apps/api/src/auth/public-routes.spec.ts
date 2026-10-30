@@ -20,7 +20,7 @@ function publicHandlers(controller: { prototype: object }): string[] {
 }
 
 describe('public routes', () => {
-  it('are exactly the sign-up, sign-in, password reset and health endpoints', () => {
+  it('are exactly the sign-up, sign-in, password reset, invitation and health endpoints', () => {
     expect(publicHandlers(AuthController)).toEqual([
       'register',
       'verifyEmail',
@@ -37,6 +37,7 @@ describe('public routes', () => {
       'login',
       'refresh',
       'logout',
+      'acceptInvite',
     ]);
     expect(publicHandlers(StaffMeController)).toEqual([]);
     expect(publicHandlers(StaffAdminsController)).toEqual([]);

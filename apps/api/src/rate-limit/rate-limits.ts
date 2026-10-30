@@ -30,6 +30,7 @@ export const RATE_LIMITS = {
   staffLogin: { points: 10, duration: MINUTE },
   // Each invitation creates an account and sends an email.
   staffInvites: { points: 20, duration: HOUR },
+  acceptInvite: { points: 20, duration: HOUR },
   // Failed logins only. A successful login clears the first one.
   loginFailuresByEmailAndIp: {
     points: 5,
