@@ -249,7 +249,7 @@ export class SessionService {
     }
   }
 
-    // Checked on every authenticated request, so logout, reuse detection,
+  // Checked on every authenticated request, so logout, reuse detection,
   // disabled accounts and role changes take effect at once. While the session
   // is live, returns its user's current role; otherwise null.
   async liveSessionRole(
