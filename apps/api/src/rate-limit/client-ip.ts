@@ -1,4 +1,10 @@
-import { isIPv4, isIPv6 } from 'node:net';
+import { isIP, isIPv4 } from 'node:net';
+
+// The parts of an HTTP request that tell who connected.
+interface Connection {
+  ip?: string;
+  socket?: { remoteAddress?: string };
+}
 
 // One phone or home usually gets a whole /64 block of IPv6 addresses, so
 // limits count the block as one client, not each address in it.
@@ -20,23 +26,22 @@ function ipv6Block(ip: string): string {
   return `${first64.join(':')}::/64`;
 }
 
-// The client that per-IP limits count against. Express's req.ip only uses
-// X-Forwarded-For from proxies listed in TRUST_PROXY, so clients cannot fake it.
-export function clientIpKey(request: {
-  ip?: string;
-  socket?: { remoteAddress?: string };
-}): string {
+// The caller's exact address, or undefined if there is no valid one. Express's
+// req.ip only uses X-Forwarded-For from proxies listed in TRUST_PROXY, so
+// clients cannot fake it.
+export function clientAddress(request: Connection): string | undefined {
   const ip = request.ip ?? request.socket?.remoteAddress;
-  if (!ip) {
+  // IPv4 clients on an IPv6 socket appear as "::ffff:1.2.3.4".
+  const mapped = ip && /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  const address = mapped ? mapped[1] : ip;
+  return address && isIP(address) ? address : undefined;
+}
+
+// The client that per-IP limits count against.
+export function clientIpKey(request: Connection): string {
+  const address = clientAddress(request);
+  if (!address) {
     return 'unknown';
   }
-  // IPv4 clients on an IPv6 socket appear as "::ffff:1.2.3.4".
-  const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (mapped) {
-    return mapped[1];
-  }
-  if (isIPv4(ip)) {
-    return ip;
-  }
-  return isIPv6(ip) ? ipv6Block(ip) : 'unknown';
+  return isIPv4(address) ? address : ipv6Block(address);
 }
