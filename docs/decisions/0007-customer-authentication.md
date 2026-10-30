@@ -7,6 +7,7 @@
 - Updated: 2026-10-26 (part 3A-4 closed gap 5, see ADR 0010)
 - Updated: 2026-10-27 (part 3A-5 closed gaps 4 and 7, see ADR 0011)
 - Updated: 2026-10-30 (part 3B-3: staff routes with their own token audience, see ADR 0014)
+- Updated: 2026-10-30 (part 3B-4: one more public staff endpoint, accepting an Admin invitation, see ADR 0015)
 
 ## Context
 
@@ -46,7 +47,7 @@ The mobile app and the website will use the same API. Tokens therefore travel in
 
 ### Protecting endpoints
 
-- **Deny by default.** A global guard protects every endpoint. Only handlers marked `@Public()` are open: the two health checks, the eight `/v1/auth` endpoints (sign-up, sign-in and password recovery) and, since part 3B-3, the three `/v1/staff/auth` endpoints. `@Public()` works on single handlers only, never on a whole controller, so a new handler is protected even in a controller with public ones.
+- **Deny by default.** A global guard protects every endpoint. Only handlers marked `@Public()` are open: the two health checks, the eight `/v1/auth` endpoints (sign-up, sign-in and password recovery) and, since part 3B-3, the three `/v1/staff/auth` sign-in endpoints, joined in part 3B-4 by `/v1/staff/auth/accept-invite` (ADR 0015). `@Public()` works on single handlers only, never on a whole controller, so a new handler is protected even in a controller with public ones.
 - **Customer routes take customer tokens only.** Since part 3B-3, routes marked `@StaffOnly()` take staff tokens instead (audience `staff`, ADR 0014). Every other protected route stays customer-only, and a token for the other audience is refused like a forged one.
 - **The session is checked on every request**, not only the token signature. The session must exist, belong to the user, be neither revoked nor expired, and the user must still be an active Customer. So logout, reuse detection and disabling an account take effect at once, not up to 15 minutes later.
 - **The user ID comes from the token**, never from the URL or the body (`GET /v1/me`).

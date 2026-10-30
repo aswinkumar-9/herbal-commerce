@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 3B-3)
 - Date: 2026-10-30
+- Updated: 2026-10-30 (part 3B-4: Super-User-only routes and Admin invitations, ADR 0015)
 
 ## Context
 
@@ -95,6 +96,6 @@ The staff code lives in `StaffModule`, which imports `AuthModule`. `SuperUserSer
 - **Only the newest MFA key works.** If the setup ran more than once, an older entry left in the authenticator app shows codes that are refused (`wrong_code` in the log). This happened while testing this part. The README tells developers to delete old entries, and a QR code in the admin console will make the mix-up less likely.
 - **Each code works once.** A client must not retry a failed login with the same code: it waits for the next one.
 - **Timing is similar, not identical.** A wrong code takes a little longer than a wrong password: there is one extra database read after the password check. The difference is small next to argon2's own variation, and every attempt counts against the failure limits.
-- Staff sign-ins are in the application log, but not yet in the audit log. Recording them there, with the IP and request ID, will be decided with part 3B-4.
+- Staff sign-ins are in the application log, but not yet in the audit log. The decision on recording them there was moved to part 3B-5, together with the Super Users' view of the audit log (ADR 0015).
 - The smoke test checks on every run that a customer's password and tokens never open the staff routes. The staff login itself needs a phone, so it is tested by hand (README, "Sign in as staff").
-- Next: part 3B-4, a roles guard and Admin management by Super Users, with every change audited.
+- Part 3B-4 added a roles guard, so some staff routes are for Super Users only, and Admin invitations (ADR 0015). Next: part 3B-5, managing Admins.

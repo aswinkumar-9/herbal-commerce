@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.6.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.7.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned.
 
@@ -9,7 +9,7 @@ Base path: `/v1` for business endpoints. Health endpoints are unversioned.
 - **JSON only.** Request bodies must be JSON (`Content-Type: application/json`), at most 100 kB and not compressed. A form body fails validation (`400`), a compressed body gets `415` and a larger body gets `413` (ADR 0008).
 - Every response carries an `X-Request-Id` header. A client may send its own `X-Request-Id` (8 to 64 characters of letters, digits, `_` or `-`); otherwise one is generated.
 - Every response carries the standard security headers (helmet), and no `X-Powered-By`.
-- **Authentication.** Every endpoint needs an access token unless it is marked **Public** below. Send it as `Authorization: Bearer <accessToken>`. There are two kinds: customer endpoints take customer access tokens, and staff endpoints (`/v1/staff/...`) take staff access tokens. Neither works on the other's endpoints.
+- **Authentication.** Every endpoint needs an access token unless it is marked **Public** below. Send it as `Authorization: Bearer <accessToken>`. There are two kinds: customer endpoints take customer access tokens, and staff endpoints (`/v1/staff/...`) take staff access tokens. Neither works on the other's endpoints. Some staff endpoints are for **Super Users only**, marked so below.
 - **Caching.** Token responses and every authenticated response carry `Cache-Control: no-store`. Clients and proxies must not store them.
 - **Rate limits.** Every endpoint is rate limited, the sign-up and sign-in endpoints more strictly. See "Rate limits and busy answers" below.
 
@@ -41,8 +41,9 @@ Unexpected errors return `500` with `"message": "Internal server error"`; the de
 |---|---|---|
 | `401` | `Missing access token` | No `Authorization` header, or not in the form `Bearer <token>` |
 | `401` | `Invalid or expired access token` | The token is forged or expired, or not an access token for this endpoint (a staff token on a customer endpoint, or the other way round), or its session has ended (logout, refresh-token reuse, its 30 days or 12 hours passed, account disabled) |
+| `403` | `Only a Super User may do this.` | A Super-User-only endpoint called with an Admin's staff token. The token is valid: signing in again does not help. |
 
-On a `401` from a protected endpoint, the client refreshes once and retries. If the refresh fails too, the user signs in again.
+On a `401` from a protected endpoint, the client refreshes once and retries. If the refresh fails too, the user signs in again. On a `403`, the client neither refreshes nor retries: it tells the staff member that the action needs a Super User.
 
 ### Rate limits and busy answers
 
@@ -66,6 +67,8 @@ The per-IP limits are checked before anything else, so a `429` can arrive even f
 | `register`, `resend-verification` and `forgot-password` together | email address | 5 per hour |
 | `login` | client IP | 60 attempts per minute |
 | `staff/auth/login` | client IP | 10 attempts per minute |
+| `staff/admins` (inviting an Admin) | client IP | 20 per hour |
+| `staff/auth/accept-invite` | client IP | 20 per hour |
 | `login` and `staff/auth/login` together, failed attempts | email + client IP | 5 per hour, then blocked for 15 minutes |
 | `login` and `staff/auth/login` together, failed attempts | email | 50 per hour, then blocked for 1 hour |
 | `login` and `staff/auth/login` together, failed attempts | client IP | 200 per hour, then blocked for 1 hour |
@@ -265,7 +268,7 @@ Errors: `401` (see "Authentication errors on protected endpoints"), also for a s
 
 ## Staff authentication
 
-For Admins and Super Users only. Customers cannot sign in here, and staff cannot sign in at `/v1/auth/login`. A developer must set up the staff member's authenticator app first (README, "Set up staff MFA").
+For Admins and Super Users only. Customers cannot sign in here, and staff cannot sign in at `/v1/auth/login`. An invited Admin first chooses a password (`accept-invite` below). Then a developer sets up the staff member's authenticator app (README, "Set up staff MFA").
 
 Staff access tokens work only on staff endpoints, and customer tokens never work there (ADR 0014).
 
@@ -304,6 +307,38 @@ A customer refresh token gets `401 Invalid refresh token`, and is not used up: i
 
 **Public.** Works like `/v1/auth/logout`, for staff sessions. Always `204`; a customer refresh token is ignored.
 
+### POST `/v1/staff/auth/accept-invite`
+
+**Public.** The invited Admin chooses their password with the token from the invitation email. The link points to the admin console (`/staff/accept-invite?token=...`), which posts the token here. It is valid for **72 hours, once**.
+
+Request:
+```json
+{ "token": "<token from the email>", "password": "a-long-staff-password-1" }
+```
+Rules: the token is 20 to 200 characters; the password 16 to 128 characters.
+
+Response `200`:
+```json
+{ "message": "Your password has been set. Before you can sign in, a developer will set up an authenticator app on your phone with you." }
+```
+What accepting also does:
+- the email address counts as verified;
+- any session of the account ends, and any other unused invitation stops working;
+- the acceptance is written to the audit log (`admin.invite_accepted`).
+
+The Admin is **not** signed in: staff sign in only with an authenticator code, which a developer sets up next.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | Missing fields, or a password shorter than 16 characters |
+| `400` | `Invalid or expired invitation link` | Unknown, used or expired link, or an account that is no longer an active Admin. One answer for all cases. |
+| `429` | `code: "RATE_LIMITED"` | Per-IP limit (20 per hour) |
+| `503` | `code: "SERVER_BUSY"` | Too many password hashes at once; try again after `Retry-After` |
+
+Client tip: on `400 Invalid or expired invitation link`, tell the Admin to ask a Super User for a new invitation.
+
 ### GET `/v1/staff/me`
 
 Returns the signed-in staff member's own account, never the password hash or the MFA secret. Needs a **staff** access token.
@@ -322,6 +357,48 @@ Response `200`, with `Cache-Control: no-store`:
 
 Errors: `401` (see "Authentication errors on protected endpoints"), also for a customer access token; `429` (the 600 per minute limit).
 
+## Admin accounts (Super Users only)
+
+These endpoints need a **Super User's** staff access token. An Admin's token gets `403 Only a Super User may do this.` Every change is written to the audit log, with the Super User, the client IP and the request ID (ADR 0015).
+
+### POST `/v1/staff/admins`
+
+Invites an Admin. This creates the account and emails the person a link to choose their own password. The Super User never chooses or sees that password.
+
+Request:
+```json
+{ "email": "dev.admin1@example.com", "fullName": "Dev Admin One" }
+```
+Rules: email and name as for registration. Any other field, such as `role` or `password`, is ignored.
+
+Response `201`:
+```json
+{
+  "id": "3c9a7e21-5b4d-4f8e-9a16-7d2e0c5b8f41",
+  "email": "dev.admin1@example.com",
+  "fullName": "Dev Admin One",
+  "role": "ADMIN",
+  "invitationExpiresAt": "2026-11-02T10:00:00.000Z",
+  "invitationSent": true
+}
+```
+- `invitationExpiresAt`: the link works until then (72 hours) and only once.
+- `invitationSent`: `false` if the email could not be sent. The Admin exists anyway, and needs a new invitation (not possible through the API yet, part 3B-5).
+- The answer never contains the token or the link.
+
+Until the invitation is accepted, the Admin cannot sign in. After that, a developer sets up their authenticator app (README, "Invite an Admin").
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | Missing or invalid fields |
+| `401` | see "Authentication errors on protected endpoints" | No staff access token, or a customer's |
+| `403` | `Only a Super User may do this.` | Called by an Admin |
+| `409` | `An account with this email address already exists.` | The email already has an account, customer or staff. Customers are never turned into staff: an Admin needs another address. |
+| `429` | `code: "RATE_LIMITED"` | Per-IP limit (20 per hour) |
+| `503` | `code: "SERVER_BUSY"` | Too many password hashes at once; try again after `Retry-After` |
+
 ## Not yet implemented
 
-Profile changes, changing the password while signed in, "sign out everywhere", staff password changes, and Admin management by Super Users (part 3B-4). See `docs/requirements.md`, ADR 0007, ADR 0014 and `docs/security.md`.
+Profile changes, changing the password while signed in, "sign out everywhere", staff password changes, and managing Admins: list, disable and enable, remove, invite again (part 3B-5). See `docs/requirements.md`, ADR 0007, ADR 0014, ADR 0015 and `docs/security.md`.
