@@ -1,5 +1,6 @@
 import { Reflector } from '@nestjs/core';
 import { RATE_LIMIT } from '../rate-limit/rate-limit.decorator';
+import { StaffAuthController } from '../staff/staff-auth.controller';
 import { AuthController } from './auth.controller';
 
 // The per-IP limit of each handler, read from its @RateLimit() decorator.
@@ -24,6 +25,11 @@ describe('rate-limited routes', () => {
       logout: ['logout'],
       forgotPassword: ['forgotPassword'],
       resetPassword: ['resetPassword'],
+    });
+    expect(routeLimits(StaffAuthController)).toEqual({
+      login: ['staffLogin'],
+      refresh: ['refresh'],
+      logout: ['logout'],
     });
   });
 });

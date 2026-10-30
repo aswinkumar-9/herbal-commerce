@@ -2,8 +2,9 @@ import { HttpException } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
 import { RetryLaterException } from '../common/retry-later.exception';
 import { PrismaService } from '../prisma/prisma.service';
-import { RateLimitService } from '../rate-limit/rate-limit.service';
 import { AccessTokenService } from './access-token.service';
+import type { Audience } from './access-token.service';
+import { LoginAttemptsService } from './login-attempts.service';
 import { PasswordService } from './password.service';
 import { SessionService } from './session.service';
 import { hashToken } from './token.util';
@@ -16,7 +17,9 @@ type SessionCreateArgs = {
   };
 };
 
-const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const THIRTY_DAYS_MS = 30 * 24 * HOUR_MS;
+const TWELVE_HOURS_MS = 12 * HOUR_MS;
 const IP = '203.0.113.7';
 const input = { email: 'asha@example.com', password: 'a-long-password-1' };
 const customer = {
@@ -32,15 +35,39 @@ const liveSession = {
   id: 'session-1',
   expiresAt: new Date(Date.now() + THIRTY_DAYS_MS),
   revokedAt: null,
-  user: { id: 'user-1', role: 'CUSTOMER', status: 'ACTIVE' },
+  user: {
+    id: 'user-1',
+    role: 'CUSTOMER',
+    status: 'ACTIVE',
+    mfaEnabledAt: null as Date | null,
+  },
 };
-const storedToken = { id: 'token-1', usedAt: null, session: liveSession };
-// The three failed-login counters for `input` from `IP`.
-const FAILURE_COUNTERS = [
-  ['loginFailuresByEmailAndIp', `${IP}|${input.email}`],
-  ['loginFailuresByEmail', input.email],
-  ['loginFailuresByIp', IP],
-];
+const storedToken = {
+  id: 'token-1',
+  usedAt: null as Date | null,
+  session: liveSession,
+};
+// The same for a staff session: an Admin with MFA set up.
+const storedStaffToken = {
+  ...storedToken,
+  session: {
+    ...liveSession,
+    expiresAt: new Date(Date.now() + TWELVE_HOURS_MS),
+    user: {
+      ...liveSession.user,
+      role: 'ADMIN',
+      mfaEnabledAt: new Date('2026-10-28T00:00:00Z'),
+    },
+  },
+};
+
+// A stored token whose user has some fields changed.
+function withUser(token: typeof storedToken, changes: object) {
+  return {
+    ...token,
+    session: { ...token.session, user: { ...token.session.user, ...changes } },
+  };
+}
 
 const tooManyRequests = () =>
   new RetryLaterException(429, 'Too many requests.', 'RATE_LIMITED', 900);
@@ -68,20 +95,20 @@ function setup() {
   const accessTokens = {
     sign: jest.fn().mockResolvedValue('signed-access-token'),
   };
-  const limits = {
+  const attempts = {
     check: jest.fn().mockResolvedValue(undefined),
-    consume: jest.fn().mockResolvedValue(undefined),
-    reset: jest.fn().mockResolvedValue(undefined),
+    failed: jest.fn().mockResolvedValue(undefined),
+    succeeded: jest.fn().mockResolvedValue(undefined),
   };
   const logger = { debug: jest.fn(), info: jest.fn(), warn: jest.fn() };
   const service = new SessionService(
     prisma as unknown as PrismaService,
     passwords as unknown as PasswordService,
     accessTokens as unknown as AccessTokenService,
-    limits as unknown as RateLimitService,
+    attempts as unknown as LoginAttemptsService,
     logger as unknown as PinoLogger,
   );
-  return { service, prisma, tx, passwords, accessTokens, limits, logger };
+  return { service, prisma, tx, passwords, accessTokens, attempts, logger };
 }
 
 // Runs a call that must fail and returns the error the client would get.
@@ -97,10 +124,16 @@ async function rejection(run: () => Promise<unknown>): Promise<HttpException> {
   throw new Error('the call unexpectedly succeeded');
 }
 
+// How long the session that the call created lasts.
+function lifetimeOf(create: jest.Mock): number {
+  const { data } = create.mock.calls[0][0] as SessionCreateArgs;
+  return data.expiresAt.getTime() - Date.now();
+}
+
 const loginError = (service: SessionService) =>
   rejection(() => service.login(input, IP));
-const refreshError = (service: SessionService) =>
-  rejection(() => service.refresh(RAW_REFRESH_TOKEN));
+const refreshError = (service: SessionService, audience?: Audience) =>
+  rejection(() => service.refresh(RAW_REFRESH_TOKEN, audience));
 
 describe('SessionService.login', () => {
   it('starts a 30-day session and stores only the hash of the refresh token', async () => {
@@ -116,16 +149,16 @@ describe('SessionService.login', () => {
     });
     const { data } = prisma.session.create.mock.calls[0][0] as SessionCreateArgs;
     expect(data.userId).toBe('user-1');
-    const lifetime = data.expiresAt.getTime() - Date.now();
+    const lifetime = lifetimeOf(prisma.session.create);
     expect(lifetime).toBeGreaterThan(THIRTY_DAYS_MS - 60_000);
     expect(lifetime).toBeLessThanOrEqual(THIRTY_DAYS_MS);
     const storedHash = data.refreshTokens.create.tokenHash;
     expect(storedHash).not.toBe(tokens.refreshToken);
     expect(storedHash).toBe(hashToken(tokens.refreshToken));
-    expect(accessTokens.sign).toHaveBeenCalledWith({
-      id: 'user-1',
-      sessionId: 'session-1',
-    });
+    expect(accessTokens.sign).toHaveBeenCalledWith(
+      { id: 'user-1', sessionId: 'session-1' },
+      'customer',
+    );
   });
 
   it('gives one answer for an unknown email, a wrong password and an unverified email', async () => {
@@ -213,8 +246,9 @@ describe('SessionService.login', () => {
     }
   });
 
-  // New in Part 3D: brute-force protection.
-  it('counts every failed login against the three limits, unknown emails too', async () => {
+  // Since Part 3D: brute-force protection. The counters themselves are
+  // tested in login-attempts.service.spec.ts.
+  it('counts every failed login, unknown emails too', async () => {
     const unknown = setup();
     unknown.prisma.user.findUnique.mockResolvedValue(null);
     const wrongPassword = setup();
@@ -225,42 +259,66 @@ describe('SessionService.login', () => {
       emailVerifiedAt: null,
     });
 
-    for (const { service, limits } of [unknown, wrongPassword, unverified]) {
+    const cases = [
+      { ...unknown, userId: undefined },
+      { ...wrongPassword, userId: 'user-1' },
+      { ...unverified, userId: 'user-1' },
+    ];
+    for (const { service, attempts, userId } of cases) {
       await loginError(service);
-      expect(limits.consume.mock.calls).toEqual(FAILURE_COUNTERS);
+      expect(attempts.failed.mock.calls).toEqual([[input.email, IP, userId]]);
+      expect(attempts.succeeded).not.toHaveBeenCalled();
     }
   });
 
   it('refuses with 429 before any lookup or password check while a limit is exceeded', async () => {
-    const { service, prisma, passwords, limits } = setup();
-    limits.check.mockRejectedValueOnce(tooManyRequests());
+    const { service, prisma, passwords, attempts } = setup();
+    attempts.check.mockRejectedValueOnce(tooManyRequests());
 
     expect((await loginError(service)).getStatus()).toBe(429);
-    expect(limits.check.mock.calls).toEqual(FAILURE_COUNTERS);
+    expect(attempts.check).toHaveBeenCalledWith(input.email, IP);
     expect(prisma.user.findUnique).not.toHaveBeenCalled();
     expect(passwords.verify).not.toHaveBeenCalled();
     expect(passwords.verifyDummy).not.toHaveBeenCalled();
   });
 
   it('answers 429 instead of 401 for the failure that goes over a limit', async () => {
-    const { service, passwords, limits, logger } = setup();
+    const { service, passwords, attempts } = setup();
     passwords.verify.mockResolvedValue(false);
-    limits.consume.mockRejectedValueOnce(tooManyRequests());
+    attempts.failed.mockRejectedValueOnce(tooManyRequests());
 
     expect((await loginError(service)).getStatus()).toBe(429);
-    expect(logger.warn).toHaveBeenCalledWith(
-      { userId: 'user-1' },
-      expect.stringContaining('Too many failed sign-ins'),
-    );
   });
 
-  it('after the right password, resets only this email and IP', async () => {
-    const { service, limits } = setup();
+  it('after the right password, clears the failures of this email and IP', async () => {
+    const { service, attempts } = setup();
 
     await service.login(input, IP);
 
-    expect(limits.reset.mock.calls).toEqual([FAILURE_COUNTERS[0]]);
-    expect(limits.consume).not.toHaveBeenCalled();
+    expect(attempts.succeeded).toHaveBeenCalledWith(input.email, IP);
+    expect(attempts.failed).not.toHaveBeenCalled();
+  });
+});
+
+// New in Part 3B-3: sessions for the staff login.
+describe('SessionService.start', () => {
+  it('starts a 12-hour staff session with a staff access token', async () => {
+    const { service, prisma, accessTokens } = setup();
+
+    const tokens = await service.start('user-1', 'staff');
+
+    expect(tokens.accessToken).toBe('signed-access-token');
+    const lifetime = lifetimeOf(prisma.session.create);
+    expect(lifetime).toBeGreaterThan(TWELVE_HOURS_MS - 60_000);
+    expect(lifetime).toBeLessThanOrEqual(TWELVE_HOURS_MS);
+    const { data } = prisma.session.create.mock.calls[0][0] as SessionCreateArgs;
+    expect(data.refreshTokens.create.tokenHash).toBe(
+      hashToken(tokens.refreshToken),
+    );
+    expect(accessTokens.sign).toHaveBeenCalledWith(
+      { id: 'user-1', sessionId: 'session-1' },
+      'staff',
+    );
   });
 });
 
@@ -286,11 +344,50 @@ describe('SessionService.refresh', () => {
         tokenHash: hashToken(tokens.refreshToken),
       },
     });
-    expect(accessTokens.sign).toHaveBeenCalledWith({
-      id: 'user-1',
-      sessionId: 'session-1',
-    });
+    expect(accessTokens.sign).toHaveBeenCalledWith(
+      { id: 'user-1', sessionId: 'session-1' },
+      'customer',
+    );
     expect(prisma.session.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('swaps a staff refresh token for a staff pair', async () => {
+    for (const role of ['ADMIN', 'SUPER_USER']) {
+      const { service, prisma, tx, accessTokens } = setup();
+      prisma.refreshToken.findUnique.mockResolvedValue(
+        withUser(storedStaffToken, { role }),
+      );
+
+      await service.refresh(RAW_REFRESH_TOKEN, 'staff');
+
+      expect(tx.refreshToken.create).toHaveBeenCalled();
+      expect(accessTokens.sign).toHaveBeenCalledWith(
+        { id: 'user-1', sessionId: 'session-1' },
+        'staff',
+      );
+    }
+  });
+
+  it('refuses a token from the other sign-in path and leaves its session alone', async () => {
+    const cases: [typeof storedToken, Audience][] = [
+      [storedToken, 'staff'],
+      [storedStaffToken, 'customer'],
+      // Even a used one: detecting reuse is for its own path.
+      [{ ...storedToken, usedAt: new Date() }, 'staff'],
+    ];
+    for (const [record, audience] of cases) {
+      const { service, prisma, accessTokens, logger } = setup();
+      prisma.refreshToken.findUnique.mockResolvedValue(record);
+
+      expect((await refreshError(service, audience)).getStatus()).toBe(401);
+      expect(prisma.session.updateMany).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(accessTokens.sign).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'wrong_audience', audience }),
+        expect.any(String),
+      );
+    }
   });
 
   it('revokes the whole session when a used refresh token comes back', async () => {
@@ -322,20 +419,23 @@ describe('SessionService.refresh', () => {
     expect(accessTokens.sign).not.toHaveBeenCalled();
   });
 
-  it('ends the session when the account is disabled or no longer a customer', async () => {
-    for (const user of [
-      { ...liveSession.user, status: 'DISABLED' },
-      { ...liveSession.user, role: 'ADMIN' },
-    ]) {
-      const { service, prisma } = setup();
-      prisma.refreshToken.findUnique.mockResolvedValue({
-        ...storedToken,
-        session: { ...liveSession, user },
-      });
+  it('ends the session when the account is disabled, or staff have no MFA', async () => {
+    const cases: [typeof storedToken, Audience][] = [
+      [withUser(storedToken, { status: 'DISABLED' }), 'customer'],
+      [withUser(storedStaffToken, { status: 'DISABLED' }), 'staff'],
+      [withUser(storedStaffToken, { mfaEnabledAt: null }), 'staff'],
+    ];
+    for (const [record, audience] of cases) {
+      const { service, prisma, logger } = setup();
+      prisma.refreshToken.findUnique.mockResolvedValue(record);
 
-      expect((await refreshError(service)).getStatus()).toBe(401);
+      expect((await refreshError(service, audience)).getStatus()).toBe(401);
       expect(prisma.session.updateMany).toHaveBeenCalled();
       expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.objectContaining({ reason: 'account_not_allowed' }),
+        expect.any(String),
+      );
     }
   });
 
@@ -364,13 +464,8 @@ describe('SessionService.refresh', () => {
       null,
       { ...storedToken, usedAt: new Date() },
       { ...storedToken, session: { ...liveSession, revokedAt: new Date() } },
-      {
-        ...storedToken,
-        session: {
-          ...liveSession,
-          user: { ...liveSession.user, status: 'DISABLED' },
-        },
-      },
+      withUser(storedToken, { status: 'DISABLED' }),
+      storedStaffToken,
     ]) {
       const { service, prisma, logger } = setup();
       prisma.refreshToken.findUnique.mockResolvedValue(record);
@@ -387,18 +482,29 @@ describe('SessionService.refresh', () => {
 });
 
 describe('SessionService.logout', () => {
-  it('revokes the session the refresh token belongs to', async () => {
-    const { service, prisma } = setup();
-    prisma.refreshToken.findUnique.mockResolvedValue({
-      sessionId: 'session-1',
-      session: { userId: 'user-1' },
-    });
+  // The row logout reads, for a user with this role.
+  const tokenOf = (role: string) => ({
+    sessionId: 'session-1',
+    session: { userId: 'user-1', user: { role } },
+  });
 
-    await expect(service.logout(RAW_REFRESH_TOKEN)).resolves.toBeUndefined();
-    expect(prisma.session.updateMany).toHaveBeenCalledWith({
-      where: { id: 'session-1', revokedAt: null },
-      data: { revokedAt: expect.any(Date) },
-    });
+  it('revokes the session the refresh token belongs to', async () => {
+    const cases: [string, Audience][] = [
+      ['CUSTOMER', 'customer'],
+      ['SUPER_USER', 'staff'],
+    ];
+    for (const [role, audience] of cases) {
+      const { service, prisma } = setup();
+      prisma.refreshToken.findUnique.mockResolvedValue(tokenOf(role));
+
+      await expect(
+        service.logout(RAW_REFRESH_TOKEN, audience),
+      ).resolves.toBeUndefined();
+      expect(prisma.session.updateMany).toHaveBeenCalledWith({
+        where: { id: 'session-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+    }
   });
 
   it('quietly does nothing for an unknown token', async () => {
@@ -407,6 +513,22 @@ describe('SessionService.logout', () => {
 
     await expect(service.logout(RAW_REFRESH_TOKEN)).resolves.toBeUndefined();
     expect(prisma.session.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('quietly leaves a session of the other sign-in path alone', async () => {
+    const cases: [string, Audience][] = [
+      ['CUSTOMER', 'staff'],
+      ['ADMIN', 'customer'],
+    ];
+    for (const [role, audience] of cases) {
+      const { service, prisma } = setup();
+      prisma.refreshToken.findUnique.mockResolvedValue(tokenOf(role));
+
+      await expect(
+        service.logout(RAW_REFRESH_TOKEN, audience),
+      ).resolves.toBeUndefined();
+      expect(prisma.session.updateMany).not.toHaveBeenCalled();
+    }
   });
 });
 
@@ -417,7 +539,7 @@ describe('SessionService.isActive', () => {
       { session: { findFirst } } as unknown as PrismaService,
       {} as PasswordService,
       {} as AccessTokenService,
-      {} as RateLimitService,
+      {} as LoginAttemptsService,
       {} as PinoLogger,
     );
     return { service, findFirst };
@@ -433,7 +555,29 @@ describe('SessionService.isActive', () => {
         userId: 'user-1',
         revokedAt: null,
         expiresAt: { gt: expect.any(Date) },
-        user: { role: 'CUSTOMER', status: 'ACTIVE' },
+        user: { role: { in: ['CUSTOMER'] }, status: 'ACTIVE' },
+      },
+      select: { id: true },
+    });
+  });
+
+  it('for staff, accepts only an active Admin or Super User with MFA set up', async () => {
+    const { service, findFirst } = withSession({ id: 'session-1' });
+
+    await expect(
+      service.isActive('user-1', 'session-1', 'staff'),
+    ).resolves.toBe(true);
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'session-1',
+        userId: 'user-1',
+        revokedAt: null,
+        expiresAt: { gt: expect.any(Date) },
+        user: {
+          role: { in: ['ADMIN', 'SUPER_USER'] },
+          status: 'ACTIVE',
+          mfaEnabledAt: { not: null },
+        },
       },
       select: { id: true },
     });

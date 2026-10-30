@@ -1,7 +1,8 @@
 # 0013. Staff MFA with authenticator apps (TOTP)
 
-- Status: Accepted and implemented (part 3B-2: setup; staff login follows in part 3B-3)
+- Status: Accepted and implemented (part 3B-2: setup; part 3B-3: staff login, ADR 0014)
 - Date: 2026-10-29
+- Updated: 2026-10-30 (part 3B-3: codes are now used at the staff login, ADR 0014)
 
 ## Context
 
@@ -65,4 +66,5 @@ Part 3B-3 then adds the staff login, which always asks for the password and a co
 - A staff member's sessions all end whenever their MFA is set up or replaced.
 - If a phone's clock is more than about 30 seconds off, its codes are refused. The setup command says to set the phone's time automatically.
 - Typing the key by hand is error-prone: base32 has no `0`, `1`, `8` or `9`, which are easily confused with `O`, `I` and `B`. A QR code in the admin console will remove this.
-- Next: part 3B-3 (staff login with password and code, staff tokens and sessions), then part 3B-4 (roles guard and Admin management).
+- **Only the newest key works.** An older entry left in the app after a second setup shows codes that are refused. Delete old entries whenever the command runs again.
+- Part 3B-3 added the staff login with password and code, staff tokens and sessions (ADR 0014). Next: part 3B-4 (roles guard and Admin management).

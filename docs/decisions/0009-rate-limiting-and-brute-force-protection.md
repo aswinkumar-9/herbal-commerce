@@ -3,6 +3,7 @@
 - Status: Accepted and implemented (part 3D)
 - Date: 2026-10-26
 - Updated: 2026-10-26 (part 3A-4 added the password recovery limits, ADR 0010)
+- Updated: 2026-10-30 (part 3B-3: the staff login shares the failure counters and has its own per-IP limit, ADR 0014)
 
 ## Context
 
@@ -33,6 +34,7 @@ Most customers will use Indian mobile networks. Carrier-grade NAT (CGNAT) puts t
    - **Every failure is counted**: unknown email, wrong password, unverified email. Unknown emails count exactly like real ones, so a 429 never reveals whether an account exists.
    - The failure that **goes over** a limit answers 429 instead of 401, and starts the block.
    - A successful login **resets only the email + IP counter**, so an attacker's own login cannot wipe the per-email or per-IP counts.
+   - **The staff login uses the same three counters** (since part 3B-3, ADR 0014), through `LoginAttemptsService`. A wrong code counts like a wrong password, and switching between the two login paths gains nothing.
 3. **Emails to one address.** Register (a verification link or an "account exists" notice), resend and forgot-password (since part 3A-4) all count against `emailsToAddress`. They count before any work, and for every address, known or not.
 4. **Password hashing.** At most 2 argon2 operations run at once and 50 more wait their turn. Beyond that the answer is 503.
 
@@ -48,7 +50,8 @@ Most customers will use Indian mobile networks. Carrier-grade NAT (CGNAT) puts t
 | `resetPassword` | IP | 20 per hour | 429 |
 | `emailsToAddress` | email address | 5 emails per hour (register, resend and forgot-password together) | 429 |
 | `login` | IP | 60 attempts per minute | 429 |
-| `refresh`, `logout` | IP | 120 per minute | 429 |
+| `staffLogin` | IP | 10 attempts per minute (since part 3B-3) | 429 |
+| `refresh`, `logout` | IP | 120 per minute (customer and staff together) | 429 |
 | `loginFailuresByEmailAndIp` | email + IP | 5 failures per hour | blocked for 15 minutes; a successful login resets it |
 | `loginFailuresByEmail` | email | 50 failures per hour | blocked for 1 hour |
 | `loginFailuresByIp` | IP | 200 failures per hour | blocked for 1 hour |

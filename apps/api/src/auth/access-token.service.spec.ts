@@ -55,10 +55,11 @@ describe('AccessTokenService', () => {
 
   it('puts only the expected claims in an HS256 token', async () => {
     const token = await service.sign(USER);
-    const { header, payload } = new JwtService().decode<{
-      header: { alg: string };
-      payload: Record<string, string | number>;
-    }>(token, { complete: true });
+    // With complete: true, the type argument is the payload's type.
+    const { header, payload } = new JwtService().decode<
+      Record<string, string | number>
+    >(token, { complete: true });
+
     expect(header.alg).toBe('HS256');
     expect(Object.keys(payload).sort()).toEqual([
       'aud',
@@ -136,5 +137,23 @@ describe('AccessTokenService', () => {
       { subject: 'admin' },
     );
     await expect(service.verify(notAUserId)).rejects.toThrow();
+  });
+
+  it('signs staff tokens with their own audience', async () => {
+    const token = await service.sign(USER, 'staff');
+    const payload = new JwtService().decode<{ aud: string }>(token);
+
+    expect(payload.aud).toBe('staff');
+    await expect(service.verify(token, 'staff')).resolves.toEqual(USER);
+  });
+
+  it('never accepts a token for the other audience', async () => {
+    const customerToken = await service.sign(USER, 'customer');
+    const staffToken = await service.sign(USER, 'staff');
+
+    await expect(service.verify(customerToken, 'staff')).rejects.toThrow();
+    await expect(service.verify(staffToken, 'customer')).rejects.toThrow();
+    // The default is "customer": a staff token never passes by accident.
+    await expect(service.verify(staffToken)).rejects.toThrow();
   });
 });

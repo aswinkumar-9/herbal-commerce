@@ -6,6 +6,7 @@
     "api:dev": "pnpm --filter api start:dev",
     "api:test": "pnpm --filter api test",
     "api:lint": "pnpm --filter api lint",
+    "api:typecheck": "pnpm --filter api typecheck",
     "api:build": "pnpm --filter api build",
     "api:create-super-user": "pnpm --filter api build && pnpm --filter api cli:create-super-user",
     "api:setup-staff-mfa": "pnpm --filter api build && pnpm --filter api cli:setup-staff-mfa",

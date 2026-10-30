@@ -4,6 +4,7 @@ import { MailModule } from '../mail/mail.module';
 import { AccessTokenService } from './access-token.service';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { LoginAttemptsService } from './login-attempts.service';
 import { MeController } from './me.controller';
 import { PasswordResetService } from './password-reset.service';
 import { PasswordService } from './password.service';
@@ -17,10 +18,17 @@ import { SessionService } from './session.service';
     AuthService,
     PasswordService,
     AccessTokenService,
+    LoginAttemptsService,
     SessionService,
     PasswordResetService,
   ],
-  // The global guard in AppModule needs these two.
-  exports: [AccessTokenService, SessionService],
+  // The global guard in AppModule needs the first two; the staff login
+  // (StaffModule) needs the rest.
+  exports: [
+    AccessTokenService,
+    SessionService,
+    PasswordService,
+    LoginAttemptsService,
+  ],
 })
 export class AuthModule {}

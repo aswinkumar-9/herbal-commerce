@@ -13,6 +13,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { RateLimitGuard } from './rate-limit/rate-limit.guard';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
 import { RetentionModule } from './retention/retention.module';
+import { StaffModule } from './staff/staff.module';
 import { ValkeyModule } from './valkey/valkey.module';
 
 @Module({
@@ -35,6 +36,7 @@ import { ValkeyModule } from './valkey/valkey.module';
     ValkeyModule,
     RateLimitModule,
     AuthModule,
+    StaffModule,
     HealthModule,
     RetentionModule,
   ],

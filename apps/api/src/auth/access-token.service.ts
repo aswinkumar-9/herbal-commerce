@@ -8,8 +8,10 @@ import type { AuthUser } from './auth-user';
 // Short-lived on purpose: the refresh token is used to get a new one.
 export const ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 const ISSUER = 'herbal-api';
-// Customer tokens only. Staff tokens will get their own audience.
-const AUDIENCE = 'customer';
+
+// Who a token is for. A token only opens routes of its own audience:
+// a staff token never works on a customer route, and the other way round.
+export type Audience = 'customer' | 'staff';
 
 // Our own claims; jsonwebtoken checks the standard ones (exp, iss, aud...).
 const claimsSchema = z.object({ sub: z.uuid(), sid: z.uuid() });
@@ -26,7 +28,7 @@ export class AccessTokenService {
   }
 
   // No email, name or role in the token: anyone holding it can read it.
-  sign(user: AuthUser): Promise<string> {
+  sign(user: AuthUser, audience: Audience = 'customer'): Promise<string> {
     return this.jwt.signAsync(
       { sid: user.sessionId },
       {
@@ -34,19 +36,20 @@ export class AccessTokenService {
         algorithm: 'HS256',
         expiresIn: ACCESS_TOKEN_TTL_SECONDS,
         issuer: ISSUER,
-        audience: AUDIENCE,
+        audience,
         subject: user.id,
       },
     );
   }
 
-  // Throws if the token is forged, expired or not our customer access token.
-  async verify(token: string): Promise<AuthUser> {
+  // Throws if the token is forged, expired, or not an access token for this
+  // audience.
+  async verify(token: string, audience: Audience = 'customer'): Promise<AuthUser> {
     const payload: unknown = await this.jwt.verifyAsync(token, {
       secret: this.secret,
       algorithms: ['HS256'],
       issuer: ISSUER,
-      audience: AUDIENCE,
+      audience,
       maxAge: ACCESS_TOKEN_TTL_SECONDS,
     });
     const claims = claimsSchema.parse(payload);

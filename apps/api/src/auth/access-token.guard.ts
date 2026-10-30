@@ -7,9 +7,11 @@ import {
 import { Reflector } from '@nestjs/core';
 import type { Request, Response } from 'express';
 import { AccessTokenService } from './access-token.service';
+import type { Audience } from './access-token.service';
 import type { AuthUser } from './auth-user';
 import { IS_PUBLIC } from './public.decorator';
 import { SessionService } from './session.service';
+import { STAFF_ONLY } from './staff-only.decorator';
 
 const INVALID_ACCESS_TOKEN = 'Invalid or expired access token';
 
@@ -21,6 +23,8 @@ function bearerToken(header: string | undefined): string | undefined {
 }
 
 // Runs before every route. A route is protected unless its handler is @Public().
+// Protected routes are for customers unless marked @StaffOnly(), and each one
+// accepts only access tokens and sessions of its own audience.
 @Injectable()
 export class AccessTokenGuard implements CanActivate {
   constructor(
@@ -34,6 +38,12 @@ export class AccessTokenGuard implements CanActivate {
     if (this.reflector.get<boolean>(IS_PUBLIC, context.getHandler())) {
       return true;
     }
+    // On the handler or on its whole controller.
+    const staffOnly = this.reflector.getAllAndOverride<boolean | undefined>(
+      STAFF_ONLY,
+      [context.getHandler(), context.getClass()],
+    );
+    const audience: Audience = staffOnly ? 'staff' : 'customer';
 
     const http = context.switchToHttp();
     const request = http.getRequest<Request & { user?: AuthUser }>();
@@ -44,12 +54,13 @@ export class AccessTokenGuard implements CanActivate {
 
     let user: AuthUser;
     try {
-      user = await this.accessTokens.verify(token);
+      // A token for the other audience fails here, like a forged one.
+      user = await this.accessTokens.verify(token, audience);
     } catch {
       throw new UnauthorizedException(INVALID_ACCESS_TOKEN);
     }
     // The signature alone is not enough: the session must still be live.
-    if (!(await this.sessions.isActive(user.id, user.sessionId))) {
+    if (!(await this.sessions.isActive(user.id, user.sessionId, audience))) {
       throw new UnauthorizedException(INVALID_ACCESS_TOKEN);
     }
 

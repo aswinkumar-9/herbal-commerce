@@ -4,21 +4,31 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
-import { RetryLaterException } from '../common/retry-later.exception';
+import type { Prisma, UserRole } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { RateLimitService } from '../rate-limit/rate-limit.service';
-import type { RateLimitName } from '../rate-limit/rate-limits';
 import {
   ACCESS_TOKEN_TTL_SECONDS,
   AccessTokenService,
 } from './access-token.service';
+import type { Audience } from './access-token.service';
 import type { LoginInput } from './auth.schemas';
-import { emailAndIpKey } from './login-limits';
+import { LoginAttemptsService } from './login-attempts.service';
 import { PasswordService } from './password.service';
 import { generateToken, hashToken } from './token.util';
 
-// A sign-in lasts 30 days in total. After that the password is needed again.
-const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+// How long a sign-in lasts in total. After that the password is needed again,
+// and for staff a code too. Staff access is powerful, so it lasts one working day.
+const SESSION_TTL_MS: Record<Audience, number> = {
+  customer: 30 * 24 * HOUR_MS,
+  staff: 12 * HOUR_MS,
+};
+// The roles each audience is for. Each sign-in path accepts only its own
+// roles, so a session's audience always follows from its user's role.
+const ROLES: Record<Audience, UserRole[]> = {
+  customer: ['CUSTOMER'],
+  staff: ['ADMIN', 'SUPER_USER'],
+};
 const INVALID_CREDENTIALS = 'Invalid email or password';
 // The same answer for every failed refresh; the reason goes to the log only.
 const INVALID_REFRESH_TOKEN = 'Invalid refresh token';
@@ -32,12 +42,17 @@ type LoginFailure =
 
 type RefreshFailure =
   | 'unknown_token'
+  | 'wrong_audience'
   | 'session_ended'
   | 'token_reused'
   | 'account_not_allowed';
 
-// A failed-login limit and the key it counts.
-type FailureCounter = [RateLimitName, string];
+// What a failed refresh logs. Never the token itself.
+interface RefreshContext {
+  audience: Audience;
+  userId?: string;
+  sessionId?: string;
+}
 
 export interface TokenPair {
   accessToken: string;
@@ -47,30 +62,32 @@ export interface TokenPair {
   refreshToken: string;
 }
 
+// Who may use a session of this audience: an active account with one of its
+// roles. Staff must also have MFA set up.
+function liveUser(audience: Audience): Prisma.UserWhereInput {
+  const user: Prisma.UserWhereInput = {
+    role: { in: ROLES[audience] },
+    status: 'ACTIVE',
+  };
+  return audience === 'staff'
+    ? { ...user, mfaEnabledAt: { not: null } }
+    : user;
+}
+
 @Injectable()
 export class SessionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly passwords: PasswordService,
     private readonly accessTokens: AccessTokenService,
-    private readonly limits: RateLimitService,
+    private readonly attempts: LoginAttemptsService,
     @InjectPinoLogger(SessionService.name) private readonly logger: PinoLogger,
   ) {}
 
+  // The customer login. Staff have their own, which also asks for a code.
   async login(input: LoginInput, ip: string): Promise<TokenPair> {
-    const emailAndIp = emailAndIpKey(input.email, ip);
-    const counters: FailureCounter[] = [
-      // One person guessing one account's password.
-      ['loginFailuresByEmailAndIp', emailAndIp],
-      // Many machines guessing one account's password.
-      ['loginFailuresByEmail', input.email],
-      // One machine trying many accounts.
-      ['loginFailuresByIp', ip],
-    ];
     // While too many recent attempts failed, refuse before any password work.
-    await Promise.all(
-      counters.map(([name, key]) => this.limits.check(name, key)),
-    );
+    await this.attempts.check(input.email, ip);
 
     const user = await this.prisma.user.findUnique({
       where: { email: input.email },
@@ -88,16 +105,17 @@ export class SessionService {
       await this.passwords.verifyDummy(input.password);
       return this.loginFailed(
         user ? 'not_customer' : 'unknown_account',
-        counters,
+        input,
+        ip,
         user?.id,
       );
     }
     if (!(await this.passwords.verify(user.passwordHash, input.password))) {
-      return this.loginFailed('wrong_password', counters, user.id);
+      return this.loginFailed('wrong_password', input, ip, user.id);
     }
     // Same answer as a wrong password, so login never reveals which emails are registered.
     if (!user.emailVerifiedAt) {
-      return this.loginFailed('email_not_verified', counters, user.id);
+      return this.loginFailed('email_not_verified', input, ip, user.id);
     }
     // Said only after the correct password, which nobody else can set for this account.
     if (user.status !== 'ACTIVE') {
@@ -108,29 +126,32 @@ export class SessionService {
       });
     }
 
-    // The right password: this person on this IP starts again from zero.
-    // The per-email and per-IP counters keep counting.
-    await this.limits.reset('loginFailuresByEmailAndIp', emailAndIp);
+    await this.attempts.succeeded(input.email, ip);
+    return this.start(user.id, 'customer');
+  }
 
-    // Only the hash is stored. The raw refresh token goes to the client once.
+  // Starts a session for someone a login has fully checked. Only the hash of
+  // the refresh token is stored. The raw token goes to the client once.
+  async start(userId: string, audience: Audience): Promise<TokenPair> {
     const { token: refreshToken, tokenHash } = generateToken();
     const session = await this.prisma.session.create({
       data: {
-        userId: user.id,
-        expiresAt: new Date(Date.now() + SESSION_TTL_MS),
+        userId,
+        expiresAt: new Date(Date.now() + SESSION_TTL_MS[audience]),
         refreshTokens: { create: { tokenHash } },
       },
       select: { id: true },
     });
-    this.logger.info(
-      { userId: user.id, sessionId: session.id },
-      'Customer signed in',
-    );
-    return this.issueTokens(user.id, session.id, refreshToken);
+    this.logger.info({ userId, sessionId: session.id, audience }, 'Signed in');
+    return this.issueTokens(userId, session.id, refreshToken, audience);
   }
 
-  // Swaps a refresh token for a new pair. Each refresh token works only once.
-  async refresh(refreshToken: string): Promise<TokenPair> {
+  // Swaps a refresh token for a new pair. Each refresh token works only once,
+  // and only on the sign-in path (audience) it was issued for.
+  async refresh(
+    refreshToken: string,
+    audience: Audience = 'customer',
+  ): Promise<TokenPair> {
     const record = await this.prisma.refreshToken.findUnique({
       where: { tokenHash: hashToken(refreshToken) },
       select: {
@@ -141,30 +162,41 @@ export class SessionService {
             id: true,
             expiresAt: true,
             revokedAt: true,
-            user: { select: { id: true, role: true, status: true } },
+            user: {
+              select: { id: true, role: true, status: true, mfaEnabledAt: true },
+            },
           },
         },
       },
     });
     if (!record) {
-      throw this.refreshFailure('unknown_token');
+      throw this.refreshFailure('unknown_token', { audience });
     }
     const { session } = record;
-    const ids = { userId: session.user.id, sessionId: session.id };
+    const { user } = session;
+    const context = { audience, userId: user.id, sessionId: session.id };
 
+    // A token from the other sign-in path: not ours to swap or to end.
+    if (!ROLES[audience].includes(user.role)) {
+      throw this.refreshFailure('wrong_audience', context);
+    }
     // A token that was already swapped came back, so someone has a copy of it.
     // We cannot tell the thief from the owner, so the whole session ends.
     if (record.usedAt) {
       await this.revokeSession(session.id);
-      throw this.refreshFailure('token_reused', ids);
+      throw this.refreshFailure('token_reused', context);
     }
     if (session.revokedAt || session.expiresAt <= new Date()) {
-      throw this.refreshFailure('session_ended', ids);
+      throw this.refreshFailure('session_ended', context);
     }
-    // A disabled account or a role change ends the session for good.
-    if (session.user.role !== 'CUSTOMER' || session.user.status !== 'ACTIVE') {
+    // A disabled account, or staff without MFA, ends the session for good.
+    // The same rule as liveUser(), which every request checks.
+    if (
+      user.status !== 'ACTIVE' ||
+      (audience === 'staff' && !user.mfaEnabledAt)
+    ) {
       await this.revokeSession(session.id);
-      throw this.refreshFailure('account_not_allowed', ids);
+      throw this.refreshFailure('account_not_allowed', context);
     }
 
     const next = generateToken();
@@ -185,37 +217,52 @@ export class SessionService {
     if (!rotated) {
       // Another request used this token first, so this is a second use.
       await this.revokeSession(session.id);
-      throw this.refreshFailure('token_reused', ids);
+      throw this.refreshFailure('token_reused', context);
     }
-    this.logger.debug(ids, 'Tokens refreshed');
-    return this.issueTokens(session.user.id, session.id, next.token);
+    this.logger.debug(context, 'Tokens refreshed');
+    return this.issueTokens(user.id, session.id, next.token, audience);
   }
 
   // Always succeeds, so the answer never tells whether the token was valid.
-  async logout(refreshToken: string): Promise<void> {
+  // A token from the other sign-in path is ignored like an unknown one.
+  async logout(
+    refreshToken: string,
+    audience: Audience = 'customer',
+  ): Promise<void> {
     const record = await this.prisma.refreshToken.findUnique({
       where: { tokenHash: hashToken(refreshToken) },
-      select: { sessionId: true, session: { select: { userId: true } } },
+      select: {
+        sessionId: true,
+        session: { select: { userId: true, user: { select: { role: true } } } },
+      },
     });
-    if (record) {
+    if (record && ROLES[audience].includes(record.session.user.role)) {
       await this.revokeSession(record.sessionId);
       this.logger.info(
-        { userId: record.session.userId, sessionId: record.sessionId },
-        'Customer signed out',
+        {
+          userId: record.session.userId,
+          sessionId: record.sessionId,
+          audience,
+        },
+        'Signed out',
       );
     }
   }
 
   // Checked on every authenticated request, so logout, reuse detection and
   // disabled accounts take effect at once.
-  async isActive(userId: string, sessionId: string): Promise<boolean> {
+  async isActive(
+    userId: string,
+    sessionId: string,
+    audience: Audience = 'customer',
+  ): Promise<boolean> {
     const session = await this.prisma.session.findFirst({
       where: {
         id: sessionId,
         userId,
         revokedAt: null,
         expiresAt: { gt: new Date() },
-        user: { role: 'CUSTOMER', status: 'ACTIVE' },
+        user: liveUser(audience),
       },
       select: { id: true },
     });
@@ -226,8 +273,12 @@ export class SessionService {
     userId: string,
     sessionId: string,
     refreshToken: string,
+    audience: Audience,
   ): Promise<TokenPair> {
-    const accessToken = await this.accessTokens.sign({ id: userId, sessionId });
+    const accessToken = await this.accessTokens.sign(
+      { id: userId, sessionId },
+      audience,
+    );
     return {
       accessToken,
       tokenType: 'Bearer',
@@ -245,24 +296,15 @@ export class SessionService {
   }
 
   // Logs the failure, counts it, and answers 401. The attempt that goes over
-  // a limit answers 429 instead. Unknown emails count too, so a 429 never
-  // reveals whether an account exists.
+  // a limit answers 429 instead.
   private async loginFailed(
     reason: LoginFailure,
-    counters: FailureCounter[],
+    input: LoginInput,
+    ip: string,
     userId?: string,
   ): Promise<never> {
     this.logFailure(reason, userId);
-    try {
-      await Promise.all(
-        counters.map(([name, key]) => this.limits.consume(name, key)),
-      );
-    } catch (error) {
-      if (error instanceof RetryLaterException) {
-        this.logger.warn({ userId }, 'Too many failed sign-ins: refusing for a while');
-      }
-      throw error;
-    }
+    await this.attempts.failed(input.email, ip, userId);
     throw new UnauthorizedException(INVALID_CREDENTIALS);
   }
 
@@ -279,13 +321,13 @@ export class SessionService {
   // Logs the reason and builds the one answer every failed refresh gets.
   private refreshFailure(
     reason: RefreshFailure,
-    ids: { userId?: string; sessionId?: string } = {},
+    context: RefreshContext,
   ): UnauthorizedException {
-    // A reused token or a blocked account may mean a stolen token.
-    if (reason === 'token_reused' || reason === 'account_not_allowed') {
-      this.logger.warn({ ...ids, reason }, 'Token refresh failed');
+    // Unknown and ended tokens are normal. Anything else may mean a stolen token.
+    if (reason === 'unknown_token' || reason === 'session_ended') {
+      this.logger.info({ ...context, reason }, 'Token refresh failed');
     } else {
-      this.logger.info({ ...ids, reason }, 'Token refresh failed');
+      this.logger.warn({ ...context, reason }, 'Token refresh failed');
     }
     return new UnauthorizedException(INVALID_REFRESH_TOKEN);
   }
