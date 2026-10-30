@@ -1,4 +1,5 @@
-// End-to-end check of customer sign-up and sign-in against the running API.
+// End-to-end check of customer sign-up and sign-in against the running API,
+// and that customers can never use the staff routes.
 // Needs the API (pnpm api:dev) and Mailpit (docker compose) to be running.
 // Each run creates one throwaway customer account in the local database.
 // `pnpm api:smoke` clears the local rate limits first, so it can run again at once.
@@ -144,6 +145,36 @@ async function main() {
   check(
     'GET /v1/me without a token answers 401',
     (await call('GET', '/v1/me')).status === 401,
+  );
+
+  // The staff routes are a separate world: a customer's password and tokens
+  // never open them. (The staff login itself is tried by hand, with a phone.)
+  const staffAsCustomer = await call('POST', '/v1/staff/auth/login', {
+    json: { email, password, code: '000000' },
+  });
+  const staffAsNobody = await call('POST', '/v1/staff/auth/login', {
+    json: { email: `nobody.${Date.now()}@example.com`, password, code: '000000' },
+  });
+  check(
+    'the staff login gives a customer and an unknown email the same 401',
+    staffAsCustomer.status === 401 &&
+      staffAsNobody.status === 401 &&
+      staffAsCustomer.body?.message === 'Invalid email, password or code' &&
+      staffAsCustomer.body?.message === staffAsNobody.body?.message,
+  );
+  check(
+    'a customer access token is refused on GET /v1/staff/me',
+    (await call('GET', '/v1/staff/me', { token: login.body.accessToken }))
+      .status === 401,
+  );
+  // Refused and left alone: the next check still refreshes with this token.
+  check(
+    'a customer refresh token is refused on the staff refresh',
+    (
+      await call('POST', '/v1/staff/auth/refresh', {
+        json: { refreshToken: login.body.refreshToken },
+      })
+    ).status === 401,
   );
 
   const refreshed = await call('POST', '/v1/auth/refresh', {
