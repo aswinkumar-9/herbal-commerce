@@ -38,6 +38,7 @@ model User {
   emailVerificationTokens EmailVerificationToken[]
   passwordResetTokens     PasswordResetToken[]
   sessions                Session[]
+  staffInvitations        StaffInvitation[]
 
   @@index([role])
   @@map("users")
@@ -70,6 +71,23 @@ model PasswordResetToken {
   @@index([userId])
   @@map("password_reset_tokens")
 }
+
+// An invitation for a new Admin to choose their own password (ADR 0015).
+// Only the SHA-256 hash of the link's token is stored, as for reset links.
+model StaffInvitation {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("staff_invitations")
+}
+
 
 model Session {
   id        String    @id @default(uuid()) @db.Uuid
