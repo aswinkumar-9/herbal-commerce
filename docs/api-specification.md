@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.7.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.8.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned.
 
@@ -8,6 +8,7 @@ Base path: `/v1` for business endpoints. Health endpoints are unversioned.
 
 - **JSON only.** Request bodies must be JSON (`Content-Type: application/json`), at most 100 kB and not compressed. A form body fails validation (`400`), a compressed body gets `415` and a larger body gets `413` (ADR 0008).
 - Every response carries an `X-Request-Id` header. A client may send its own `X-Request-Id` (8 to 64 characters of letters, digits, `_` or `-`); otherwise one is generated.
+- **IDs in paths** are UUIDs. Any other value gets `400` with `"message": "Validation failed (uuid is expected)"`, before any other work.
 - Every response carries the standard security headers (helmet), and no `X-Powered-By`.
 - **Authentication.** Every endpoint needs an access token unless it is marked **Public** below. Send it as `Authorization: Bearer <accessToken>`. There are two kinds: customer endpoints take customer access tokens, and staff endpoints (`/v1/staff/...`) take staff access tokens. Neither works on the other's endpoints. Some staff endpoints are for **Super Users only**, marked so below.
 - **Caching.** Token responses and every authenticated response carry `Cache-Control: no-store`. Clients and proxies must not store them.
@@ -64,10 +65,10 @@ The per-IP limits are checked before anything else, so a `429` can arrive even f
 | `resend-verification` | client IP | 20 per hour |
 | `forgot-password` | client IP | 20 per hour |
 | `reset-password` | client IP | 20 per hour |
-| `register`, `resend-verification` and `forgot-password` together | email address | 5 per hour |
+| `register`, `resend-verification`, `forgot-password` and `staff/admins/:id/invitation` together | email address | 5 per hour |
 | `login` | client IP | 60 attempts per minute |
 | `staff/auth/login` | client IP | 10 attempts per minute |
-| `staff/admins` (inviting an Admin) | client IP | 20 per hour |
+| `staff/admins` and `staff/admins/:id/invitation` together (inviting an Admin, and again) | client IP | 20 per hour |
 | `staff/auth/accept-invite` | client IP | 20 per hour |
 | `login` and `staff/auth/login` together, failed attempts | email + client IP | 5 per hour, then blocked for 15 minutes |
 | `login` and `staff/auth/login` together, failed attempts | email | 50 per hour, then blocked for 1 hour |
@@ -359,7 +360,15 @@ Errors: `401` (see "Authentication errors on protected endpoints"), also for a c
 
 ## Admin accounts (Super Users only)
 
-These endpoints need a **Super User's** staff access token. An Admin's token gets `403 Only a Super User may do this.` Every change is written to the audit log, with the Super User, the client IP and the request ID (ADR 0015).
+These endpoints need a **Super User's** staff access token. An Admin's token gets `403 Only a Super User may do this.` Every change is written to the audit log, with the Super User, the client IP and the request ID (ADR 0015, ADR 0016). These endpoints act on Admins only: a Super User's ID gets `404`, like an unknown one.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/staff/admins` | List every Admin |
+| `POST /v1/staff/admins` | Invite an Admin |
+| `POST /v1/staff/admins/:id/invitation` | Send a pending Admin a new invitation |
+| `PATCH /v1/staff/admins/:id` | Disable or enable an Admin |
+| `DELETE /v1/staff/admins/:id` | Remove a disabled or pending Admin |
 
 ### POST `/v1/staff/admins`
 
@@ -383,7 +392,7 @@ Response `201`:
 }
 ```
 - `invitationExpiresAt`: the link works until then (72 hours) and only once.
-- `invitationSent`: `false` if the email could not be sent. The Admin exists anyway, and needs a new invitation (not possible through the API yet, part 3B-5).
+- `invitationSent`: `false` if the email could not be sent. The Admin exists anyway: send a new invitation with `POST /v1/staff/admins/:id/invitation`.
 - The answer never contains the token or the link.
 
 Until the invitation is accepted, the Admin cannot sign in. After that, a developer sets up their authenticator app (README, "Invite an Admin").
@@ -399,6 +408,87 @@ Errors:
 | `429` | `code: "RATE_LIMITED"` | Per-IP limit (20 per hour) |
 | `503` | `code: "SERVER_BUSY"` | Too many password hashes at once; try again after `Retry-After` |
 
+### GET `/v1/staff/admins`
+
+Lists every Admin, oldest first, pending ones included. Never the password hash or the MFA secret. There is no paging: there are only a few Admins.
+
+Response `200`:
+```json
+{
+  "admins": [
+    {
+      "id": "3c9a7e21-5b4d-4f8e-9a16-7d2e0c5b8f41",
+      "email": "dev.admin1@example.com",
+      "fullName": "Dev Admin One",
+      "status": "ACTIVE",
+      "invitationAcceptedAt": "2026-10-30T11:43:18.000Z",
+      "invitationExpiresAt": null,
+      "mfaEnabledAt": "2026-10-30T11:47:36.000Z",
+      "createdAt": "2026-10-30T11:28:51.000Z"
+    }
+  ]
+}
+```
+- `status`: `ACTIVE` or `DISABLED`.
+- `invitationAcceptedAt`: when the Admin chose their password, or `null` while the invitation is pending.
+- `invitationExpiresAt`: when the newest unused invitation ends, or `null` if there is none. A time in the past means the link has expired: send a new one.
+- `mfaEnabledAt`: when a developer set up the authenticator app, or `null`. Until then the Admin cannot sign in.
+
+Errors: `401`, `403` (as above); `429` (the 600 per minute limit).
+
+### POST `/v1/staff/admins/:id/invitation`
+
+Sends a pending Admin a new invitation: a new link, valid for 72 hours and once. **Every older link stops working.** No request body.
+
+Response `201`: the same body as `POST /v1/staff/admins`, with the new `invitationExpiresAt` and `invitationSent`.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `401`, `403` | as above | |
+| `404` | `Admin not found` | No Admin with this ID |
+| `409` | `This Admin has already accepted the invitation.` | The Admin already chose a password: there is nothing to invite them to |
+| `409` | `Enable this Admin before inviting them again.` | The Admin is disabled |
+| `429` | `code: "RATE_LIMITED"` | Per-IP limit (20 invitations per hour, first ones and new ones together), or 5 emails per hour to this address. Nothing was changed: the old link still works. |
+
+### PATCH `/v1/staff/admins/:id`
+
+Disables or enables an Admin.
+
+Request:
+```json
+{ "status": "DISABLED" }
+```
+Rules: `status` is `ACTIVE` or `DISABLED`, in capitals. Any other field is ignored.
+
+Response `200`: the Admin, in the same form as in the list.
+
+- **Disabling ends every session of the Admin at once.** Their tokens stop working, and enabling them later does not bring those sessions back: they sign in again.
+- **Asking for the status the Admin already has changes nothing,** and answers `200` too. It is safe to send the same request twice.
+- A disabled Admin cannot sign in, and cannot accept an invitation.
+
+Errors: `400` (`Validation failed` for the body, or `Validation failed (uuid is expected)` for the ID); `401`, `403` (as above); `404 Admin not found`; `429` (the 600 per minute limit).
+
+### DELETE `/v1/staff/admins/:id`
+
+Removes an Admin, with their sessions and invitations. Only a **disabled** Admin, or a **pending** one who never accepted the invitation, can be removed. The audit log keeps who it was.
+
+Response `204 No Content`.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `401`, `403` | as above | |
+| `404` | `Admin not found` | No Admin with this ID, also when it was just removed |
+| `409` | `Disable this Admin before removing them.` | The Admin is active and has accepted the invitation |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+Client tip: offer "Remove" only for disabled and pending Admins, and "Disable" first for active ones.
+
 ## Not yet implemented
 
-Profile changes, changing the password while signed in, "sign out everywhere", staff password changes, and managing Admins: list, disable and enable, remove, invite again (part 3B-5). See `docs/requirements.md`, ADR 0007, ADR 0014, ADR 0015 and `docs/security.md`.
+Profile changes, changing the password while signed in, "sign out everywhere", staff password changes, and a view of the audit log for Super Users (part 3B-6). See `docs/requirements.md`, ADR 0007, ADR 0014, ADR 0015, ADR 0016 and `docs/security.md`.

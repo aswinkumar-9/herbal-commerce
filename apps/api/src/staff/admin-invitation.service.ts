@@ -3,6 +3,7 @@ import {
   BadRequestException,
   ConflictException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
@@ -14,6 +15,8 @@ import { Env } from '../config/env';
 import { MailService } from '../mail/mail.service';
 import { isUniqueViolation } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
+import { RateLimitService } from '../rate-limit/rate-limit.service';
+import { ADMIN_NOT_FOUND } from './admins.service';
 import type { AcceptInviteInput, AdminInviteInput } from './staff.schemas';
 
 // People do not always read their email at once, so an invitation waits a
@@ -23,6 +26,8 @@ const EMAIL_TAKEN = 'An account with this email address already exists.';
 const INVALID_INVITATION = 'Invalid or expired invitation link';
 const PASSWORD_SET =
   'Your password has been set. Before you can sign in, a developer will set up an authenticator app on your phone with you.';
+const ALREADY_ACCEPTED = 'This Admin has already accepted the invitation.';
+const ENABLE_FIRST = 'Enable this Admin before inviting them again.';
 
 type AcceptFailure =
   | 'unknown_token'
@@ -51,6 +56,7 @@ export class AdminInvitationService {
     private readonly audit: AuditService,
     private readonly mail: MailService,
     private readonly config: ConfigService<Env, true>,
+    private readonly limits: RateLimitService,
     @InjectPinoLogger(AdminInvitationService.name)
     private readonly logger: PinoLogger,
   ) {}
@@ -195,6 +201,72 @@ export class AdminInvitationService {
 
     this.logger.info({ userId }, 'Admin invitation accepted: password set');
     return { message: PASSWORD_SET };
+  }
+
+  // Sends a pending Admin a new link. Every older link stops working, so
+  // only the newest one in the inbox counts.
+  async resend(id: string, context: AuditContext): Promise<InvitedAdmin> {
+    const { token, tokenHash } = generateToken();
+    const expiresAt = new Date(Date.now() + INVITATION_TTL_MS);
+    const now = new Date();
+
+    const admin = await this.prisma.$transaction(async (tx) => {
+      // The old links go first. Like accept(), this takes the invitation
+      // rows before the Admin's row, so the two can never wait for each
+      // other. An Admin who accepts an old link at this moment either
+      // finishes first, or finds the link gone.
+      await tx.staffInvitation.deleteMany({
+        where: { userId: id, usedAt: null },
+      });
+      // Atomic: the Admin must still be pending and active.
+      const pending = await tx.user.updateMany({
+        where: { id, role: 'ADMIN', status: 'ACTIVE', emailVerifiedAt: null },
+        data: { updatedAt: now },
+      });
+      if (pending.count === 0) {
+        // Thrown inside the transaction, so the delete above is undone.
+        const found = await tx.user.findFirst({
+          where: { id, role: 'ADMIN' },
+          select: { emailVerifiedAt: true },
+        });
+        if (!found) {
+          throw new NotFoundException(ADMIN_NOT_FOUND);
+        }
+        throw new ConflictException(
+          found.emailVerifiedAt ? ALREADY_ACCEPTED : ENABLE_FIRST,
+        );
+      }
+      const pendingAdmin = await tx.user.findUniqueOrThrow({
+        where: { id },
+        select: { id: true, email: true, fullName: true },
+      });
+      // Every email to one address counts, as for customers (ADR 0009).
+      // Over the limit, the 429 undoes this transaction too.
+      await this.limits.consume('emailsToAddress', pendingAdmin.email);
+      await tx.staffInvitation.create({
+        data: { userId: id, tokenHash, expiresAt },
+      });
+      await this.audit.record(tx, {
+        ...context,
+        action: 'admin.invitation_resent',
+        targetType: 'user',
+        targetId: id,
+        after: { invitationExpiresAt: expiresAt },
+      });
+      return pendingAdmin;
+    });
+
+    const invitationSent = await this.sendInvitation(admin, token);
+    this.logger.info(
+      { userId: id, actorId: context.actorId, invitationSent },
+      'Admin invitation sent again',
+    );
+    return {
+      ...admin,
+      role: 'ADMIN',
+      invitationExpiresAt: expiresAt,
+      invitationSent,
+    };
   }
 
   // A failed email must not undo the invitation, which is already saved.

@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 3B-4)
 - Date: 2026-10-30
+- Updated: 2026-10-31 (part 3B-5: listing, disabling, removing and inviting again, see ADR 0016)
 
 ## Context
 
@@ -13,7 +14,7 @@ ADR 0004 and `docs/requirements.md` (section 5) say that only a Super User creat
 
 Admin management was too big for one part, so it was split:
 - **Part 3B-4 (this ADR):** the role check, the request details for the audit log, and inviting Admins.
-- **Part 3B-5:** listing, disabling, enabling and removing Admins, and sending an invitation again.
+- **Part 3B-5 (ADR 0016):** listing, disabling, enabling and removing Admins, and sending an invitation again.
 
 ## Decision
 
@@ -50,7 +51,7 @@ Admin management was too big for one part, so it was split:
   - **the Admin's account,** with a random password that nobody knows (the hash of 32 random bytes, which are thrown away) and an unverified email;
   - **an invitation in `staff_invitations`:** only the SHA-256 hash of a 32-byte random token, valid for **72 hours** and once;
   - **the audit entry `admin.invited`,** with the Super User as the actor, the IP, the request ID and the new account's email, name and role.
-- **The email goes out after the commit.** It links to `WEB_BASE_URL/staff/accept-invite?token=...`, the future admin console page. If sending fails, the Admin still exists and the answer says `invitationSent: false`. Sending again comes in part 3B-5.
+- **The email goes out after the commit.** It links to `WEB_BASE_URL/staff/accept-invite?token=...`, the future admin console page. If sending fails, the Admin still exists and the answer says `invitationSent: false`. Since part 3B-5, a Super User can send a new invitation (ADR 0016).
 - **The answer never holds the token or the link,** so they cannot leak through the Super User's screen or logs.
 - **A pending Admin** is an Admin whose email is still unverified. They cannot sign in: nobody knows their password, and their MFA is not set up.
 
@@ -76,7 +77,7 @@ Admin management was too big for one part, so it was split:
   - `Admin invitation refused`, with the user ID where known and a reason: `unknown_token`, `already_used`, `expired`, `not_allowed` or `lost_race`.
 
   The token, the link, the password and the email address are never logged.
-- **Cleanup:** the hourly retention job deletes invitations once they have expired, used or not (ADR 0011). **It never deletes the Admin.** A pending Admin stays until a Super User decides what happens to the account (part 3B-5).
+- **Cleanup:** the hourly retention job deletes invitations once they have expired, used or not (ADR 0011). **It never deletes the Admin.** A pending Admin stays until a Super User removes them or invites them again (part 3B-5, ADR 0016).
 
 ### Endpoints
 
@@ -95,7 +96,7 @@ Admin management was too big for one part, so it was split:
 - **Turning an existing customer into an Admin.** Rejected, as in ADR 0012. One account with both roles would mix token audiences, sessions and data.
 - **Rolling the invitation back when the email fails.** Rejected. An SMTP error can come even after the email was delivered, and the Super User would retry blindly. The invitation is kept, and `invitationSent: false` says what happened.
 - **Signing the Admin in after accepting.** Rejected. Their MFA is not set up yet, and staff never get a password-only session.
-- **Staff sign-ins in the audit log** (left open in ADR 0014). Moved to part 3B-5, together with the Super Users' view of the audit log, where it will be clear what is useful to see there.
+- **Staff sign-ins in the audit log** (left open in ADR 0014). Moved to part 3B-5, and from there to part 3B-6, together with the Super Users' view of the audit log, where it will be clear what is useful to see there.
 
 ## Consequences
 
@@ -106,7 +107,7 @@ Admin management was too big for one part, so it was split:
   4. the Admin signs in.
 
   Until the admin console exists, the link is not clicked: the README reads the token from Mailpit ("Invite an Admin").
-- **A lost or expired invitation cannot be replaced through the API yet** (part 3B-5). In development, delete the pending Admin in the database and invite again. The audit entries stay, because they have no foreign keys (ADR 0012), and point to an account that no longer exists. This happened while testing this part.
+- **A lost or expired invitation could not be replaced through the API in this part.** While testing, the pending Admin was deleted in the database and invited again. The audit entries stayed, because they have no foreign keys (ADR 0012), and point to an account that no longer exists. Since part 3B-5, a Super User invites again or removes the pending Admin through the API (ADR 0016).
 - **Every staff account has its own password and its own authenticator entry.** Two mix-ups cost time in this part's test:
   - the new Admin's sign-in failed several times, most likely with another account's password;
   - deleting every entry from the phone locked a Super User out until their MFA setup ran again.
@@ -115,4 +116,4 @@ Admin management was too big for one part, so it was split:
 - **Admins can sign in, but have nothing to do yet.** Their features come with the catalog, orders and the admin console.
 - **The invitation link carries the token in its URL,** like the customer links. The admin console must post it to the API at once and keep it out of its logs and analytics (`docs/security.md`).
 - The smoke test checks on every run that a customer token cannot invite Admins and that a made-up invitation link gets `400`. The full invitation needs a signed-in Super User with a phone, so it is tested by hand (README).
-- Next: part 3B-5, managing Admins (list, disable and enable with their sessions ended, remove, invite again), a Super Users' view of the audit log, and the decision on staff sign-ins in the audit log.
+- Part 3B-5 added managing Admins: list, disable and enable with their sessions ended, remove, invite again (ADR 0016). Next: part 3B-6, a Super Users' view of the audit log, and the decision on staff sign-ins in the audit log.

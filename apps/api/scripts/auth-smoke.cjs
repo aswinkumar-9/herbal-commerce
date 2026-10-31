@@ -176,6 +176,27 @@ async function main() {
       })
     ).status === 401,
   );
+  // The other Admin routes refuse it too. The token is checked before the
+  // ID, so any well-formed ID will do.
+  const anyId = '00000000-0000-4000-8000-000000000000';
+  const adminRoutes = [
+    ['GET', '/v1/staff/admins'],
+    ['PATCH', `/v1/staff/admins/${anyId}`, { status: 'DISABLED' }],
+    ['DELETE', `/v1/staff/admins/${anyId}`],
+    ['POST', `/v1/staff/admins/${anyId}/invitation`],
+  ];
+  const adminAnswers = [];
+  for (const [method, path, json] of adminRoutes) {
+    const answer = await call(method, path, {
+      json,
+      token: login.body.accessToken,
+    });
+    adminAnswers.push(answer.status);
+  }
+  check(
+    'a customer access token cannot list, disable, remove or re-invite Admins',
+    adminAnswers.every((status) => status === 401),
+  );
   // Accepting an invitation is public, but only a real link works. (A real
   // invitation is tried by hand: only a signed-in Super User can send one.)
   const madeUpInvite = await call('POST', '/v1/staff/auth/accept-invite', {

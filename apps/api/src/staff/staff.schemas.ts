@@ -35,7 +35,6 @@ export type StaffLoginInput = z.infer<typeof staffLoginSchema>;
 export const adminInviteSchema = z.object({ email, fullName });
 export type AdminInviteInput = z.infer<typeof adminInviteSchema>;
 
-
 // The invited Admin chooses their password with the token from the link.
 export const acceptInviteSchema = z.object({
   token: emailedToken,
@@ -43,3 +42,9 @@ export const acceptInviteSchema = z.object({
 });
 export type AcceptInviteInput = z.infer<typeof acceptInviteSchema>;
 
+// A Super User disables or enables an Admin. Nothing else about the account
+// can be changed here.
+export const adminStatusSchema = z.object({
+  status: z.enum(['ACTIVE', 'DISABLED']),
+});
+export type AdminStatusInput = z.infer<typeof adminStatusSchema>;

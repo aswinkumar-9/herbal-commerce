@@ -2,6 +2,7 @@ import { ConfigService } from '@nestjs/config';
 import { PinoLogger } from 'nestjs-pino';
 import { AuditService } from '../audit/audit.service';
 import { PasswordService } from '../auth/password.service';
+import { RateLimitService } from '../rate-limit/rate-limit.service';
 import { hashToken } from '../auth/token.util';
 import type { Env } from '../config/env';
 import { MailService } from '../mail/mail.service';
@@ -46,10 +47,14 @@ function setup() {
     user: {
       create: jest.fn().mockResolvedValue(created),
       update: jest.fn().mockResolvedValue({}),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findFirst: jest.fn().mockResolvedValue(null),
+      findUniqueOrThrow: jest.fn().mockResolvedValue(created),
     },
     staffInvitation: {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      create: jest.fn().mockResolvedValue({}),
     },
     session: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
   };
@@ -64,6 +69,7 @@ function setup() {
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const mail = { sendAdminInvitation: jest.fn().mockResolvedValue(undefined) };
   const config = { get: () => 'http://localhost:3001' };
+  const limits = { consume: jest.fn().mockResolvedValue(undefined) };
   const logger = { info: jest.fn(), warn: jest.fn() };
   const service = new AdminInvitationService(
     prisma as unknown as PrismaService,
@@ -71,9 +77,10 @@ function setup() {
     audit as unknown as AuditService,
     mail as unknown as MailService,
     config as unknown as ConfigService<Env, true>,
+    limits as unknown as RateLimitService,
     logger as unknown as PinoLogger,
   );
-  return { service, prisma, tx, passwords, audit, mail, logger };
+  return { service, prisma, tx, passwords, audit, mail, limits, logger };
 }
 
 // The token in the emailed link.
@@ -348,6 +355,172 @@ describe('AdminInvitationService.accept', () => {
     expect(logged).toContain('admin-1');
     expect(logged).not.toContain(acceptInput.token);
     expect(logged).not.toContain(acceptInput.password);
+  });
+});
+
+describe('AdminInvitationService.resend', () => {
+  it('checks atomically that the Admin is still pending and active', async () => {
+    const { service, tx } = setup();
+
+    await service.resend('admin-1', context);
+
+    expect(tx.user.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'admin-1',
+        role: 'ADMIN',
+        status: 'ACTIVE',
+        emailVerifiedAt: null,
+      },
+      data: { updatedAt: expect.any(Date) as Date },
+    });
+  });
+
+  it('takes the invitation rows before the Admin row, in the same order as accept', async () => {
+    const { service, tx } = setup();
+
+    await service.resend('admin-1', context);
+
+    // Opposite orders could make the two wait for each other (a deadlock).
+    const [invitations] =
+      tx.staffInvitation.deleteMany.mock.invocationCallOrder;
+    const [adminRow] = tx.user.updateMany.mock.invocationCallOrder;
+    expect(invitations).toBeLessThan(adminRow);
+  });
+
+  it('replaces every older link with a new one for 72 hours, storing only its hash', async () => {
+    const { service, tx, mail } = setup();
+    const before = Date.now();
+
+    await service.resend('admin-1', context);
+
+    expect(tx.staffInvitation.deleteMany).toHaveBeenCalledWith({
+      where: { userId: 'admin-1', usedAt: null },
+    });
+    const [args] = tx.staffInvitation.create.mock.calls[0] as [
+      { data: { userId: string; tokenHash: string; expiresAt: Date } },
+    ];
+    expect(args.data.userId).toBe('admin-1');
+    expect(args.data.tokenHash).toBe(hashToken(emailedToken(mail)));
+    expect(args.data.expiresAt.getTime()).toBeGreaterThanOrEqual(
+      before + INVITATION_TTL_MS,
+    );
+    // The old links go first, so the new one is the only one left.
+    const [deleted] = tx.staffInvitation.deleteMany.mock.invocationCallOrder;
+    const [added] = tx.staffInvitation.create.mock.invocationCallOrder;
+    expect(deleted).toBeLessThan(added);
+    expect(mail.sendAdminInvitation).toHaveBeenCalledWith(
+      input.email,
+      input.fullName,
+      expect.stringMatching(
+        /^http:\/\/localhost:3001\/staff\/accept-invite\?token=[\w-]{43}$/,
+      ),
+    );
+  });
+
+  it('records who sent it again, in the same transaction', async () => {
+    const { service, tx, audit } = setup();
+
+    await service.resend('admin-1', context);
+
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...context,
+      action: 'admin.invitation_resent',
+      targetType: 'user',
+      targetId: 'admin-1',
+      after: { invitationExpiresAt: expect.any(Date) as Date },
+    });
+  });
+
+  it('answers with the Admin and when the new link ends, never with the token', async () => {
+    const { service, mail } = setup();
+
+    const result = await service.resend('admin-1', context);
+
+    expect(result).toEqual({
+      id: 'admin-1',
+      email: input.email,
+      fullName: input.fullName,
+      role: 'ADMIN',
+      invitationExpiresAt: expect.any(Date) as Date,
+      invitationSent: true,
+    });
+    expect(JSON.stringify(result)).not.toContain(emailedToken(mail));
+  });
+
+  it('counts against the emails to that address, and changes nothing when over the limit', async () => {
+    const { service, prisma, tx, limits, mail } = setup();
+    limits.consume.mockRejectedValue(new Error('Too many requests'));
+
+    await expect(service.resend('admin-1', context)).rejects.toThrow(
+      'Too many requests',
+    );
+    expect(limits.consume).toHaveBeenCalledWith(
+      'emailsToAddress',
+      input.email,
+    );
+    // Thrown inside the transaction, so the old links are kept.
+    await expect(prisma.$transaction.mock.results[0].value).rejects.toThrow(
+      'Too many requests',
+    );
+    expect(tx.staffInvitation.create).not.toHaveBeenCalled();
+    expect(mail.sendAdminInvitation).not.toHaveBeenCalled();
+  });
+
+  it('refuses an Admin who has accepted, a disabled one, and an unknown ID', async () => {
+    const cases = [
+      {
+        stored: { emailVerifiedAt: new Date() },
+        answer: {
+          status: 409,
+          message: 'This Admin has already accepted the invitation.',
+        },
+      },
+      {
+        stored: { emailVerifiedAt: null },
+        answer: {
+          status: 409,
+          message: 'Enable this Admin before inviting them again.',
+        },
+      },
+      { stored: null, answer: { status: 404, message: 'Admin not found' } },
+    ];
+    for (const { stored, answer } of cases) {
+      const { service, prisma, tx, limits, audit, mail } = setup();
+      tx.user.updateMany.mockResolvedValue({ count: 0 });
+      tx.user.findFirst.mockResolvedValue(stored);
+
+      await expect(service.resend('admin-1', context)).rejects.toMatchObject(
+        answer,
+      );
+      // Thrown inside the transaction, so it is undone, old links included.
+      await expect(
+        prisma.$transaction.mock.results[0].value,
+      ).rejects.toMatchObject(answer);
+      expect(tx.user.findFirst).toHaveBeenCalledWith({
+        where: { id: 'admin-1', role: 'ADMIN' },
+        select: { emailVerifiedAt: true },
+      });
+      expect(limits.consume).not.toHaveBeenCalled();
+      expect(tx.staffInvitation.create).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+      expect(mail.sendAdminInvitation).not.toHaveBeenCalled();
+    }
+  });
+
+  it('keeps the new link when the email fails, and never logs the address or the token', async () => {
+    const { service, mail, logger } = setup();
+    mail.sendAdminInvitation.mockRejectedValue(new Error('SMTP down'));
+
+    const result = await service.resend('admin-1', context);
+
+    expect(result.invitationSent).toBe(false);
+    const logged = JSON.stringify([
+      logger.info.mock.calls,
+      logger.warn.mock.calls,
+    ]);
+    expect(logged).toContain('admin-1');
+    expect(logged).not.toContain(input.email);
+    expect(logged).not.toContain(emailedToken(mail));
   });
 });
 

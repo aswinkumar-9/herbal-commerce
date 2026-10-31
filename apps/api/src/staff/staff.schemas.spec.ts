@@ -1,6 +1,7 @@
 import {
   acceptInviteSchema,
   adminInviteSchema,
+  adminStatusSchema,
   staffLoginSchema,
   superUserSchema,
 } from './staff.schemas';
@@ -99,5 +100,19 @@ describe('acceptInviteSchema', () => {
     expect(withPassword('x'.repeat(15))).toBe(false);
     expect(withPassword('x'.repeat(16))).toBe(true);
     expect(withPassword('x'.repeat(129))).toBe(false);
+  });
+});
+
+describe('adminStatusSchema', () => {
+  it('takes only ACTIVE or DISABLED, and nothing else about the account', () => {
+    expect(
+      adminStatusSchema.parse({ status: 'DISABLED', role: 'SUPER_USER' }),
+    ).toEqual({ status: 'DISABLED' });
+    expect(adminStatusSchema.parse({ status: 'ACTIVE' })).toEqual({
+      status: 'ACTIVE',
+    });
+    for (const status of ['disabled', 'REMOVED', '', undefined]) {
+      expect(adminStatusSchema.safeParse({ status }).success).toBe(false);
+    }
   });
 });

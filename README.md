@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -73,7 +73,7 @@ It first clears the local rate-limit counters, so it can run again at once. Then
 - login, `GET /v1/me`, token refresh, refresh-token reuse detection and logout;
 - password recovery: the reset link arrives only for a real account, the reset ends every session, the new password works at once and the old one doesn't, the link works only once, and the "password changed" email arrives;
 - the rate limits: a per-IP limit that a faked `X-Forwarded-For` cannot get around, the block after 5 wrong passwords, and at most 5 emails per hour to one address;
-- that a customer's password and tokens never open the staff routes, and cannot invite an Admin;
+- that a customer's password and tokens never open the staff routes, and cannot invite or manage Admins;
 - that a made-up invitation link is refused.
 
 The staff login and a real invitation need a phone, so they are tried by hand: see "Sign in as staff" and "Invite an Admin".
@@ -207,9 +207,44 @@ Only a Super User can invite an Admin (ADR 0015). The Admin then chooses their o
 5. **Set up the Admin's MFA** as in "Set up staff MFA", with `$env:STAFF_EMAIL = 'dev.admin1@example.com'`. Add it as a **new** entry in the app, next to the Super User's.
 6. **Sign in as the Admin**, as in "Sign in as staff", with the Admin's email, password and app entry.
 
-- The link works for 72 hours, once. Sending an invitation again comes in part 3B-5.
+- The link works for 72 hours, once. To send a new one, see "Manage Admins".
 - An Admin who calls a Super-User-only route, such as `POST /v1/staff/admins`, gets `403 Only a Super User may do this.`
 - Each step is in the audit log: `admin.invited` (by the Super User), `admin.invite_accepted` (by the Admin) and `staff.mfa_set_up`.
+
+## Manage Admins
+
+Only a Super User can list, disable, enable and remove Admins, or send an invitation again (ADR 0016).
+
+1. **Sign in as a Super User**, as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`: `$login` is needed here.
+2. **List the Admins and pick one:**
+   ```powershell
+   $auth = @{ Authorization = "Bearer $($login.accessToken)" }
+   $admins = (Invoke-RestMethod -Uri http://localhost:3000/v1/staff/admins -Headers $auth).admins
+   $admins | Format-Table email, status, invitationAcceptedAt, invitationExpiresAt, mfaEnabledAt
+   $id = ($admins | Where-Object email -eq 'dev.admin1@example.com').id
+   "[$id]"
+   ```
+   The last line shows the Admin's ID in brackets. **If the brackets are empty, stop:** the email doesn't match, and the next commands would call the wrong URL.
+3. **Run only the line you need:**
+   ```powershell
+   # Disable: ends every session of the Admin. Use "ACTIVE" to enable again.
+   Invoke-RestMethod -Method Patch -Uri "http://localhost:3000/v1/staff/admins/$id" -Headers $auth -ContentType 'application/json' -Body '{"status":"DISABLED"}'
+   # Send a pending Admin a new invitation: every older link stops working.
+   Invoke-RestMethod -Method Post -Uri "http://localhost:3000/v1/staff/admins/$id/invitation" -Headers $auth
+   # Remove a disabled or pending Admin.
+   Invoke-RestMethod -Method Delete -Uri "http://localhost:3000/v1/staff/admins/$id" -Headers $auth
+   ```
+4. **Sign out and clean up:**
+   ```powershell
+   Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/logout -ContentType 'application/json' -Body (@{ refreshToken = $login.refreshToken } | ConvertTo-Json)
+   Remove-Variable login, auth, admins, id
+   ```
+
+- An active Admin must be disabled before they can be removed. A pending one, who never accepted the invitation, can be removed straight away.
+- Enabling a disabled Admin does not bring their old sessions back: they sign in again, with a new code.
+- After a new invitation, only the newest link works. An older one fails like a made-up link (`unknown_token` in the log).
+- The Super User's access token lasts 15 minutes. After that, sign in again (step 1).
+- Every change is in the audit log: `admin.disabled`, `admin.enabled`, `admin.invitation_resent` and `admin.removed` (with who was removed).
 
 ## Repository structure
 
@@ -223,7 +258,7 @@ Only a Super User can invite an Admin (ADR 0015). The Admin then chooses their o
 │           ├── audit/          the append-only audit log and a request's audit context
 │           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset, access and roles guards, /v1/me
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
-│           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, Admin invitations and /v1/staff/me
+│           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
 │           ├── rate-limit/     limits, rate-limit guard, client IP
 │           ├── retention/      hourly cleanup of data past its retention period
 │           ├── valkey/         the shared Valkey connection
@@ -277,7 +312,7 @@ Only a Super User can invite an Admin (ADR 0015). The Admin then chooses their o
   After 5 failures in an hour, the login answers `429` for 15 minutes, even with the right password. So find the reason before trying again.
 - **A staff member's entry was deleted from the authenticator app:** it cannot be brought back. Run `pnpm api:setup-staff-mfa` again for that account and add the new entry.
 - **Inviting an Admin answers `409`:** the email already has an account, maybe a customer's. Customers are never turned into staff, so use another address.
-- **Inviting an Admin answers `403 Only a Super User may do this.`:** you are signed in as an Admin. Sign in as a Super User.
+- **An Admin route answers `403 Only a Super User may do this.`:** you are signed in as an Admin. Sign in as a Super User.
 - **`accept-invite` answers `400 Invalid or expired invitation link`:** find `Admin invitation refused` in the API log. Its `reason` says why:
   - `unknown_token`: the token was copied incompletely;
   - `already_used`: the password was already set with this link;
@@ -285,7 +320,10 @@ Only a Super User can invite an Admin (ADR 0015). The Admin then chooses their o
   - `not_allowed`: the account is not an active Admin;
   - `lost_race`: the same link was sent twice at the same moment, and the other request set the password.
 
-  Sending an invitation again comes in part 3B-5. Until then, in development only, delete the pending Admin and invite again. Its invitation and sessions go with it; its audit entries stay. (`herbal_app` and `herbal_dev` are the `POSTGRES_USER` and `POSTGRES_DB` from `.env.example`; use yours if you changed them.)
-  ```powershell
-  docker exec herbal-postgres psql -U herbal_app -d herbal_dev -c "DELETE FROM users WHERE email = 'dev.admin1@example.com' AND role = 'ADMIN';"
-  ```
+  A Super User can send the Admin a new link, or remove a pending Admin (see "Manage Admins").
+- **Removing an Admin answers `409 Disable this Admin before removing them.`:** the Admin is active and has accepted the invitation. Disable them first, then remove them.
+- **Inviting an Admin again answers `409`:** either `This Admin has already accepted the invitation.` (there is nothing to invite them to), or `Enable this Admin before inviting them again.`
+- **An Admin route answers `404`:** read the body.
+  - `Admin not found`: the API looked, and there is no Admin with this ID. A Super User's ID gets the same answer.
+  - `Cannot DELETE /v1/staff/admins/` (or `PATCH`, or `POST`): the URL had no ID, so no route matched. Usually the PowerShell variable was empty. Print it in brackets first, for example `"[$id]"`.
+- **An Admin route answers `400 Validation failed (uuid is expected)`:** the ID in the URL is not a UUID.
