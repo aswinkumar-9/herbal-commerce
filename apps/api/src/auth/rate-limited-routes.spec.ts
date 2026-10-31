@@ -34,6 +34,7 @@ describe('rate-limited routes', () => {
       acceptInvite: ['acceptInvite'],
     });
     expect(routeLimits(StaffAdminsController)).toEqual({
+      list: undefined,
       invite: ['staffInvites'],
     });
   });
