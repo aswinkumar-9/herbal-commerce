@@ -9,8 +9,8 @@ import { AuditService } from '../audit/audit.service';
 import type { Prisma, UserStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
-const ADMIN_NOT_FOUND = 'Admin not found';
-const DISABLE_FIRST = 'Disable this Admin before removing them.';
+export const ADMIN_NOT_FOUND = 'Admin not found';
+export const DISABLE_FIRST = 'Disable this Admin before removing them.';
 
 // What a Super User sees about each Admin. Never the password hash or the
 // MFA secret.

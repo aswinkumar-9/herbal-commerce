@@ -48,6 +48,18 @@ export class StaffAdminsController {
     return this.invitations.invite(body, context);
   }
 
+  // Sends a pending Admin a new link; the older ones stop working. It
+  // sends an email, so it shares the invitation limit.
+  @RateLimit('staffInvites')
+  @Post(':id/invitation')
+  @HttpCode(HttpStatus.CREATED)
+  resendInvitation(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.invitations.resend(id, context);
+  }
+
   // Disables or enables an Admin. Disabling also ends their sessions.
   // An ID that is not a UUID gets 400 before any database query.
   @Patch(':id')
