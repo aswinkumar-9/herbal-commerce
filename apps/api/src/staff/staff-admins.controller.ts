@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -56,5 +57,16 @@ export class StaffAdminsController {
     @CurrentAuditContext() context: AuditContext,
   ) {
     return this.admins.setStatus(id, body.status, context);
+  }
+
+  // Removes a disabled Admin, or one who never accepted the invitation.
+  // An active Admin gets 409: disable them first.
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.admins.remove(id, context);
   }
 }

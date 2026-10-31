@@ -35,10 +35,12 @@ describe('rate-limited routes', () => {
     });
     // Strict, so a handler without a limit must be listed too.
     expect(routeLimits(StaffAdminsController)).toStrictEqual({
-      // Reading the list and changing a status have only the per-IP baseline.
+      // Inviting sends an email, so it has its own limit. The others only
+      // read or change the database: the per-IP baseline is enough.
       list: undefined,
       invite: ['staffInvites'],
       setStatus: undefined,
+      remove: undefined,
     });
   });
 });

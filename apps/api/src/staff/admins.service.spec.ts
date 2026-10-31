@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
 import { AuditService } from '../audit/audit.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -9,6 +9,15 @@ const context = {
   actorId: '5d1e8c2a-7b3f-4e9a-a1c6-2f8d0b4e7a93',
   ip: '203.0.113.7',
   requestId: 'request-1',
+};
+
+// What remove() reads before deleting: a pending Admin.
+const removable = {
+  email: 'dev.admin1@example.com',
+  fullName: 'Dev Admin One',
+  status: 'ACTIVE',
+  emailVerifiedAt: null,
+  mfaEnabledAt: null,
 };
 
 // An Admin as the query returns it.
@@ -28,7 +37,12 @@ function storedAdmin(changes: object = {}) {
 
 function setup(admins: object[] = []) {
   const tx = {
-    user: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
+    user: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findFirst: jest.fn().mockResolvedValue(removable),
+      deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      count: jest.fn().mockResolvedValue(1),
+    },
     session: { updateMany: jest.fn().mockResolvedValue({ count: 2 }) },
   };
   const prisma = {
@@ -204,3 +218,93 @@ describe('AdminsService.setStatus', () => {
     expect(audit.record).not.toHaveBeenCalled();
   });
 });
+
+describe('AdminsService.remove', () => {
+  it('deletes only a disabled or pending Admin, decided by the delete itself', async () => {
+    const { service, tx } = setup();
+
+    await expect(service.remove('admin-1', context)).resolves.toBeUndefined();
+
+    expect(tx.user.deleteMany).toHaveBeenCalledWith({
+      where: {
+        id: 'admin-1',
+        role: 'ADMIN',
+        OR: [{ status: 'DISABLED' }, { emailVerifiedAt: null }],
+      },
+    });
+  });
+
+  it('records who was removed, in the same transaction, never the password or MFA secret', async () => {
+    const { service, tx, audit } = setup();
+    const acceptedAt = new Date('2026-10-30T11:43:18.000Z');
+    tx.user.findFirst.mockResolvedValue({
+      ...removable,
+      status: 'DISABLED',
+      emailVerifiedAt: acceptedAt,
+    });
+
+    await service.remove('admin-1', context);
+
+    const [query] = tx.user.findFirst.mock.calls[0] as [
+      { where: object; select: Record<string, boolean> },
+    ];
+    expect(query.where).toEqual({ id: 'admin-1', role: 'ADMIN' });
+    expect(Object.keys(query.select).sort()).toEqual([
+      'email',
+      'emailVerifiedAt',
+      'fullName',
+      'mfaEnabledAt',
+      'status',
+    ]);
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...context,
+      action: 'admin.removed',
+      targetType: 'user',
+      targetId: 'admin-1',
+      before: {
+        email: 'dev.admin1@example.com',
+        fullName: 'Dev Admin One',
+        status: 'DISABLED',
+        invitationAcceptedAt: acceptedAt,
+        mfaEnabledAt: null,
+      },
+    });
+  });
+
+  it('refuses an active Admin who accepted the invitation with 409: disable first', async () => {
+    const { service, tx, audit, logger } = setup();
+    tx.user.deleteMany.mockResolvedValue({ count: 0 });
+
+    await expect(service.remove('admin-1', context)).rejects.toThrow(
+      new ConflictException('Disable this Admin before removing them.'),
+    );
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 for an unknown ID, or one that is not an Admin, and deletes nothing', async () => {
+    const { service, tx, audit } = setup();
+    tx.user.findFirst.mockResolvedValue(null);
+
+    await expect(service.remove('super-1', context)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(tx.user.deleteMany).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 when someone else removed the Admin at the same moment', async () => {
+    const { service, tx, audit } = setup();
+    tx.user.deleteMany.mockResolvedValue({ count: 0 });
+    tx.user.count.mockResolvedValue(0);
+
+    await expect(service.remove('admin-1', context)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+    expect(tx.user.count).toHaveBeenCalledWith({
+      where: { id: 'admin-1', role: 'ADMIN' },
+    });
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+});
+

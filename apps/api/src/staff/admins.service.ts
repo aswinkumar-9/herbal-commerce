@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { AuditContext } from '../audit/audit-context';
 import { AuditService } from '../audit/audit.service';
@@ -6,6 +10,7 @@ import type { Prisma, UserStatus } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 const ADMIN_NOT_FOUND = 'Admin not found';
+const DISABLE_FIRST = 'Disable this Admin before removing them.';
 
 // What a Super User sees about each Admin. Never the password hash or the
 // MFA secret.
@@ -132,5 +137,63 @@ export class AdminsService {
       );
     }
     return toSummary(admin);
+  }
+
+  // Deletes an Admin with their sessions and invitations. The audit log
+  // keeps who it was, because its entries have no foreign keys (ADR 0012).
+  async remove(id: string, context: AuditContext): Promise<void> {
+    const outcome = await this.prisma.$transaction(async (tx) => {
+      const admin = await tx.user.findFirst({
+        where: { id, role: 'ADMIN' },
+        select: {
+          email: true,
+          fullName: true,
+          status: true,
+          emailVerifiedAt: true,
+          mfaEnabledAt: true,
+        },
+      });
+      if (!admin) {
+        return 'not_found';
+      }
+      // Only a disabled Admin, or one who never accepted the invitation, so
+      // one wrong click cannot remove someone who can still sign in. The
+      // condition is part of the delete, so it holds even if someone
+      // enables the Admin at the same moment.
+      const deleted = await tx.user.deleteMany({
+        where: {
+          id,
+          role: 'ADMIN',
+          OR: [{ status: 'DISABLED' }, { emailVerifiedAt: null }],
+        },
+      });
+      if (deleted.count === 0) {
+        // Still active, unless someone removed them at the same moment.
+        const stillThere = await tx.user.count({
+          where: { id, role: 'ADMIN' },
+        });
+        return stillThere > 0 ? 'still_active' : 'not_found';
+      }
+      const { emailVerifiedAt, ...removed } = admin;
+      await this.audit.record(tx, {
+        ...context,
+        action: 'admin.removed',
+        targetType: 'user',
+        targetId: id,
+        before: { ...removed, invitationAcceptedAt: emailVerifiedAt },
+      });
+      return 'removed';
+    });
+
+    if (outcome === 'not_found') {
+      throw new NotFoundException(ADMIN_NOT_FOUND);
+    }
+    if (outcome === 'still_active') {
+      throw new ConflictException(DISABLE_FIRST);
+    }
+    this.logger.info(
+      { userId: id, actorId: context.actorId },
+      'Admin removed',
+    );
   }
 }
