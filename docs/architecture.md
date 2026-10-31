@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Draft v0.8.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
+Status: **Draft v0.9.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
 
 ## 1. Principles
 
@@ -42,17 +42,18 @@ Built so far:
 | Staff MFA | TOTP from authenticator apps (our own implementation, proven against the RFC test vectors), with no code accepted twice. Secrets are encrypted with `SecretBox` (AES-256-GCM, bound to the user). Set up only with `pnpm api:setup-staff-mfa`, which saves after a valid code, ends the person's sessions and is audited (ADR 0013). |
 | Staff sign-in | `POST /v1/staff/auth/login` takes the password and a code together and gives one `401` for every failure. Staff tokens carry the audience `staff`, and staff sessions last 12 hours. Refresh and logout at `/v1/staff/auth/*`, and `GET /v1/staff/me` for the own account (ADR 0014). |
 | Admin invitations | A Super User invites an Admin with `POST /v1/staff/admins`. That creates the account with a password nobody knows and emails a 72-hour, single-use link. The Admin chooses their own password at `POST /v1/staff/auth/accept-invite`, and a developer then sets up their MFA. Both steps are audited (ADR 0015). |
+| Managing Admins | Super Users list Admins (`GET /v1/staff/admins`), disable and enable them (`PATCH /v1/staff/admins/:id`, which ends the sessions on disabling), remove a disabled or pending one (`DELETE`), and send a pending one a new invitation (`POST /v1/staff/admins/:id/invitation`). Every change is audited in the same transaction (ADR 0016). |
 | Access control | A global deny-by-default guard. Each request needs a valid access token and a live session, unless its handler is `@Public()`. Each protected route has one audience: routes marked `@StaffOnly()` take staff tokens, every other route customer tokens. The caller's current role comes from the database with the session. A global roles guard then refuses Admins on routes marked `@SuperUserOnly()` (`403`, ADR 0015). `GET /v1/me` and `GET /v1/staff/me` return the caller's own account. |
 | Email | Sent through SMTP behind a swappable mail service. Mailpit catches all mail in development. TLS is required in production. |
 | Logging | Structured JSON logs with a request ID on every request (ADR 0006). No emails, passwords, codes or tokens in logs. |
 | Errors | One consistent error format that includes the request ID, plus a `code` field where clients must react to a specific case, and `Retry-After` on `429` and `503` (ADR 0006, `docs/api-specification.md`) |
-| Tests | Unit tests for every module (243 tests in 39 suites), a type check of all code including the tests (`pnpm api:typecheck`), and an end-to-end smoke test against the running API (`pnpm api:smoke`, 36 checks, including the rate limits, password recovery, that customers cannot use the staff routes or invite Admins, and that a made-up invitation link fails). The staff login and the invitation of an Admin are tested by hand with a phone (README). |
+| Tests | Unit tests for every module (264 tests in 40 suites), a type check of all code including the tests (`pnpm api:typecheck`), and an end-to-end smoke test against the running API (`pnpm api:smoke`, 37 checks, including the rate limits, password recovery, that customers cannot use the staff routes or invite or manage Admins, and that a made-up invitation link fails). The staff login, inviting and managing Admins are tested by hand with a phone (README). |
 
-Not built yet: changing the password while signed in, managing Admins (list, disable, remove, invite again), product catalog, inventory, cart, orders, payments, admin console, customer app and website, notifications, support tickets, CI/CD.
+Not built yet: changing the password while signed in, a view of the audit log, product catalog, inventory, cart, orders, payments, admin console, customer app and website, notifications, support tickets, CI/CD.
 
 ## 3. Roles
 
-Three roles: Customer, Admin, Super User (ADR 0004). Customers self-register. Admins are invited only by a Super User and choose their own password (ADR 0015). Super Users (maximum three) are created by developers with `pnpm api:create-super-user`, never through the application (ADR 0012).
+Three roles: Customer, Admin, Super User (ADR 0004). Customers self-register. Admins are invited only by a Super User and choose their own password (ADR 0015). Only a Super User disables, enables or removes them (ADR 0016). Super Users (maximum three) are created by developers with `pnpm api:create-super-user`, never through the application (ADR 0012).
 
 Customers sign in at `/v1/auth/login`. Staff (Admins and Super Users) sign in at `/v1/staff/auth/login`, with the password and a code from their authenticator app together, once a developer has set up their MFA (`pnpm api:setup-staff-mfa`, ADR 0013). Staff tokens have their own audience and open only staff routes (ADR 0014). Staff routes come in two levels: `@StaffOnly()` for both staff roles, and `@SuperUserOnly()` for Super Users only, such as inviting Admins (ADR 0015).
 
@@ -94,10 +95,22 @@ Customers sign in at `/v1/auth/login`. Staff (Admins and Super Users) sign in at
 
 ### 4.4 Becoming an Admin (ADR 0015)
 
-1. **Invite.** A Super User sends `POST /v1/staff/admins` with the email and name. One transaction creates the Admin (with a random password nobody knows), the invitation (only the token's hash, 72 hours) and the `admin.invited` audit entry. The email with the link goes out after the commit. If it fails, the answer says `invitationSent: false`.
+1. **Invite.** A Super User sends `POST /v1/staff/admins` with the email and name. One transaction creates the Admin (with a random password nobody knows), the invitation (only the token's hash, 72 hours) and the `admin.invited` audit entry. The email with the link goes out after the commit. If it fails, the answer says `invitationSent: false`, and the Super User can invite again (section 4.5).
 2. **Accept.** The Admin opens the link, and the admin console (later) posts the token with the chosen password to `POST /v1/staff/auth/accept-invite`. The invitation is claimed atomically. The same transaction sets the password, marks the email verified, ends any sessions and writes `admin.invite_accepted`. Every refused link gets the same `400`.
 3. **MFA.** A developer runs `pnpm api:setup-staff-mfa` for the Admin (ADR 0013).
 4. **Sign in** as staff (section 4.3). An Admin can use `@StaffOnly()` routes, and gets `403` on `@SuperUserOnly()` ones.
+
+### 4.5 An Admin's life cycle (ADR 0016)
+
+| State | Can sign in | A Super User can |
+|---|---|---|
+| **Pending:** invited, not accepted yet | No | Invite again (every older link stops working), disable, remove |
+| **Active:** accepted the invitation | Yes, once MFA is set up | Disable. Removing needs a disabled Admin (`409` otherwise). |
+| **Disabled:** pending or accepted | No | Enable, remove |
+
+- **Disabling ends every session at once,** and enabling does not bring them back.
+- **Each change is one transaction:** the conditional write, any sessions or invitations it touches, and the audit entry. A request for the state an Admin already has changes nothing and writes no entry.
+- **Removing deletes the account** with its sessions and invitations. The audit entry `admin.removed` keeps who it was.
 
 ## 5. Conventions
 
@@ -112,4 +125,4 @@ Customers sign in at `/v1/auth/login`. Staff (Admins and Super Users) sign in at
 
 ## 6. Planned direction
 
-See `docs/requirements.md` for scope and open decisions. Next in identity and access: managing Admins (list, disable and enable, remove, invite again) and a Super Users' view of the audit log, with every change audit-logged (part 3B-5). Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.
+See `docs/requirements.md` for scope and open decisions. Next in identity and access: a Super Users' view of the audit log, and the decision on staff sign-ins in the audit log (part 3B-6). Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.

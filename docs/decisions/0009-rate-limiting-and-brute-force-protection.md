@@ -5,6 +5,7 @@
 - Updated: 2026-10-26 (part 3A-4 added the password recovery limits, ADR 0010)
 - Updated: 2026-10-30 (part 3B-3: the staff login shares the failure counters and has its own per-IP limit, ADR 0014)
 - Updated: 2026-10-30 (part 3B-4: limits for inviting Admins and accepting invitations, ADR 0015)
+- Updated: 2026-10-31 (part 3B-5: inviting an Admin again counts against `staffInvites` and `emailsToAddress`, ADR 0016)
 
 ## Context
 
@@ -49,10 +50,10 @@ Most customers will use Indian mobile networks. Carrier-grade NAT (CGNAT) puts t
 | `resendByIp` | IP | 20 per hour | 429 |
 | `forgotPassword` | IP | 20 per hour | 429 |
 | `resetPassword` | IP | 20 per hour | 429 |
-| `emailsToAddress` | email address | 5 emails per hour (register, resend and forgot-password together) | 429 |
+| `emailsToAddress` | email address | 5 emails per hour (register, resend, forgot-password and, since part 3B-5, inviting an Admin again, together) | 429 |
 | `login` | IP | 60 attempts per minute | 429 |
 | `staffLogin` | IP | 10 attempts per minute (since part 3B-3) | 429 |
-| `staffInvites` | IP | 20 Admin invitations per hour (since part 3B-4) | 429 |
+| `staffInvites` | IP | 20 Admin invitations per hour, first ones and new ones together (since part 3B-4) | 429 |
 | `acceptInvite` | IP | 20 per hour (since part 3B-4) | 429 |
 | `refresh`, `logout` | IP | 120 per minute (customer and staff together) | 429 |
 | `loginFailuresByEmailAndIp` | email + IP | 5 failures per hour | blocked for 15 minutes; a successful login resets it |

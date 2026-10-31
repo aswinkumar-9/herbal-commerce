@@ -6,6 +6,7 @@
 - Updated: 2026-10-29 (part 3B-2: staff MFA setup implemented, see ADR 0013)
 - Updated: 2026-10-30 (part 3B-3: staff login implemented, see ADR 0014)
 - Updated: 2026-10-30 (part 3B-4: role checks and Admin invitations implemented, see ADR 0015)
+- Updated: 2026-10-31 (part 3B-5: disabling, enabling and removing Admins implemented, see ADR 0016)
 
 ## Context
 
@@ -32,12 +33,12 @@ The detailed permission matrix is in `docs/requirements.md`.
 |---|---|
 | Customers self-register, and registration only creates Customers | Done (ADR 0007) |
 | Super Users: developers only, created with a command, at most 3 (in code and in the database) | Done in part 3B-1: `pnpm api:create-super-user` (ADR 0012) |
-| Append-only audit log | Done in part 3B-1 (ADR 0012). Super User creation, MFA setups and Admin invitations are audited, with the actor, IP and request ID for changes made through the API (ADR 0015). Other Admin and Super User changes follow with the features that make them. |
+| Append-only audit log | Done in part 3B-1 (ADR 0012). Super User creation, MFA setups, and inviting, disabling, enabling and removing Admins are audited, with the actor, IP and request ID for changes made through the API (ADR 0015, ADR 0016). Other Admin and Super User changes follow with the features that make them. |
 | Staff MFA (authenticator app, TOTP) | Setup done in part 3B-2: `pnpm api:setup-staff-mfa` (ADR 0013) |
 | Separate staff login, with password and MFA code together | Done in part 3B-3: `POST /v1/staff/auth/login`, staff-only tokens and 12-hour sessions (ADR 0014) |
 | Server-side role checks on staff routes | Done in part 3B-4: `@SuperUserOnly()` and a global roles guard; Admins get `403` (ADR 0015) |
 | Admins created only by a Super User | Done in part 3B-4: `POST /v1/staff/admins` sends an invitation, and the Admin chooses their own password (ADR 0015) |
-| Admins disabled and removed only by a Super User | Planned: part 3B-5 |
+| Admins disabled and removed only by a Super User | Done in part 3B-5: `PATCH` and `DELETE /v1/staff/admins/:id`. Disabling ends the Admin's sessions, and only a disabled or pending Admin can be removed (ADR 0016) |
 
 ## Consequences
 
