@@ -33,9 +33,12 @@ describe('rate-limited routes', () => {
       logout: ['logout'],
       acceptInvite: ['acceptInvite'],
     });
-    expect(routeLimits(StaffAdminsController)).toEqual({
+    // Strict, so a handler without a limit must be listed too.
+    expect(routeLimits(StaffAdminsController)).toStrictEqual({
+      // Reading the list and changing a status have only the per-IP baseline.
       list: undefined,
       invite: ['staffInvites'],
+      setStatus: undefined,
     });
   });
 });

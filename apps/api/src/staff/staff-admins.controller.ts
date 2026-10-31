@@ -4,6 +4,9 @@ import {
   Get,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
+  Patch,
   Post,
 } from '@nestjs/common';
 import type { AuditContext } from '../audit/audit-context';
@@ -13,8 +16,8 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
 import { AdminInvitationService } from './admin-invitation.service';
 import { AdminsService } from './admins.service';
-import { adminInviteSchema } from './staff.schemas';
-import type { AdminInviteInput } from './staff.schemas';
+import { adminInviteSchema, adminStatusSchema } from './staff.schemas';
+import type { AdminInviteInput, AdminStatusInput } from './staff.schemas';
 
 // Admin accounts. Only Super Users may manage them (ADR 0004), and every
 // change is written to the audit log.
@@ -42,5 +45,16 @@ export class StaffAdminsController {
     @CurrentAuditContext() context: AuditContext,
   ) {
     return this.invitations.invite(body, context);
+  }
+
+  // Disables or enables an Admin. Disabling also ends their sessions.
+  // An ID that is not a UUID gets 400 before any database query.
+  @Patch(':id')
+  setStatus(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(adminStatusSchema)) body: AdminStatusInput,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.admins.setStatus(id, body.status, context);
   }
 }
