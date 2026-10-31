@@ -41,8 +41,9 @@ export class StaffAuthController {
   login(
     @Body(new ZodValidationPipe(staffLoginSchema)) body: StaffLoginInput,
     @ClientIp() ip: string,
+    @CurrentAuditContext() context: AuditContext,
   ) {
-    return this.staffAuth.login(body, ip);
+    return this.staffAuth.login(body, ip, context);
   }
 
   @Public()

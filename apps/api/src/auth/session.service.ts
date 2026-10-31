@@ -62,6 +62,13 @@ export interface TokenPair {
   refreshToken: string;
 }
 
+// Saves something in the transaction that creates a session, for example its
+// audit entry.
+export type SaveWithSession = (
+  tx: Prisma.TransactionClient,
+  sessionId: string,
+) => Promise<void>;
+
 // Who may use a session of this audience: an active account with one of its
 // roles. Staff must also have MFA set up.
 function liveUser(audience: Audience): Prisma.UserWhereInput {
@@ -132,16 +139,30 @@ export class SessionService {
 
   // Starts a session for someone a login has fully checked. Only the hash of
   // the refresh token is stored. The raw token goes to the client once.
-  async start(userId: string, audience: Audience): Promise<TokenPair> {
+  // Something that must be saved with the session, such as the audit entry
+  // of a staff sign-in, goes in alsoSave: then there is never one without
+  // the other.
+  async start(
+    userId: string,
+    audience: Audience,
+    alsoSave?: SaveWithSession,
+  ): Promise<TokenPair> {
     const { token: refreshToken, tokenHash } = generateToken();
-    const session = await this.prisma.session.create({
-      data: {
-        userId,
-        expiresAt: new Date(Date.now() + SESSION_TTL_MS[audience]),
-        refreshTokens: { create: { tokenHash } },
-      },
-      select: { id: true },
-    });
+    const data = {
+      userId,
+      expiresAt: new Date(Date.now() + SESSION_TTL_MS[audience]),
+      refreshTokens: { create: { tokenHash } },
+    };
+    const session = alsoSave
+      ? await this.prisma.$transaction(async (tx) => {
+          const created = await tx.session.create({
+            data,
+            select: { id: true },
+          });
+          await alsoSave(tx, created.id);
+          return created;
+        })
+      : await this.prisma.session.create({ data, select: { id: true } });
     this.logger.info({ userId, sessionId: session.id, audience }, 'Signed in');
     return this.issueTokens(userId, session.id, refreshToken, audience);
   }

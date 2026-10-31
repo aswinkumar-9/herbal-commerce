@@ -78,6 +78,7 @@ function setup() {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       create: jest.fn().mockResolvedValue({ id: 'token-2' }),
     },
+    session: { create: jest.fn().mockResolvedValue({ id: 'session-9' }) },
   };
   const prisma = {
     user: { findUnique: jest.fn().mockResolvedValue(customer) },
@@ -319,6 +320,33 @@ describe('SessionService.start', () => {
       { id: 'user-1', sessionId: 'session-1' },
       'staff',
     );
+  });
+
+  // New in Part 3B-6: the staff sign-in saves its audit entry this way.
+  it('saves what it is given in the same transaction as the new session', async () => {
+    const { service, prisma, tx, accessTokens } = setup();
+    const alsoSave = jest.fn().mockResolvedValue(undefined);
+
+    await service.start('user-1', 'staff', alsoSave);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.session.create).toHaveBeenCalledTimes(1);
+    expect(prisma.session.create).not.toHaveBeenCalled();
+    expect(alsoSave).toHaveBeenCalledWith(tx, 'session-9');
+    expect(accessTokens.sign).toHaveBeenCalledWith(
+      { id: 'user-1', sessionId: 'session-9' },
+      'staff',
+    );
+  });
+
+  it('gives out no tokens when saving with the session fails', async () => {
+    const { service, accessTokens } = setup();
+    const alsoSave = jest.fn().mockRejectedValue(new Error('audit failed'));
+
+    await expect(service.start('user-1', 'staff', alsoSave)).rejects.toThrow(
+      'audit failed',
+    );
+    expect(accessTokens.sign).not.toHaveBeenCalled();
   });
 });
 

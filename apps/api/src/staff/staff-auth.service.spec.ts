@@ -1,14 +1,18 @@
 import { HttpException } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
+import { AuditService } from '../audit/audit.service';
 import { LoginAttemptsService } from '../auth/login-attempts.service';
 import { PasswordService } from '../auth/password.service';
 import { SessionService } from '../auth/session.service';
+import type { SaveWithSession } from '../auth/session.service';
 import { RetryLaterException } from '../common/retry-later.exception';
 import { PrismaService } from '../prisma/prisma.service';
 import { StaffAuthService } from './staff-auth.service';
 import { StaffMfaService } from './staff-mfa.service';
 
 const IP = '203.0.113.7';
+// The login is public, so the request knows no actor yet.
+const CONTEXT = { ip: '203.0.113.7', requestId: 'request-1' };
 const input = {
   email: 'dev.admin@example.com',
   password: 'a-staff-pass-16ch',
@@ -44,6 +48,7 @@ function setup() {
     failed: jest.fn().mockResolvedValue(undefined),
     succeeded: jest.fn().mockResolvedValue(undefined),
   };
+  const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
   const service = new StaffAuthService(
     prisma as unknown as PrismaService,
@@ -51,9 +56,19 @@ function setup() {
     mfa as unknown as StaffMfaService,
     sessions as unknown as SessionService,
     attempts as unknown as LoginAttemptsService,
+    audit as unknown as AuditService,
     logger as unknown as PinoLogger,
   );
-  return { service, prisma, passwords, mfa, sessions, attempts, logger };
+  return {
+    service,
+    prisma,
+    passwords,
+    mfa,
+    sessions,
+    attempts,
+    audit,
+    logger,
+  };
 }
 type Setup = ReturnType<typeof setup>;
 
@@ -98,7 +113,7 @@ function failures(): Record<string, Setup> {
 // Runs a login that must fail and returns the error the client would get.
 async function loginError(service: StaffAuthService): Promise<HttpException> {
   try {
-    await service.login(input, IP);
+    await service.login(input, IP, CONTEXT);
   } catch (error) {
     if (error instanceof HttpException) {
       return error;
@@ -114,12 +129,42 @@ describe('StaffAuthService.login', () => {
       const { service, prisma, mfa, sessions, attempts } = setup();
       prisma.user.findUnique.mockResolvedValue({ ...admin, role });
 
-      await expect(service.login(input, IP)).resolves.toEqual(TOKENS);
+      await expect(service.login(input, IP, CONTEXT)).resolves.toEqual(
+        TOKENS,
+      );
       expect(mfa.verifyAndUse).toHaveBeenCalledWith('staff-1', '123456');
-      expect(sessions.start).toHaveBeenCalledWith('staff-1', 'staff');
+      expect(sessions.start).toHaveBeenCalledWith(
+        'staff-1',
+        'staff',
+        expect.any(Function),
+      );
       expect(attempts.succeeded).toHaveBeenCalledWith(input.email, IP);
       expect(attempts.failed).not.toHaveBeenCalled();
     }
+  });
+
+  // New in Part 3B-6.
+  it('records the sign-in in the audit log, in the transaction of its session', async () => {
+    const { service, sessions, audit } = setup();
+
+    await service.login(input, IP, CONTEXT);
+
+    // Run what the session service would save with the new session.
+    const [, , alsoSave] = sessions.start.mock.calls[0] as [
+      string,
+      string,
+      SaveWithSession,
+    ];
+    const tx = { auditLog: {} };
+    await alsoSave(tx as never, 'session-9');
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ip: CONTEXT.ip,
+      requestId: CONTEXT.requestId,
+      actorId: 'staff-1',
+      action: 'staff.signed_in',
+      targetType: 'session',
+      targetId: 'session-9',
+    });
   });
 
   it('gives one answer for every failure, and starts no session', async () => {
@@ -130,6 +175,7 @@ describe('StaffAuthService.login', () => {
       expect([name, error.getStatus()]).toEqual([name, 401]);
       answers.push(error.getResponse());
       expect(failure.sessions.start).not.toHaveBeenCalled();
+      expect(failure.audit.record).not.toHaveBeenCalled();
       expect(failure.attempts.succeeded).not.toHaveBeenCalled();
     }
     expect(answers[0]).toMatchObject({
