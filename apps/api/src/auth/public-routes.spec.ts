@@ -1,6 +1,7 @@
 import { Reflector } from '@nestjs/core';
 import { HealthController } from '../health/health.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
+import { StaffAuditLogController } from '../staff/staff-audit-log.controller';
 import { StaffAuthController } from '../staff/staff-auth.controller';
 import { StaffMeController } from '../staff/staff-me.controller';
 import { AuthController } from './auth.controller';
@@ -41,5 +42,6 @@ describe('public routes', () => {
     ]);
     expect(publicHandlers(StaffMeController)).toEqual([]);
     expect(publicHandlers(StaffAdminsController)).toEqual([]);
+    expect(publicHandlers(StaffAuditLogController)).toEqual([]);
   });
 });
