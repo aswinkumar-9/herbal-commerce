@@ -2,6 +2,7 @@ import { Reflector } from '@nestjs/core';
 import { RATE_LIMIT } from '../rate-limit/rate-limit.decorator';
 import { StaffAuthController } from '../staff/staff-auth.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
+import { StaffAuditLogController } from '../staff/staff-audit-log.controller';
 import { AuthController } from './auth.controller';
 
 // The per-IP limit of each handler, read from its @RateLimit() decorator.
@@ -43,6 +44,10 @@ describe('rate-limited routes', () => {
       resendInvitation: ['staffInvites'],
       setStatus: undefined,
       remove: undefined,
+    });
+    // Reading the audit log has only the per-IP baseline.
+    expect(routeLimits(StaffAuditLogController)).toStrictEqual({
+      list: undefined,
     });
   });
 });

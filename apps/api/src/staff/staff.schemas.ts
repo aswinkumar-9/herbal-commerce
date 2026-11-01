@@ -48,3 +48,17 @@ export const adminStatusSchema = z.object({
   status: z.enum(['ACTIVE', 'DISABLED']),
 });
 export type AdminStatusInput = z.infer<typeof adminStatusSchema>;
+
+// What a Super User may ask of the audit log. Query values arrive as text,
+// so the number is converted. Unknown parameters are dropped.
+export const auditLogQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  before: z.uuid().optional(),
+  action: z
+    .string()
+    .regex(/^[a-z_]+\.[a-z_]+$/, 'An action looks like "admin.removed"')
+    .optional(),
+  actorId: z.uuid().optional(),
+  targetId: z.string().min(1).max(100).optional(),
+});
+export type AuditLogQueryInput = z.infer<typeof auditLogQuerySchema>;

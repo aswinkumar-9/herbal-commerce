@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -73,7 +73,7 @@ It first clears the local rate-limit counters, so it can run again at once. Then
 - login, `GET /v1/me`, token refresh, refresh-token reuse detection and logout;
 - password recovery: the reset link arrives only for a real account, the reset ends every session, the new password works at once and the old one doesn't, the link works only once, and the "password changed" email arrives;
 - the rate limits: a per-IP limit that a faked `X-Forwarded-For` cannot get around, the block after 5 wrong passwords, and at most 5 emails per hour to one address;
-- that a customer's password and tokens never open the staff routes, and cannot invite or manage Admins;
+- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, and cannot read the audit log;
 - that a made-up invitation link is refused.
 
 The staff login and a real invitation need a phone, so they are tried by hand: see "Sign in as staff" and "Invite an Admin".
@@ -169,6 +169,7 @@ Remove-Variable secure, code, body, login
 - `Read-Host` shows the question in quotes; type your answer after it. Never put the code or the password in the command itself.
 - A `401 Invalid email, password or code` never says which part was wrong. The API log does: see Troubleshooting.
 - Staff sessions last 12 hours, and staff tokens work only on `/v1/staff/...` routes.
+- Each successful sign-in is recorded in the audit log as `staff.signed_in`. Failed ones are only in the API log.
 
 ## Invite an Admin
 
@@ -246,6 +247,38 @@ Only a Super User can list, disable, enable and remove Admins, or send an invita
 - The Super User's access token lasts 15 minutes. After that, sign in again (step 1).
 - Every change is in the audit log: `admin.disabled`, `admin.enabled`, `admin.invitation_resent` and `admin.removed` (with who was removed).
 
+## Read the audit log
+
+Only a Super User can read the audit log (ADR 0017). It holds every staff change and every successful staff sign-in, newest first.
+
+1. **Sign in as a Super User**, as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`: `$login` is needed here.
+2. **Read the newest page:**
+   ```powershell
+   $auth = @{ Authorization = "Bearer $($login.accessToken)" }
+   $page = Invoke-RestMethod -Uri 'http://localhost:3000/v1/staff/audit-log?limit=20' -Headers $auth
+   $page.entries | Format-Table createdAt, action, @{ n = 'actor'; e = { $_.actor.email } }, @{ n = 'target'; e = { $_.target.email } }, ip
+   ```
+3. **The next, older page** continues just after the last entry. Run it again for each further page, until `nextBefore` is empty:
+   ```powershell
+   $page = Invoke-RestMethod -Uri "http://localhost:3000/v1/staff/audit-log?limit=20&before=$($page.nextBefore)" -Headers $auth
+   $page.entries | Format-Table createdAt, action, @{ n = 'actor'; e = { $_.actor.email } }, @{ n = 'target'; e = { $_.target.email } }, ip
+   ```
+4. **Filter,** and combine filters as you like:
+   - `?action=admin.removed`: one kind of entry;
+   - `?actorId=<an account's ID>`: what that person did;
+   - `?targetId=<an Admin's ID>`: that Admin's whole story, from invitation to removal.
+
+   The IDs come from the entries themselves, or from the Admin list in "Manage Admins".
+5. **Sign out and clean up:**
+   ```powershell
+   Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/logout -ContentType 'application/json' -Body (@{ refreshToken = $login.refreshToken } | ConvertTo-Json)
+   Remove-Variable login, auth, page
+   ```
+
+- An empty `actor` means a developer command, such as the MFA setup, or an account that no longer exists. An empty `target` means the target is not an account (a session, for example), or no longer exists. The IDs stay in `actorId` and `targetId` either way.
+- A removed Admin's `admin.removed` entry keeps who they were, in `before`.
+- Use `nextBefore` to page, never your own counting: new entries keep arriving at the top.
+
 ## Repository structure
 
 ```
@@ -255,7 +288,7 @@ Only a Super User can list, disable, enable and remove Admins, or send an invita
 │       ├── prisma/             schema and migrations
 │       ├── scripts/            auth-smoke.cjs (smoke test), clear-rate-limits.cjs
 │       └── src/
-│           ├── audit/          the append-only audit log and a request's audit context
+│           ├── audit/          the append-only audit log, a request's audit context, and reading the log page by page
 │           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset, access and roles guards, /v1/me
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
 │           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
@@ -327,3 +360,6 @@ Only a Super User can list, disable, enable and remove Admins, or send an invita
   - `Admin not found`: the API looked, and there is no Admin with this ID. A Super User's ID gets the same answer.
   - `Cannot DELETE /v1/staff/admins/` (or `PATCH`, or `POST`): the URL had no ID, so no route matched. Usually the PowerShell variable was empty. Print it in brackets first, for example `"[$id]"`.
 - **An Admin route answers `400 Validation failed (uuid is expected)`:** the ID in the URL is not a UUID.
+- **The audit log answers `400 Validation failed`:** the `errors` list names the parameter. `limit` must be 1 to 100, `before` must be a `nextBefore` value from an earlier page, `actorId` must be a UUID, and `action` looks like `admin.removed`.
+- **A sign-in is missing from the audit log:** only successful staff sign-ins are recorded. A failed one is in the API log, as `Staff sign-in failed` with its reason.
+- **A pasted password is refused:** count the `*` that `Read-Host` showed, one per character. A much longer count than the password means something extra was pasted with it.

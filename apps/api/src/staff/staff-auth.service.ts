@@ -1,5 +1,7 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import type { AuditContext } from '../audit/audit-context';
+import { AuditService } from '../audit/audit.service';
 import { LoginAttemptsService } from '../auth/login-attempts.service';
 import { PasswordService } from '../auth/password.service';
 import { SessionService } from '../auth/session.service';
@@ -30,11 +32,18 @@ export class StaffAuthService {
     private readonly mfa: StaffMfaService,
     private readonly sessions: SessionService,
     private readonly attempts: LoginAttemptsService,
+    private readonly audit: AuditService,
     @InjectPinoLogger(StaffAuthService.name)
     private readonly logger: PinoLogger,
   ) {}
 
-  async login(input: StaffLoginInput, ip: string): Promise<TokenPair> {
+  // The ip is the rate-limit key (see clientIpKey); the context has the exact
+  // address for the audit log.
+  async login(
+    input: StaffLoginInput,
+    ip: string,
+    context: AuditContext,
+  ): Promise<TokenPair> {
     // While too many recent attempts failed, refuse before any password work.
     await this.attempts.check(input.email, ip);
 
@@ -77,7 +86,18 @@ export class StaffAuthService {
     }
 
     await this.attempts.succeeded(input.email, ip);
-    return this.sessions.start(user.id, 'staff');
+    // Every successful staff sign-in is audited, in the same transaction as
+    // its session (ADR 0017). Failures stay in the application log: anyone
+    // can cause them, and the audit log can never be cleaned up.
+    return this.sessions.start(user.id, 'staff', (tx, sessionId) =>
+      this.audit.record(tx, {
+        ...context,
+        actorId: user.id,
+        action: 'staff.signed_in',
+        targetType: 'session',
+        targetId: sessionId,
+      }),
+    );
   }
 
   // The signed-in staff member's own account. Never the password hash or

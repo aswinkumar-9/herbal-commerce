@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.8.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.9.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned.
 
@@ -285,6 +285,8 @@ Rules: email as for registration. Password 1 to 128 characters. Code exactly 6 d
 
 Response `200`, with `Cache-Control: no-store`: the same body as the customer login (`accessToken`, `tokenType`, `expiresIn` of 900, `refreshToken`). Use the refresh token only with `/v1/staff/auth/refresh` and `/v1/staff/auth/logout`.
 
+Every successful sign-in is written to the audit log (`staff.signed_in`, with the new session as its target), in the same transaction as the session. Failed sign-ins are not (ADR 0017).
+
 Errors:
 
 | Status | Body | When |
@@ -489,6 +491,59 @@ Errors:
 
 Client tip: offer "Remove" only for disabled and pending Admins, and "Disable" first for active ones.
 
+## Audit log (Super Users only)
+
+### GET `/v1/staff/audit-log`
+
+The append-only audit log: every staff change and every successful staff sign-in, **newest first, one page at a time**. Needs a **Super User's** staff access token. Reading the log is not itself audited (ADR 0017).
+
+Query parameters, all optional:
+
+| Parameter | Rules | Meaning |
+|---|---|---|
+| `limit` | Whole number, 1 to 100, default 50 | Entries per page |
+| `before` | UUID | The `nextBefore` of the previous page: continue just after it |
+| `action` | Like `thing.verb`, for example `admin.removed` | Only this action |
+| `actorId` | UUID | Only what this account did |
+| `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's ID |
+
+The filters combine. Any other parameter is ignored.
+
+Response `200`:
+```json
+{
+  "entries": [
+    {
+      "id": "1ebda37e-6c2d-4f41-9a7b-2c0d5e8f4a13",
+      "createdAt": "2026-10-31T16:26:02.408Z",
+      "action": "admin.removed",
+      "actorId": "5d1e8c2a-7b3f-4e9a-a1c6-2f8d0b4e7a93",
+      "actor": { "id": "5d1e8c2a-7b3f-4e9a-a1c6-2f8d0b4e7a93", "email": "dev.super1@example.com", "fullName": "Dev Super One", "role": "SUPER_USER" },
+      "targetType": "user",
+      "targetId": "fc13b599-bdcb-4f62-8c45-42148baaddf7",
+      "target": null,
+      "before": { "email": "dev.admin2@example.com", "fullName": "Dev Admin Two", "status": "ACTIVE", "mfaEnabledAt": null, "invitationAcceptedAt": null },
+      "after": null,
+      "ip": "127.0.0.1",
+      "requestId": "fe5c63ec-..."
+    }
+  ],
+  "nextBefore": "1ebda37e-6c2d-4f41-9a7b-2c0d5e8f4a13"
+}
+```
+- `actor`: the account that acted, or `null` for the developer commands or an account that no longer exists. `actorId` stays either way.
+- `target`: the account an entry is about, for user targets only. It is `null` for other targets, such as the session of a `staff.signed_in`, and for removed accounts.
+- `before` and `after`: the relevant fields before and after the change, never a password, secret or token.
+- `nextBefore`: send it as `?before=` to get the next, older page. It is `null` on the last page.
+
+Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled` and `admin.removed`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
+
+Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` and `403` (as for the Admin endpoints); `429` (the 600 per minute limit).
+
+Rules for clients:
+- **Page with `nextBefore`, never by counting.** New entries arrive at the top all the time, and the cursor keeps the pages stable.
+- An unknown `before` gives an empty page.
+
 ## Not yet implemented
 
-Profile changes, changing the password while signed in, "sign out everywhere", staff password changes, and a view of the audit log for Super Users (part 3B-6). See `docs/requirements.md`, ADR 0007, ADR 0014, ADR 0015, ADR 0016 and `docs/security.md`.
+Profile changes, changing the password while signed in, "sign out everywhere" and staff password changes. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0017 and `docs/security.md`.

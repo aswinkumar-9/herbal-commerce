@@ -2,6 +2,7 @@ import {
   acceptInviteSchema,
   adminInviteSchema,
   adminStatusSchema,
+  auditLogQuerySchema,
   staffLoginSchema,
   superUserSchema,
 } from './staff.schemas';
@@ -116,3 +117,47 @@ describe('adminStatusSchema', () => {
     }
   });
 });
+
+describe('auditLogQuerySchema', () => {
+  const accepts = (query: object) =>
+    auditLogQuerySchema.safeParse(query).success;
+
+  it('pages 50 entries by default, and turns the limit from text into a number', () => {
+    expect(auditLogQuerySchema.parse({})).toEqual({ limit: 50 });
+    expect(auditLogQuerySchema.parse({ limit: '10' })).toEqual({ limit: 10 });
+  });
+
+  it('takes a whole limit from 1 to 100 only', () => {
+    for (const limit of ['', '0', '101', '2.5', 'ten', ['5', '6']]) {
+      expect(accepts({ limit })).toBe(false);
+    }
+    expect(accepts({ limit: '1' })).toBe(true);
+    expect(accepts({ limit: '100' })).toBe(true);
+  });
+
+  it('checks the cursor and the filters, and drops anything else', () => {
+    const id = '3c9a7e21-5b4d-4f8e-9a16-7d2e0c5b8f41';
+    expect(
+      auditLogQuerySchema.parse({
+        before: id,
+        action: 'admin.removed',
+        actorId: id,
+        targetId: id,
+        orderBy: 'ip',
+      }),
+    ).toEqual({
+      limit: 50,
+      before: id,
+      action: 'admin.removed',
+      actorId: id,
+      targetId: id,
+    });
+    expect(accepts({ before: 'entry-1' })).toBe(false);
+    expect(accepts({ actorId: 'nobody' })).toBe(false);
+    expect(accepts({ action: 'Admin.Removed' })).toBe(false);
+    expect(accepts({ action: 'admin' })).toBe(false);
+    expect(accepts({ targetId: '' })).toBe(false);
+    expect(accepts({ targetId: 'x'.repeat(101) })).toBe(false);
+  });
+});
+
