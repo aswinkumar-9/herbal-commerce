@@ -2,15 +2,21 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
+  HttpStatus,
   Patch,
+  Post,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { ClientIp } from '../rate-limit/client-ip.decorator';
+import { RateLimit } from '../rate-limit/rate-limit.decorator';
 import type { AuthUser } from './auth-user';
-import { updateProfileSchema } from './auth.schemas';
-import type { UpdateProfileInput } from './auth.schemas';
+import { changePasswordSchema, updateProfileSchema } from './auth.schemas';
+import type { ChangePasswordInput, UpdateProfileInput } from './auth.schemas';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
+import { PasswordChangeService } from './password-change.service';
 
 // The account was deleted after the token was issued.
 function existing<T>(profile: T | null): T {
@@ -22,7 +28,10 @@ function existing<T>(profile: T | null): T {
 
 @Controller('me')
 export class MeController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    private readonly passwordChange: PasswordChangeService,
+  ) {}
 
   // The caller's own account. The ID comes from the token, never from the URL.
   @Get()
@@ -38,5 +47,19 @@ export class MeController {
     @Body(new ZodValidationPipe(updateProfileSchema)) body: UpdateProfileInput,
   ) {
     return existing(await this.auth.updateProfile(user.id, body));
+  }
+
+  // Changes the caller's own password, with the current one as proof. Every
+  // session ends, so the caller signs in again with the new password.
+  @RateLimit('changePassword')
+  @Post('password')
+  @HttpCode(HttpStatus.OK)
+  changePassword(
+    @CurrentUser() user: AuthUser,
+    @Body(new ZodValidationPipe(changePasswordSchema))
+    body: ChangePasswordInput,
+    @ClientIp() ip: string,
+  ) {
+    return this.passwordChange.change(user.id, body, ip);
   }
 }

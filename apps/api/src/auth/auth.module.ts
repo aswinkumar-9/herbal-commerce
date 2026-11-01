@@ -6,6 +6,7 @@ import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { LoginAttemptsService } from './login-attempts.service';
 import { MeController } from './me.controller';
+import { PasswordChangeService } from './password-change.service';
 import { PasswordResetService } from './password-reset.service';
 import { PasswordService } from './password.service';
 import { SessionService } from './session.service';
@@ -21,6 +22,7 @@ import { SessionService } from './session.service';
     LoginAttemptsService,
     SessionService,
     PasswordResetService,
+    PasswordChangeService,
   ],
   // The global guard in AppModule needs the first two; the staff login
   // (StaffModule) needs the rest.

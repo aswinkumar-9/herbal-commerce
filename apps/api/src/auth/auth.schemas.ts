@@ -53,3 +53,20 @@ export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 // not here: changing it needs a new verification, which comes later.
 export const updateProfileSchema = z.object({ fullName });
 export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
+
+// Changing the password while signed in. The current one proves it is the
+// owner, not someone holding a stolen access token; like the login, only its
+// length is checked. The new one follows the registration rules.
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z
+      .string()
+      .min(1, 'Password is required')
+      .max(128, 'Password must be at most 128 characters'),
+    newPassword,
+  })
+  .refine((input) => input.newPassword !== input.currentPassword, {
+    message: 'The new password must be different from the current one',
+    path: ['newPassword'],
+  });
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;

@@ -1,6 +1,7 @@
 import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { MeController } from './me.controller';
+import { PasswordChangeService } from './password-change.service';
 
 const USER = { id: 'user-1', sessionId: 'session-1', role: 'CUSTOMER' as const };
 
@@ -9,7 +10,17 @@ function controllerWith(profile: unknown) {
     getProfile: jest.fn().mockResolvedValue(profile),
     updateProfile: jest.fn().mockResolvedValue(profile),
   };
-  return { controller: new MeController(auth as unknown as AuthService), auth };
+  const passwordChange = {
+    change: jest.fn().mockResolvedValue({ message: 'changed' }),
+  };
+  return {
+    controller: new MeController(
+      auth as unknown as AuthService,
+      passwordChange as unknown as PasswordChangeService,
+    ),
+    auth,
+    passwordChange,
+  };
 }
 
 describe('MeController', () => {
@@ -48,5 +59,22 @@ describe('MeController', () => {
     await expect(
       controller.update(USER, { fullName: 'Asha K' }),
     ).rejects.toBeInstanceOf(UnauthorizedException);
+  });
+
+  it("changes the caller's own password, by the ID in the token", async () => {
+    const { controller, passwordChange } = controllerWith(null);
+    const body = {
+      currentPassword: 'the-current-password-1',
+      newPassword: 'a-brand-new-password-2',
+    };
+
+    await expect(
+      controller.changePassword(USER, body, '203.0.113.7'),
+    ).resolves.toEqual({ message: 'changed' });
+    expect(passwordChange.change).toHaveBeenCalledWith(
+      'user-1',
+      body,
+      '203.0.113.7',
+    );
   });
 });
