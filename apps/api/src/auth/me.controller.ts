@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -17,6 +18,7 @@ import type { ChangePasswordInput, UpdateProfileInput } from './auth.schemas';
 import { AuthService } from './auth.service';
 import { CurrentUser } from './current-user.decorator';
 import { PasswordChangeService } from './password-change.service';
+import { SessionService } from './session.service';
 
 // The account was deleted after the token was issued.
 function existing<T>(profile: T | null): T {
@@ -31,6 +33,7 @@ export class MeController {
   constructor(
     private readonly auth: AuthService,
     private readonly passwordChange: PasswordChangeService,
+    private readonly sessions: SessionService,
   ) {}
 
   // The caller's own account. The ID comes from the token, never from the URL.
@@ -61,5 +64,13 @@ export class MeController {
     @ClientIp() ip: string,
   ) {
     return this.passwordChange.change(user.id, body, ip);
+  }
+
+  // Signs the caller out on every device, this one too. Their tokens stop
+  // working at once; each device signs in again.
+  @Delete('sessions')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  signOutEverywhere(@CurrentUser() user: AuthUser) {
+    return this.sessions.endAll(user.id);
   }
 }

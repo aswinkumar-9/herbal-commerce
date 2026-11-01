@@ -2,6 +2,7 @@ import { UnauthorizedException } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { MeController } from './me.controller';
 import { PasswordChangeService } from './password-change.service';
+import { SessionService } from './session.service';
 
 const USER = { id: 'user-1', sessionId: 'session-1', role: 'CUSTOMER' as const };
 
@@ -13,13 +14,16 @@ function controllerWith(profile: unknown) {
   const passwordChange = {
     change: jest.fn().mockResolvedValue({ message: 'changed' }),
   };
+  const sessions = { endAll: jest.fn().mockResolvedValue(undefined) };
   return {
     controller: new MeController(
       auth as unknown as AuthService,
       passwordChange as unknown as PasswordChangeService,
+      sessions as unknown as SessionService,
     ),
     auth,
     passwordChange,
+    sessions,
   };
 }
 
@@ -76,5 +80,12 @@ describe('MeController', () => {
       body,
       '203.0.113.7',
     );
+  });
+
+  it('signs the caller out everywhere, by the ID in the token', async () => {
+    const { controller, sessions } = controllerWith(null);
+
+    await expect(controller.signOutEverywhere(USER)).resolves.toBeUndefined();
+    expect(sessions.endAll).toHaveBeenCalledWith('user-1');
   });
 });

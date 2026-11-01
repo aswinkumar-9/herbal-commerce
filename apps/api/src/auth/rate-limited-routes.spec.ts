@@ -55,7 +55,7 @@ describe('rate-limited routes', () => {
       me: undefined,
       update: undefined,
       changePassword: ['changePassword'],
+      signOutEverywhere: undefined,
     });
-
   });
 });

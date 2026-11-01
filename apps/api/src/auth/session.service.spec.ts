@@ -621,3 +621,22 @@ describe('SessionService.liveSessionRole', () => {
     ).resolves.toBeNull();
   });
 });
+
+// New in Part 3C-1: "sign out everywhere".
+describe('SessionService.endAll', () => {
+  it('ends every live session of this user, and only theirs', async () => {
+    const { service, prisma, logger } = setup();
+    prisma.session.updateMany.mockResolvedValue({ count: 3 });
+
+    await expect(service.endAll('user-1')).resolves.toBeUndefined();
+
+    expect(prisma.session.updateMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', revokedAt: null },
+      data: { revokedAt: expect.any(Date) as Date },
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      { userId: 'user-1', sessions: 3 },
+      'Signed out everywhere',
+    );
+  });
+});
