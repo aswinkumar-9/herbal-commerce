@@ -197,6 +197,15 @@ async function main() {
     'a customer access token cannot list, disable, remove or re-invite Admins',
     adminAnswers.every((status) => status === 401),
   );
+  check(
+    'a customer access token cannot read the audit log on GET /v1/staff/audit-log',
+    (
+      await call('GET', '/v1/staff/audit-log', {
+        token: login.body.accessToken,
+      })
+    ).status === 401,
+  );
+
   // Accepting an invitation is public, but only a real link works. (A real
   // invitation is tried by hand: only a signed-in Super User can send one.)
   const madeUpInvite = await call('POST', '/v1/staff/auth/accept-invite', {
