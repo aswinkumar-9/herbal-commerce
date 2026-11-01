@@ -28,6 +28,9 @@ export const RATE_LIMITS = {
   logout: { points: 120, duration: MINUTE },
   // Staff are few, so their login gets a much tighter per-IP limit.
   staffLogin: { points: 10, duration: MINUTE },
+  // Changing the password while signed in: the current one is checked
+  // (argon2), and every wrong one also counts against the failed-login limits.
+  changePassword: { points: 10, duration: HOUR },
   // Each invitation creates an account and sends an email.
   staffInvites: { points: 20, duration: HOUR },
   acceptInvite: { points: 20, duration: HOUR },

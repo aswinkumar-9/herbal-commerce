@@ -270,6 +270,20 @@ export class SessionService {
     }
   }
 
+  // Signs the user out on every device: every session ends, this one too.
+  // Their access tokens stop working at once, because the guard checks the
+  // session on every request.
+  async endAll(userId: string): Promise<void> {
+    const ended = await this.prisma.session.updateMany({
+      where: { userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    this.logger.info(
+      { userId, sessions: ended.count },
+      'Signed out everywhere',
+    );
+  }
+
   // Checked on every authenticated request, so logout, reuse detection,
   // disabled accounts and role changes take effect at once. While the session
   // is live, returns its user's current role; otherwise null.

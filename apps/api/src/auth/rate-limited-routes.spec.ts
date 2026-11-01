@@ -4,6 +4,7 @@ import { StaffAuthController } from '../staff/staff-auth.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
 import { StaffAuditLogController } from '../staff/staff-audit-log.controller';
 import { AuthController } from './auth.controller';
+import { MeController } from './me.controller';
 
 // The per-IP limit of each handler, read from its @RateLimit() decorator.
 function routeLimits(controller: { prototype: object }) {
@@ -48,6 +49,13 @@ describe('rate-limited routes', () => {
     // Reading the audit log has only the per-IP baseline.
     expect(routeLimits(StaffAuditLogController)).toStrictEqual({
       list: undefined,
+    });
+    // Changing the password checks the current one, so it has its own limit.
+    expect(routeLimits(MeController)).toStrictEqual({
+      me: undefined,
+      update: undefined,
+      changePassword: ['changePassword'],
+      signOutEverywhere: undefined,
     });
   });
 });

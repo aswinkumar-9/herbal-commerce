@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.9.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.10.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned.
 
@@ -68,6 +68,7 @@ The per-IP limits are checked before anything else, so a `429` can arrive even f
 | `register`, `resend-verification`, `forgot-password` and `staff/admins/:id/invitation` together | email address | 5 per hour |
 | `login` | client IP | 60 attempts per minute |
 | `staff/auth/login` | client IP | 10 attempts per minute |
+| `me/password` | client IP | 10 per hour |
 | `staff/admins` and `staff/admins/:id/invitation` together (inviting an Admin, and again) | client IP | 20 per hour |
 | `staff/auth/accept-invite` | client IP | 20 per hour |
 | `login` and `staff/auth/login` together, failed attempts | email + client IP | 5 per hour, then blocked for 15 minutes |
@@ -75,7 +76,7 @@ The per-IP limits are checked before anything else, so a `429` can arrive even f
 | `login` and `staff/auth/login` together, failed attempts | client IP | 200 per hour, then blocked for 1 hour |
 | `refresh`, `logout` (customer and staff together) | client IP | 120 per minute each |
 
-The failure limits count unknown emails exactly like real ones, so a `429` never reveals whether an account exists. A successful login clears the email + IP failure count. The full rules are in ADR 0009 and, for staff, ADR 0014.
+The failure limits count unknown emails exactly like real ones, so a `429` never reveals whether an account exists. A successful login clears the email + IP failure count. A wrong current password at `me/password` counts as a failed login too. The full rules are in ADR 0009 and, for staff, ADR 0014.
 
 Rules for clients:
 - Wait the `Retry-After` seconds before trying again. Never retry at once or in a loop.
@@ -266,6 +267,59 @@ Response `200`, with `Cache-Control: no-store`:
 ```
 
 Errors: `401` (see "Authentication errors on protected endpoints"), also for a staff access token; `429` (the 600 per minute limit).
+
+### PATCH `/v1/me`
+
+Changes the signed-in customer's own name.
+
+Request: `{ "fullName": "Asha K" }`. The name is trimmed, and must be 1 to 100 characters. Any other field, such as `email` or `role`, is ignored.
+
+Response `200`: the profile, as for `GET /v1/me`.
+
+Errors: `400 Validation failed`; `401` (also for a staff access token); `429` (the 600 per minute limit).
+
+Changing the email address is not possible yet: the new address will need its own verification.
+
+### POST `/v1/me/password`
+
+Changes the signed-in customer's password. The current password is required, so a stolen access token alone cannot change it.
+
+Request:
+```json
+{ "currentPassword": "a-long-password-1", "newPassword": "a-new-long-password-2" }
+```
+Rules: the current password is 1 to 128 characters (only the length is checked, as at login). The new password follows the registration rules (10 to 128 characters), and must differ from the current one.
+
+Response `200`:
+```json
+{ "message": "Your password has been changed. Please sign in again with your new password." }
+```
+What a change also does:
+- **every session of the account ends, this one included.** All refresh and access tokens stop working at once;
+- any reset link that is still waiting stops working;
+- a "your password was changed" email is sent to the account.
+
+The client sends the customer to the sign-in screen.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | A missing field, a new password that breaks the rules, or the same password twice |
+| `400` | `The current password is wrong.` | The current password does not match. It counts as a failed login. |
+| `401` | see "Authentication errors on protected endpoints" | No valid customer access token |
+| `429` | `code: "RATE_LIMITED"` | 10 changes per hour from this IP, or the failed-login limits for this account (shared with the login) |
+| `503` | `code: "SERVER_BUSY"` | Too many password checks at once; try again after `Retry-After` |
+
+A wrong current password answers `400`, not `401`, so the client does not mistake it for an expired token.
+
+### DELETE `/v1/me/sessions`
+
+Signs the customer out on every device, this one included.
+
+Response `204 No Content`. Every refresh and access token of the account stops working at once; each device signs in again.
+
+Errors: `401` (see "Authentication errors on protected endpoints"); `429` (the 600 per minute limit).
 
 ## Staff authentication
 
@@ -546,4 +600,4 @@ Rules for clients:
 
 ## Not yet implemented
 
-Profile changes, changing the password while signed in, "sign out everywhere" and staff password changes. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0017 and `docs/security.md`.
+Delivery addresses (part 3C-2), changing the email address, a phone number, deleting an account, a list of active sessions, and staff password changes. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0018 and `docs/security.md`.

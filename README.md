@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email and `GET /v1/me`. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, and signing out everywhere. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -73,6 +73,7 @@ It first clears the local rate-limit counters, so it can run again at once. Then
 - login, `GET /v1/me`, token refresh, refresh-token reuse detection and logout;
 - password recovery: the reset link arrives only for a real account, the reset ends every session, the new password works at once and the old one doesn't, the link works only once, and the "password changed" email arrives;
 - the rate limits: a per-IP limit that a faked `X-Forwarded-For` cannot get around, the block after 5 wrong passwords, and at most 5 emails per hour to one address;
+- the customer's own account: changing the name (and nothing else), changing the password (a wrong current one is refused, and both of two signed-in "devices" are signed out), the second "password changed" email, and signing out everywhere;
 - that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, and cannot read the audit log;
 - that a made-up invitation link is refused.
 
@@ -289,7 +290,7 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
 │       ├── scripts/            auth-smoke.cjs (smoke test), clear-rate-limits.cjs
 │       └── src/
 │           ├── audit/          the append-only audit log, a request's audit context, and reading the log page by page
-│           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset, access and roles guards, /v1/me
+│           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset and change, access and roles guards, /v1/me
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
 │           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
 │           ├── rate-limit/     limits, rate-limit guard, client IP
@@ -363,3 +364,5 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
 - **The audit log answers `400 Validation failed`:** the `errors` list names the parameter. `limit` must be 1 to 100, `before` must be a `nextBefore` value from an earlier page, `actorId` must be a UUID, and `action` looks like `admin.removed`.
 - **A sign-in is missing from the audit log:** only successful staff sign-ins are recorded. A failed one is in the API log, as `Staff sign-in failed` with its reason.
 - **A pasted password is refused:** count the `*` that `Read-Host` showed, one per character. A much longer count than the password means something extra was pasted with it.
+- **Changing the password answers `400 The current password is wrong.`:** it counts as a failed login. The 6th wrong password in an hour answers `429`, and then both the change and the login refuse for 15 minutes.
+- **After changing the password or signing out everywhere, every request answers `401`:** that is intended. Every session ended, this one too: sign in again.

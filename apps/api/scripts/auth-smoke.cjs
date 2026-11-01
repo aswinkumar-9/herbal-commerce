@@ -1,5 +1,5 @@
-// End-to-end check of customer sign-up and sign-in against the running API,
-// and that customers can never use the staff routes.
+// End-to-end check of customer sign-up, sign-in and the customer's own account
+// against the running API, and that customers can never use the staff routes.
 // Needs the API (pnpm api:dev) and Mailpit (docker compose) to be running.
 // Each run creates one throwaway customer account in the local database.
 // `pnpm api:smoke` clears the local rate limits first, so it can run again at once.
@@ -51,10 +51,11 @@ async function mailSearch(address, subject) {
   );
 }
 
-// Waits up to 5 seconds, because some emails are sent in the background.
-async function waitForEmail(address, subject) {
+// Waits up to 5 seconds, because some emails are sent in the background, until
+// Mailpit holds at least `count` of them.
+async function waitForEmail(address, subject, count = 1) {
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    if (((await mailSearch(address, subject)).messages ?? []).length > 0) {
+    if (((await mailSearch(address, subject)).messages ?? []).length >= count) {
       return true;
     }
     await pause();
@@ -376,6 +377,87 @@ async function main() {
     resends.join(',') === '202,202,202,429',
   );
 
+  // The customer's own account (part 3C-1). The password is newPassword now.
+  const mine = await call('POST', '/v1/auth/login', {
+    json: { email, password: newPassword },
+  });
+  const renamed = await call('PATCH', '/v1/me', {
+    json: { fullName: ' Smoke Renamed ', role: 'ADMIN', email: `x.${email}` },
+    token: mine.body?.accessToken,
+  });
+  check(
+    'PATCH /v1/me changes the name, trimmed, and nothing else',
+    renamed.status === 200 &&
+      renamed.body?.fullName === 'Smoke Renamed' &&
+      renamed.body?.role === 'CUSTOMER' &&
+      renamed.body?.email === email,
+  );
+
+  // A second device, to prove that a password change signs out everywhere.
+  const otherDevice = await call('POST', '/v1/auth/login', {
+    json: { email, password: newPassword },
+  });
+  const changedPassword = 'smoke-changed-password-3';
+  const wrongCurrent = await call('POST', '/v1/me/password', {
+    json: { currentPassword: 'not-the-password-1', newPassword: changedPassword },
+    token: mine.body?.accessToken,
+  });
+  check(
+    'changing the password with a wrong current one answers 400',
+    wrongCurrent.status === 400,
+  );
+  const notices = ((await mailSearch(email, 'Your password was changed'))
+    .messages ?? []).length;
+  const changed = await call('POST', '/v1/me/password', {
+    json: { currentPassword: newPassword, newPassword: changedPassword },
+    token: mine.body?.accessToken,
+  });
+  check(
+    'changing the password with the current one answers 200',
+    changed.status === 200,
+  );
+  check(
+    'the change ended every session: this device and the other one',
+    (await call('GET', '/v1/me', { token: mine.body?.accessToken })).status ===
+      401 &&
+      (await call('GET', '/v1/me', { token: otherDevice.body?.accessToken }))
+        .status === 401,
+  );
+  const oldOne = await call('POST', '/v1/auth/login', {
+    json: { email, password: newPassword },
+  });
+  const one = await call('POST', '/v1/auth/login', {
+    json: { email, password: changedPassword },
+  });
+  check(
+    'after the change, only the new password signs in',
+    oldOne.status === 401 && one.status === 200,
+  );
+  check(
+    'the owner is told by email that the password was changed',
+    await waitForEmail(email, 'Your password was changed', notices + 1),
+  );
+
+  // Sign out everywhere: both live sessions end, refresh tokens included.
+  const two = await call('POST', '/v1/auth/login', {
+    json: { email, password: changedPassword },
+  });
+  const everywhere = await call('DELETE', '/v1/me/sessions', {
+    token: one.body?.accessToken,
+  });
+  check('DELETE /v1/me/sessions answers 204', everywhere.status === 204);
+  check(
+    'after signing out everywhere, both devices are refused, refresh included',
+    (await call('GET', '/v1/me', { token: one.body?.accessToken })).status ===
+      401 &&
+      (await call('GET', '/v1/me', { token: two.body?.accessToken })).status ===
+        401 &&
+      (
+        await call('POST', '/v1/auth/refresh', {
+          json: { refreshToken: two.body?.refreshToken },
+        })
+      ).status === 401,
+  );
   console.log(
     failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`,
   );

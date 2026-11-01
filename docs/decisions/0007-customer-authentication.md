@@ -8,6 +8,7 @@
 - Updated: 2026-10-27 (part 3A-5 closed gaps 4 and 7, see ADR 0011)
 - Updated: 2026-10-30 (part 3B-3: staff routes with their own token audience, see ADR 0014)
 - Updated: 2026-10-30 (part 3B-4: one more public staff endpoint, accepting an Admin invitation, see ADR 0015)
+- Updated: 2026-11-01 (part 3C-1: customers change their name and password, and sign out everywhere, see ADR 0018)
 
 ## Context
 

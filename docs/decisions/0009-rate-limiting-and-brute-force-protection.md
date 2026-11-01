@@ -6,6 +6,7 @@
 - Updated: 2026-10-30 (part 3B-3: the staff login shares the failure counters and has its own per-IP limit, ADR 0014)
 - Updated: 2026-10-30 (part 3B-4: limits for inviting Admins and accepting invitations, ADR 0015)
 - Updated: 2026-10-31 (part 3B-5: inviting an Admin again counts against `staffInvites` and `emailsToAddress`, ADR 0016)
+- Updated: 2026-11-01 (part 3C-1: a limit for changing the password, whose wrong guesses count as failed logins, ADR 0018)
 
 ## Context
 
@@ -37,6 +38,7 @@ Most customers will use Indian mobile networks. Carrier-grade NAT (CGNAT) puts t
    - The failure that **goes over** a limit answers 429 instead of 401, and starts the block.
    - A successful login **resets only the email + IP counter**, so an attacker's own login cannot wipe the per-email or per-IP counts.
    - **The staff login uses the same three counters** (since part 3B-3, ADR 0014), through `LoginAttemptsService`. A wrong code counts like a wrong password, and switching between the two login paths gains nothing.
+   - **A wrong current password when changing it counts too** (since part 3C-1, ADR 0018), so a stolen access token gives no faster way to guess the password.
 3. **Emails to one address.** Register (a verification link or an "account exists" notice), resend and forgot-password (since part 3A-4) all count against `emailsToAddress`. They count before any work, and for every address, known or not.
 4. **Password hashing.** At most 2 argon2 operations run at once and 50 more wait their turn. Beyond that the answer is 503.
 
@@ -53,6 +55,7 @@ Most customers will use Indian mobile networks. Carrier-grade NAT (CGNAT) puts t
 | `emailsToAddress` | email address | 5 emails per hour (register, resend, forgot-password and, since part 3B-5, inviting an Admin again, together) | 429 |
 | `login` | IP | 60 attempts per minute | 429 |
 | `staffLogin` | IP | 10 attempts per minute (since part 3B-3) | 429 |
+| `changePassword` | IP | 10 per hour (since part 3C-1) | 429 |
 | `staffInvites` | IP | 20 Admin invitations per hour, first ones and new ones together (since part 3B-4) | 429 |
 | `acceptInvite` | IP | 20 per hour (since part 3B-4) | 429 |
 | `refresh`, `logout` | IP | 120 per minute (customer and staff together) | 429 |
