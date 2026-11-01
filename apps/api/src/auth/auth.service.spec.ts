@@ -27,7 +27,7 @@ function setup() {
     user: { updateMany: jest.fn() },
   };
   const prisma = {
-    user: { findUnique: jest.fn(), create: jest.fn() },
+    user: { findUnique: jest.fn(), create: jest.fn(), updateMany: jest.fn() },
     emailVerificationToken: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
@@ -270,3 +270,40 @@ describe('AuthService.getProfile', () => {
     });
   });
 });
+
+// New in Part 3C-1.
+describe('AuthService.updateProfile', () => {
+  it('changes only the name of the signed-in user, then answers with the profile', async () => {
+    const { service, prisma } = setup();
+    const profile = { id: 'u1', email: 'aswin@example.com', fullName: 'Asha K' };
+    prisma.user.updateMany.mockResolvedValue({ count: 1 });
+    prisma.user.findUnique.mockResolvedValue(profile);
+
+    await expect(
+      service.updateProfile('u1', { fullName: 'Asha K' }),
+    ).resolves.toEqual(profile);
+
+    expect(prisma.user.updateMany).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: { fullName: 'Asha K' },
+    });
+    // The answer is read after the change, with the profile's own fields.
+    const [updated] = prisma.user.updateMany.mock.invocationCallOrder;
+    const [read] = prisma.user.findUnique.mock.invocationCallOrder;
+    expect(updated).toBeLessThan(read);
+    expect(prisma.user.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'u1' } }),
+    );
+  });
+
+  it('answers null if the account no longer exists', async () => {
+    const { service, prisma } = setup();
+    prisma.user.updateMany.mockResolvedValue({ count: 0 });
+    prisma.user.findUnique.mockResolvedValue(null);
+
+    await expect(
+      service.updateProfile('u1', { fullName: 'Asha K' }),
+    ).resolves.toBeNull();
+  });
+});
+

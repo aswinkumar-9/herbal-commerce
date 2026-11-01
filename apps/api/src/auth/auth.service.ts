@@ -5,7 +5,7 @@ import { Env } from '../config/env';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RateLimitService } from '../rate-limit/rate-limit.service';
-import type { RegisterInput } from './auth.schemas';
+import type { RegisterInput, UpdateProfileInput } from './auth.schemas';
 import { PasswordService } from './password.service';
 import { isUniqueViolation } from '../prisma/prisma-errors';
 import { generateToken, hashToken } from './token.util';
@@ -171,6 +171,16 @@ export class AuthService {
         createdAt: true,
       },
     });
+  }
+
+  // Changes the signed-in user's own name, then answers like getProfile:
+  // null if the account no longer exists.
+  async updateProfile(userId: string, input: UpdateProfileInput) {
+    await this.prisma.user.updateMany({
+      where: { id: userId },
+      data: { fullName: input.fullName },
+    });
+    return this.getProfile(userId);
   }
 
   private verificationUrl(token: string): string {

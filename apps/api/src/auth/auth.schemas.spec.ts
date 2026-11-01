@@ -5,6 +5,7 @@ import {
   registerSchema,
   resendVerificationSchema,
   resetPasswordSchema,
+  updateProfileSchema,
   verifyEmailSchema,
 } from './auth.schemas';
 
@@ -75,5 +76,21 @@ describe('auth schemas', () => {
       resetPasswordSchema.safeParse({ token, newPassword: 'x'.repeat(129) }).success,
     ).toBe(false);
     expect(resetPasswordSchema.safeParse({ token: 'abc', newPassword: ok }).success).toBe(false);
+  });
+
+  // New in Part 3C-1.
+  it('lets a customer change only their name, trimmed, 1 to 100 characters', () => {
+    expect(
+      updateProfileSchema.parse({
+        fullName: ' Asha K ',
+        email: 'other@example.com',
+        role: 'ADMIN',
+      }),
+    ).toEqual({ fullName: 'Asha K' });
+    expect(updateProfileSchema.safeParse({ fullName: ' ' }).success).toBe(false);
+    expect(
+      updateProfileSchema.safeParse({ fullName: 'x'.repeat(101) }).success,
+    ).toBe(false);
+    expect(updateProfileSchema.safeParse({}).success).toBe(false);
   });
 });

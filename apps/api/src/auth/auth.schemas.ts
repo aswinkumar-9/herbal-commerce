@@ -8,12 +8,15 @@ const newPassword = z
   .max(128, 'Password must be at most 128 characters');
 // A single-use token from an email link (43 characters in practice).
 export const emailedToken = z.string().min(20).max(200);
+// A person's name, as they want to be addressed.
+export const fullName = z.string().trim().min(1, 'Name is required').max(100);
+
 
 // Unknown fields (for example "role") are dropped by zod, never passed on.
 export const registerSchema = z.object({
   email,
   password: newPassword,
-  fullName: z.string().trim().min(1, 'Name is required').max(100),
+  fullName,
 });
 export type RegisterInput = z.infer<typeof registerSchema>;
 
@@ -45,3 +48,8 @@ export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 
 export const resetPasswordSchema = z.object({ token: emailedToken, newPassword });
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+
+// What customers may change about their own account. The email address is
+// not here: changing it needs a new verification, which comes later.
+export const updateProfileSchema = z.object({ fullName });
+export type UpdateProfileInput = z.infer<typeof updateProfileSchema>;
