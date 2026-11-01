@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 3B-5)
 - Date: 2026-10-31
+- Updated: 2026-11-01 (part 3B-6: the audit log view shows these entries, see ADR 0017)
 
 ## Context
 
@@ -94,4 +95,4 @@ They all live in `StaffAdminsController`, which is `@SuperUserOnly()` as a whole
 - **The same email can be invited again after a removal.** The new account has a new ID, and the audit log shows both.
 - In this part's test, an empty PowerShell variable turned `DELETE /v1/staff/admins/<id>` into `DELETE /v1/staff/admins/`, a route that does not exist, and the API answered `404`. The README's troubleshooting tells the two kinds of `404` apart.
 - The smoke test checks on every run that a customer token gets `401` on all four routes. The routes themselves need a signed-in Super User with a phone, so they are tested by hand (README, "Manage Admins").
-- Next: part 3B-6, a Super Users' view of the audit log, and the decision on staff sign-ins in the audit log.
+- Part 3B-6 added the Super Users' view of the audit log and audited staff sign-ins (ADR 0017). With `?targetId=`, it shows an Admin's whole story, from invitation to removal.

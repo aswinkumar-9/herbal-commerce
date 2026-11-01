@@ -4,6 +4,7 @@
 - Date: 2026-10-27
 - Updated: 2026-10-30 (part 3B-4: entries made through the API carry the actor, IP and request ID; Admin invitations are audited, ADR 0015)
 - Updated: 2026-10-31 (part 3B-5: disabling, enabling, removing and inviting Admins again are audited; a removed Admin is kept in `admin.removed`, ADR 0016)
+- Updated: 2026-11-01 (part 3B-6: Super Users read the log at `GET /v1/staff/audit-log`, and staff sign-ins are recorded, ADR 0017)
 
 ## Context
 
@@ -12,7 +13,7 @@ ADR 0004 and `docs/requirements.md` (section 5) set the rules for staff accounts
 - At most 3 Super Users. Developers create them with a command, never through the application, and the limit is enforced both in application code and in the database.
 - Every Admin and Super User change goes into an append-only audit log: who, what, before, after, when, and from which IP.
 
-Part 3B-1 lays these foundations before any staff login exists. Staff MFA and the staff login followed in parts 3B-2 and 3B-3, and the roles guard and Admin management in parts 3B-4 and 3B-5. A view of the audit log for Super Users follows in part 3B-6.
+Part 3B-1 lays these foundations before any staff login exists. Staff MFA and the staff login followed in parts 3B-2 and 3B-3, and the roles guard and Admin management in parts 3B-4 and 3B-5. A view of the audit log for Super Users followed in part 3B-6 (ADR 0017).
 
 ## Decision
 
@@ -63,4 +64,4 @@ Staff never get a password-only login, not even for a while. Their login arrives
 - **The protection is only as strong as the database role.** Today the API connects as the database superuser, who could drop the triggers. Before production, the running app needs its own role that may only insert and read `audit_log` (`docs/security.md`, section 6).
 - Creating a Super User needs shell access to a machine with the production configuration, deliberately.
 - Adding a fourth Super User means removing one of the three first, which is a deliberate developer step.
-- Part 3B-2 (staff MFA setup, ADR 0013), part 3B-3 (staff login, ADR 0014), part 3B-4 (the roles guard and Admin invitations, ADR 0015) and part 3B-5 (managing Admins, every change audit-logged, ADR 0016) are done. Next: part 3B-6, a Super Users' view of the audit log.
+- Part 3B-2 (staff MFA setup, ADR 0013), part 3B-3 (staff login, ADR 0014), part 3B-4 (the roles guard and Admin invitations, ADR 0015) part 3B-5 (managing Admins, every change audit-logged, ADR 0016) and part 3B-6 (the Super Users' view of the log and audited staff sign-ins, ADR 0017) are done. Still open: a database role that may only add and read audit entries (`docs/security.md`, section 6).

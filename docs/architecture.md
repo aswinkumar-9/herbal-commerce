@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Draft v0.9.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
+Status: **Draft v0.10.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
 
 ## 1. Principles
 
@@ -37,19 +37,19 @@ Built so far:
 | Password recovery | Forgot-password sends a 30-minute, single-use link (in the background, so every address answers equally fast). Reset-password sets the new password, marks the email verified, ends every session and lifts the login blocks (ADR 0010). |
 | Customer sign-in | Login, refresh with rotation and reuse detection, logout. 15-minute access tokens (JWT, HS256, audience `customer`) and 30-day sessions (ADR 0007) |
 | Data retention | An hourly job inside the API (`RetentionScheduler`) deletes ended sessions after 30 days, used refresh tokens after 7 days, expired verification, reset and Admin invitation links, and customer sign-ups still unverified after 7 days. It logs counts only (ADR 0011). |
-| Audit log | The append-only `audit_log` table: database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`. `AuditService.record(tx, entry)` writes in the same transaction as the change and redacts secret-looking fields (ADR 0012). Entries made through the API carry the checked actor, the client IP and the request ID, from `@CurrentAuditContext()` (ADR 0015). |
+| Audit log | The append-only `audit_log` table: database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`. `AuditService.record(tx, entry)` writes in the same transaction as the change and redacts secret-looking fields (ADR 0012). Entries made through the API carry the checked actor, the client IP and the request ID, from `@CurrentAuditContext()` (ADR 0015). Super Users read it at `GET /v1/staff/audit-log`: newest first, paged by cursor, with filters and the accounts named (`AuditReaderService`, ADR 0017). |
 | Super Users | Created only with `pnpm api:create-super-user`, a standalone Nest context without HTTP. At most 3, enforced by the app and a database trigger. Each creation is audited (ADR 0012). |
 | Staff MFA | TOTP from authenticator apps (our own implementation, proven against the RFC test vectors), with no code accepted twice. Secrets are encrypted with `SecretBox` (AES-256-GCM, bound to the user). Set up only with `pnpm api:setup-staff-mfa`, which saves after a valid code, ends the person's sessions and is audited (ADR 0013). |
-| Staff sign-in | `POST /v1/staff/auth/login` takes the password and a code together and gives one `401` for every failure. Staff tokens carry the audience `staff`, and staff sessions last 12 hours. Refresh and logout at `/v1/staff/auth/*`, and `GET /v1/staff/me` for the own account (ADR 0014). |
+| Staff sign-in | `POST /v1/staff/auth/login` takes the password and a code together and gives one `401` for every failure. Staff tokens carry the audience `staff`, and staff sessions last 12 hours. Refresh and logout at `/v1/staff/auth/*`, and `GET /v1/staff/me` for the own account (ADR 0014). Every successful sign-in writes `staff.signed_in` to the audit log, in the same transaction as its session (ADR 0017). |
 | Admin invitations | A Super User invites an Admin with `POST /v1/staff/admins`. That creates the account with a password nobody knows and emails a 72-hour, single-use link. The Admin chooses their own password at `POST /v1/staff/auth/accept-invite`, and a developer then sets up their MFA. Both steps are audited (ADR 0015). |
 | Managing Admins | Super Users list Admins (`GET /v1/staff/admins`), disable and enable them (`PATCH /v1/staff/admins/:id`, which ends the sessions on disabling), remove a disabled or pending one (`DELETE`), and send a pending one a new invitation (`POST /v1/staff/admins/:id/invitation`). Every change is audited in the same transaction (ADR 0016). |
 | Access control | A global deny-by-default guard. Each request needs a valid access token and a live session, unless its handler is `@Public()`. Each protected route has one audience: routes marked `@StaffOnly()` take staff tokens, every other route customer tokens. The caller's current role comes from the database with the session. A global roles guard then refuses Admins on routes marked `@SuperUserOnly()` (`403`, ADR 0015). `GET /v1/me` and `GET /v1/staff/me` return the caller's own account. |
 | Email | Sent through SMTP behind a swappable mail service. Mailpit catches all mail in development. TLS is required in production. |
 | Logging | Structured JSON logs with a request ID on every request (ADR 0006). No emails, passwords, codes or tokens in logs. |
 | Errors | One consistent error format that includes the request ID, plus a `code` field where clients must react to a specific case, and `Retry-After` on `429` and `503` (ADR 0006, `docs/api-specification.md`) |
-| Tests | Unit tests for every module (264 tests in 40 suites), a type check of all code including the tests (`pnpm api:typecheck`), and an end-to-end smoke test against the running API (`pnpm api:smoke`, 37 checks, including the rate limits, password recovery, that customers cannot use the staff routes or invite or manage Admins, and that a made-up invitation link fails). The staff login, inviting and managing Admins are tested by hand with a phone (README). |
+| Tests | Unit tests for every module (277 tests in 41 suites), a type check of all code including the tests (`pnpm api:typecheck`), and an end-to-end smoke test against the running API (`pnpm api:smoke`, 38 checks, including the rate limits, password recovery, that customers cannot use the staff routes, invite or manage Admins or read the audit log, and that a made-up invitation link fails). The staff login, inviting and managing Admins and reading the audit log are tested by hand with a phone (README). |
 
-Not built yet: changing the password while signed in, a view of the audit log, product catalog, inventory, cart, orders, payments, admin console, customer app and website, notifications, support tickets, CI/CD.
+Not built yet: changing the password while signed in, product catalog, inventory, cart, orders, payments, admin console, customer app and website, notifications, support tickets, CI/CD.
 
 ## 3. Roles
 
@@ -91,7 +91,8 @@ Customers sign in at `/v1/auth/login`. Staff (Admins and Super Users) sign in at
    - the request also carries the code from the authenticator app, which is checked only after the right password and is used up;
    - every failure, a disabled account included, gets the same `401`;
    - the session lasts 12 hours;
-   - refresh and logout use `/v1/staff/auth/*`, and a refresh token from the other sign-in path is refused without touching its session.
+   - refresh and logout use `/v1/staff/auth/*`, and a refresh token from the other sign-in path is refused without touching its session;
+   - the session and its `staff.signed_in` audit entry are saved in one transaction (ADR 0017). Failed sign-ins are not audited.
 
 ### 4.4 Becoming an Admin (ADR 0015)
 
@@ -125,4 +126,4 @@ Customers sign in at `/v1/auth/login`. Staff (Admins and Super Users) sign in at
 
 ## 6. Planned direction
 
-See `docs/requirements.md` for scope and open decisions. Next in identity and access: a Super Users' view of the audit log, and the decision on staff sign-ins in the audit log (part 3B-6). Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.
+See `docs/requirements.md` for scope and open decisions. Identity and access for staff is complete with part 3B-6 (ADR 0012 to ADR 0017). What is still open there is listed in `docs/security.md`. Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.
