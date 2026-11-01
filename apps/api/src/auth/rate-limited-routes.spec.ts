@@ -1,4 +1,5 @@
 import { Reflector } from '@nestjs/core';
+import { AddressesController } from '../addresses/addresses.controller';
 import { RATE_LIMIT } from '../rate-limit/rate-limit.decorator';
 import { StaffAuthController } from '../staff/staff-auth.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
@@ -56,6 +57,11 @@ describe('rate-limited routes', () => {
       update: undefined,
       changePassword: ['changePassword'],
       signOutEverywhere: undefined,
+    });
+    // At most 10 addresses each, so the per-IP baseline is enough.
+    expect(routeLimits(AddressesController)).toStrictEqual({
+      list: undefined,
+      add: undefined,
     });
   });
 });
