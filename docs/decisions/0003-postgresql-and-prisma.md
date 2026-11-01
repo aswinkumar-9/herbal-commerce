@@ -2,6 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-10-20
+- Updated: 2026-11-01 (part 3C-2: the preview feature `partialIndexes`, and a row lock in raw SQL, see ADR 0019)
 
 ## Context
 
@@ -15,6 +16,8 @@ The platform needs transactions, relational integrity and mature migrations. The
 - The generated client lives in `apps/api/src/generated/prisma` and is not committed. Run `prisma generate` after cloning and before building in CI.
 - Prisma commands run from `apps/api`, and the configuration file loads the root `.env`.
 - Migrations are SQL files committed to Git and are **forward-only**. Prisma Migrate has no automatic "down" migration.
+- **Every index lives in the schema,** so Prisma never drops one at a later migration. A partial index uses the preview feature `partialIndexes` (since part 3C-2, ADR 0019). Things Prisma does not manage at all, such as triggers, are added by hand to a migration (ADR 0012).
+- **Raw SQL only as a tagged template** (`` $queryRaw`... ${value} ...` ``), so values travel as parameters. Never `$queryRawUnsafe`.
 
 ## Why Prisma is pinned to 7
 
@@ -28,5 +31,5 @@ At the time of writing, the `latest` tag of the `prisma` package on npm pointed 
 ## Consequences
 
 - Strong typing and a clear migration history.
-- Atomic stock updates and other hot paths may need explicit SQL, which Prisma supports.
+- Atomic stock updates and other hot paths may need explicit SQL, which Prisma supports. The first case is the row lock that keeps a customer's address changes in turn (ADR 0019).
 - The Prisma generator and driver setup differs between major versions, so upgrades are deliberate and tested.

@@ -1,7 +1,7 @@
 // End-to-end check of customer sign-up, sign-in and the customer's own account
 // against the running API, and that customers can never use the staff routes.
 // Needs the API (pnpm api:dev) and Mailpit (docker compose) to be running.
-// Each run creates one throwaway customer account in the local database.
+// Each run creates two throwaway customer accounts in the local database.
 // `pnpm api:smoke` clears the local rate limits first, so it can run again at once.
 const API = process.env.API_URL ?? 'http://localhost:3000';
 const MAILPIT = process.env.MAILPIT_URL ?? 'http://localhost:8025';
@@ -457,6 +457,115 @@ async function main() {
           json: { refreshToken: two.body?.refreshToken },
         })
       ).status === 401,
+  );
+  // Delivery addresses (part 3C-2). A fresh sign-in: every session ended above.
+  const owner = await call('POST', '/v1/auth/login', {
+    json: { email, password: changedPassword },
+  });
+  const ownerToken = owner.body?.accessToken;
+  const home = {
+    fullName: 'Smoke Home',
+    phone: '+91 98450 12345',
+    line1: '12, 3rd Cross, Indiranagar',
+    city: 'Bengaluru',
+    state: 'Karnataka',
+    pincode: '560 038',
+  };
+  // A double tap: two first addresses at the same moment. The row lock makes
+  // them take turns, so both are saved and exactly one is the default.
+  const [firstA, firstB] = await Promise.all([
+    call('POST', '/v1/me/addresses', { json: home, token: ownerToken }),
+    call('POST', '/v1/me/addresses', {
+      json: { ...home, line1: '14, 3rd Cross, Indiranagar' },
+      token: ownerToken,
+    }),
+  ]);
+  check(
+    'two addresses added at the same moment are both saved, with exactly one default',
+    firstA.status === 201 &&
+      firstB.status === 201 &&
+      [firstA.body?.isDefault, firstB.body?.isDefault].filter(Boolean)
+        .length === 1,
+  );
+  check(
+    'an address is saved with the phone and the PIN code cleaned',
+    firstA.body?.phone === '9845012345' && firstA.body?.pincode === '560038',
+  );
+  const work = await call('POST', '/v1/me/addresses', {
+    json: { ...home, fullName: 'Smoke Work', city: 'Mysuru', isDefault: true },
+    token: ownerToken,
+  });
+  const listed = await call('GET', '/v1/me/addresses', { token: ownerToken });
+  check(
+    'a new default takes over: 3 addresses, one default, listed first',
+    work.status === 201 &&
+      listed.body?.addresses?.length === 3 &&
+      listed.body.addresses[0].id === work.body?.id &&
+      listed.body.addresses.filter((address) => address.isDefault).length ===
+        1,
+  );
+  check(
+    'an unknown state and a PIN code starting with 0 answer 400',
+    (
+      await call('POST', '/v1/me/addresses', {
+        json: { ...home, state: 'Bangalore', pincode: '060038' },
+        token: ownerToken,
+      })
+    ).status === 400,
+  );
+
+  // Another customer must not see, change or remove those addresses (BOLA).
+  const strangerEmail = `smoke.other.${Date.now()}@example.com`;
+  await call('POST', '/v1/auth/register', {
+    json: { email: strangerEmail, password, fullName: 'Smoke Stranger' },
+  });
+  await call('POST', '/v1/auth/verify-email', {
+    json: {
+      token: await emailedToken(strangerEmail, 'Verify your email address'),
+    },
+  });
+  const stranger = await call('POST', '/v1/auth/login', {
+    json: { email: strangerEmail, password },
+  });
+  const strangerToken = stranger.body?.accessToken;
+  check(
+    "another customer's list is empty",
+    (await call('GET', '/v1/me/addresses', { token: strangerToken })).body
+      ?.addresses?.length === 0,
+  );
+  const workPath = `/v1/me/addresses/${work.body?.id}`;
+  const strangerChange = await call('PATCH', workPath, {
+    json: { city: 'Elsewhere' },
+    token: strangerToken,
+  });
+  const strangerRemove = await call('DELETE', workPath, {
+    token: strangerToken,
+  });
+  check(
+    "another customer gets 404 when changing or removing someone else's address",
+    strangerChange.status === 404 && strangerRemove.status === 404,
+  );
+
+  const changedAddress = await call('PATCH', workPath, {
+    json: { city: ' Mysuru North ' },
+    token: ownerToken,
+  });
+  check(
+    'the owner changes the address: 200, and the stranger changed nothing',
+    changedAddress.status === 200 &&
+      changedAddress.body?.city === 'Mysuru North',
+  );
+  const removedDefault = await call('DELETE', workPath, { token: ownerToken });
+  const remaining = await call('GET', '/v1/me/addresses', {
+    token: ownerToken,
+  });
+  check(
+    'removing the default answers 204, and another address becomes the default',
+    removedDefault.status === 204 &&
+      remaining.body?.addresses?.length === 2 &&
+      remaining.body.addresses.filter((address) => address.isDefault)
+        .length === 1 &&
+      !remaining.body.addresses.some((address) => address.id === work.body?.id),
   );
   console.log(
     failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`,

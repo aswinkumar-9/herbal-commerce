@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { LoggerModule } from 'nestjs-pino';
+import { AddressesModule } from './addresses/addresses.module';
 import { AuditModule } from './audit/audit.module';
 import { AccessTokenGuard } from './auth/access-token.guard';
 import { AuthModule } from './auth/auth.module';
@@ -38,6 +39,7 @@ import { ValkeyModule } from './valkey/valkey.module';
     RateLimitModule,
     AuthModule,
     StaffModule,
+    AddressesModule,
     HealthModule,
     RetentionModule,
   ],

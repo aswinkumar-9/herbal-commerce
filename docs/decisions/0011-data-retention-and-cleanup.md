@@ -4,6 +4,7 @@
 - Date: 2026-10-27
 - Updated: 2026-10-30 (part 3B-4: expired Admin invitations are deleted too, ADR 0015)
 - Updated: 2026-10-31 (part 3B-5: a Super User removes or invites again a pending Admin, ADR 0016)
+- Updated: 2026-11-01 (part 3C-2: a deleted sign-up takes its delivery addresses with it, ADR 0019)
 
 ## Context
 
@@ -27,7 +28,7 @@ Unverified sign-ups are also the last piece of pre-account takeover (ADR 0007, g
 | Used refresh tokens in live sessions | 7 days after use | Reuse detection only needs the recent ones. |
 | Email verification and password reset links | once expired | An expired link is useless. |
 | Admin invitations (since part 3B-4) | once expired, used or not | An expired link is useless. Only the invitation goes: the Admin account stays, and a Super User removes the Admin or invites them again (ADR 0015, ADR 0016). |
-| Unverified customer accounts, with their tokens | 7 days after sign-up | Data minimisation, and it frees the address for its real owner. Staff accounts are never deleted by the job. |
+| Unverified customer accounts, with their tokens (and, since part 3C-2, their addresses) | 7 days after sign-up | Data minimisation, and it frees the address for its real owner. Staff accounts are never deleted by the job. |
 
 All periods are in one place: `RETENTION` in `apps/api/src/retention/retention.service.ts`.
 

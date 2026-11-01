@@ -1,7 +1,9 @@
 generator client {
-  provider     = "prisma-client"
-  output       = "../src/generated/prisma"
-  moduleFormat = "cjs"
+  provider        = "prisma-client"
+  output          = "../src/generated/prisma"
+  moduleFormat    = "cjs"
+  // For the one-default-address rule (ADR 0019).
+  previewFeatures = ["partialIndexes"]
 }
 
 datasource db {
@@ -39,6 +41,7 @@ model User {
   passwordResetTokens     PasswordResetToken[]
   sessions                Session[]
   staffInvitations        StaffInvitation[]
+  addresses               Address[]
 
   @@index([role])
   @@map("users")
@@ -133,4 +136,29 @@ model AuditLog {
   requestId  String?
 
   @@map("audit_log")
+}
+
+// A customer's delivery address (ADR 0019). Indian addresses only for now:
+// the launch market is India (docs/requirements.md).
+model Address {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  // Who receives the parcel, and the 10-digit mobile number the courier calls.
+  fullName  String
+  phone     String
+  line1     String
+  line2     String?
+  city      String
+  state     String
+  pincode   String
+  isDefault Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  // At most one default address per customer, even for two requests at once.
+  @@unique([userId], map: "addresses_one_default_per_user", where: { isDefault: true })
+  @@map("addresses")
 }

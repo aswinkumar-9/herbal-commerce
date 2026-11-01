@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, and signing out everywhere. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -74,6 +74,7 @@ It first clears the local rate-limit counters, so it can run again at once. Then
 - password recovery: the reset link arrives only for a real account, the reset ends every session, the new password works at once and the old one doesn't, the link works only once, and the "password changed" email arrives;
 - the rate limits: a per-IP limit that a faked `X-Forwarded-For` cannot get around, the block after 5 wrong passwords, and at most 5 emails per hour to one address;
 - the customer's own account: changing the name (and nothing else), changing the password (a wrong current one is refused, and both of two signed-in "devices" are signed out), the second "password changed" email, and signing out everywhere;
+- delivery addresses: two added at the same moment (both saved, exactly one default), the phone and PIN code cleaned, moving and removing the default, and a second customer who sees none of the first one's addresses and gets `404` on them;
 - that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, and cannot read the audit log;
 - that a made-up invitation link is refused.
 
@@ -289,6 +290,7 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
 │       ├── prisma/             schema and migrations
 │       ├── scripts/            auth-smoke.cjs (smoke test), clear-rate-limits.cjs
 │       └── src/
+│           ├── addresses/      customers' delivery addresses
 │           ├── audit/          the append-only audit log, a request's audit context, and reading the log page by page
 │           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset and change, access and roles guards, /v1/me
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
@@ -366,3 +368,6 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
 - **A pasted password is refused:** count the `*` that `Read-Host` showed, one per character. A much longer count than the password means something extra was pasted with it.
 - **Changing the password answers `400 The current password is wrong.`:** it counts as a failed login. The 6th wrong password in an hour answers `429`, and then both the change and the login refuse for 15 minutes.
 - **After changing the password or signing out everywhere, every request answers `401`:** that is intended. Every session ended, this one too: sign in again.
+- **Adding an address answers `409`:** the customer already has 10. Remove one first.
+- **An address answers `404 Address not found`:** it was removed, or it belongs to another customer. Addresses are only ever reachable by their owner.
+- **A new address answers `400` for the state:** it must be spelled exactly as in the list (`Karnataka`, not `karnataka` or `Bangalore`).
