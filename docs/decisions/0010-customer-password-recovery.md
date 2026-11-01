@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 3A-4)
 - Date: 2026-10-26
+- Updated: 2026-11-01 (part 3C-1: changing the password while signed in ends the same way, ADR 0018)
 
 ## Context
 
@@ -56,7 +57,7 @@ A reset link is as powerful as the password itself, so it gets the same care as 
 ## Consequences
 
 - **Pre-account takeover is closed:** a reset by the real owner sets their own password, marks the address verified and signs everyone else out. The other half, deleting unverified accounts after 7 days, followed in part 3A-5 (ADR 0011).
-- **A reset signs the customer out on every device.** That is intended, and the notice email says so.
+- **A reset signs the customer out on every device.** That is intended, and the notice email says so. Since part 3C-1, changing the password while signed in ends the same way, with the same notice, and also cancels any waiting reset link (ADR 0018).
 - If the API stops between the response and the background email, the email is lost, and the customer has to ask again.
 - The website (later) must post the token from the URL to the API straight away, and keep it out of its own logs and analytics.
 - The 30-minute validity is fixed in two places, `password-reset.service.ts` and the email text, and both must change together.

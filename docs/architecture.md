@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Draft v0.10.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
+Status: **Draft v0.11.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
 
 ## 1. Principles
 
@@ -36,6 +36,7 @@ Built so far:
 | Customer accounts | Registration, email verification and resend, without revealing which emails are registered (ADR 0007) |
 | Password recovery | Forgot-password sends a 30-minute, single-use link (in the background, so every address answers equally fast). Reset-password sets the new password, marks the email verified, ends every session and lifts the login blocks (ADR 0010). |
 | Customer sign-in | Login, refresh with rotation and reuse detection, logout. 15-minute access tokens (JWT, HS256, audience `customer`) and 30-day sessions (ADR 0007) |
+| Customer account | `GET` and `PATCH /v1/me` (the name only), `POST /v1/me/password` (with the current password; every session ends, and wrong guesses count as failed logins) and `DELETE /v1/me/sessions` (sign out everywhere). The account is always the one in the token (ADR 0018). |
 | Data retention | An hourly job inside the API (`RetentionScheduler`) deletes ended sessions after 30 days, used refresh tokens after 7 days, expired verification, reset and Admin invitation links, and customer sign-ups still unverified after 7 days. It logs counts only (ADR 0011). |
 | Audit log | The append-only `audit_log` table: database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`. `AuditService.record(tx, entry)` writes in the same transaction as the change and redacts secret-looking fields (ADR 0012). Entries made through the API carry the checked actor, the client IP and the request ID, from `@CurrentAuditContext()` (ADR 0015). Super Users read it at `GET /v1/staff/audit-log`: newest first, paged by cursor, with filters and the accounts named (`AuditReaderService`, ADR 0017). |
 | Super Users | Created only with `pnpm api:create-super-user`, a standalone Nest context without HTTP. At most 3, enforced by the app and a database trigger. Each creation is audited (ADR 0012). |
@@ -47,9 +48,9 @@ Built so far:
 | Email | Sent through SMTP behind a swappable mail service. Mailpit catches all mail in development. TLS is required in production. |
 | Logging | Structured JSON logs with a request ID on every request (ADR 0006). No emails, passwords, codes or tokens in logs. |
 | Errors | One consistent error format that includes the request ID, plus a `code` field where clients must react to a specific case, and `Retry-After` on `429` and `503` (ADR 0006, `docs/api-specification.md`) |
-| Tests | Unit tests for every module (277 tests in 41 suites), a type check of all code including the tests (`pnpm api:typecheck`), and an end-to-end smoke test against the running API (`pnpm api:smoke`, 38 checks, including the rate limits, password recovery, that customers cannot use the staff routes, invite or manage Admins or read the audit log, and that a made-up invitation link fails). The staff login, inviting and managing Admins and reading the audit log are tested by hand with a phone (README). |
+| Tests | Unit tests for every module (295 tests in 42 suites), a type check of all code including the tests (`pnpm api:typecheck`), and an end-to-end smoke test against the running API (`pnpm api:smoke`, 46 checks, including the rate limits, password recovery, a customer changing their name and password and signing out everywhere, that customers cannot use the staff routes, invite or manage Admins or read the audit log, and that a made-up invitation link fails). The staff login, inviting and managing Admins and reading the audit log are tested by hand with a phone (README). |
 
-Not built yet: changing the password while signed in, product catalog, inventory, cart, orders, payments, admin console, customer app and website, notifications, support tickets, CI/CD.
+Not built yet: delivery addresses, changing the email address, product catalog, inventory, cart, orders, payments, admin console, customer app and website, notifications, support tickets, CI/CD.
 
 ## 3. Roles
 
@@ -87,6 +88,7 @@ Customers sign in at `/v1/auth/login`. Staff (Admins and Super Users) sign in at
 2. **Refresh** swaps the refresh token for a new pair. The old token is marked used in the same transaction. If a used token ever comes back, the whole session is revoked.
 3. **Logout** revokes the session. Because the guard checks the session on every request, its access tokens stop working at once.
 4. **Password reset** revokes **every** session of the account in the same transaction that sets the new password, so all devices are signed out at once. The customer then logs in again with the new password.
+   A **password change while signed in** does the same, after checking the current password (ADR 0018). **Signing out everywhere** (`DELETE /v1/me/sessions`) ends every session without changing the password.
 5. **Staff sign-in** works the same way, with these differences (ADR 0014):
    - the request also carries the code from the authenticator app, which is checked only after the right password and is used up;
    - every failure, a disabled account included, gets the same `401`;
@@ -126,4 +128,4 @@ Customers sign in at `/v1/auth/login`. Staff (Admins and Super Users) sign in at
 
 ## 6. Planned direction
 
-See `docs/requirements.md` for scope and open decisions. Identity and access for staff is complete with part 3B-6 (ADR 0012 to ADR 0017). What is still open there is listed in `docs/security.md`. Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.
+See `docs/requirements.md` for scope and open decisions. Identity and access for staff is complete with part 3B-6 (ADR 0012 to ADR 0017). For customers, part 3C-1 added the name, password and sessions (ADR 0018); next comes part 3C-2, delivery addresses. What is still open is listed in `docs/security.md`. Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.
