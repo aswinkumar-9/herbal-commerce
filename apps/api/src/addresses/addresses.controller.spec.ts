@@ -15,6 +15,8 @@ function setup() {
   const addresses = {
     list: jest.fn().mockResolvedValue({ addresses: [] }),
     add: jest.fn().mockResolvedValue({ id: 'address-1' }),
+    update: jest.fn().mockResolvedValue({ id: 'address-1' }),
+    remove: jest.fn().mockResolvedValue(undefined),
   };
   const controller = new AddressesController(
     addresses as unknown as AddressesService,
@@ -37,5 +39,25 @@ describe('AddressesController', () => {
       id: 'address-1',
     });
     expect(addresses.add).toHaveBeenCalledWith('user-1', input);
+  });
+
+  it("changes one of the caller's addresses, by the ID in the token", async () => {
+    const { controller, addresses } = setup();
+
+    await expect(
+      controller.update(USER, 'address-1', { city: 'Mysuru' }),
+    ).resolves.toEqual({ id: 'address-1' });
+    expect(addresses.update).toHaveBeenCalledWith('user-1', 'address-1', {
+      city: 'Mysuru',
+    });
+  });
+
+  it("removes one of the caller's addresses, by the ID in the token", async () => {
+    const { controller, addresses } = setup();
+
+    await expect(
+      controller.remove(USER, 'address-1'),
+    ).resolves.toBeUndefined();
+    expect(addresses.remove).toHaveBeenCalledWith('user-1', 'address-1');
   });
 });

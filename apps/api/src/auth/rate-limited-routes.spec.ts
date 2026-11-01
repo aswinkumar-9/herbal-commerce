@@ -62,6 +62,8 @@ describe('rate-limited routes', () => {
     expect(routeLimits(AddressesController)).toStrictEqual({
       list: undefined,
       add: undefined,
+      update: undefined,
+      remove: undefined,
     });
   });
 });
