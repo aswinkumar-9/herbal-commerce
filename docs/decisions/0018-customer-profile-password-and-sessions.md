@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 3C-1)
 - Date: 2026-11-01
+- Updated: 2026-11-01 (part 3C-2: delivery addresses, see ADR 0019)
 
 ## Context
 
@@ -79,4 +80,4 @@ These are customers' own changes. The audit log is for staff actions (ADR 0004, 
 
   It has 46 checks in total.
 - **Still open for customers:** changing the email address, the phone number with OTP (the verification method is undecided, `docs/requirements.md`), deleting the account (DPDP erasure), and a list of active sessions.
-- Next: part 3C-2, delivery addresses.
+- Part 3C-2 added delivery addresses (ADR 0019), which completes part 3C.

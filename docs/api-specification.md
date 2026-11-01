@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.10.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.11.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned.
 
@@ -321,6 +321,91 @@ Response `204 No Content`. Every refresh and access token of the account stops w
 
 Errors: `401` (see "Authentication errors on protected endpoints"); `429` (the 600 per minute limit).
 
+## Delivery addresses
+
+The signed-in customer's own delivery addresses (ADR 0019). They need a **customer** access token. The customer always comes from the token: a `userId` in a body is ignored, and **another customer's address answers `404`**, exactly like one that does not exist.
+
+An address, as every endpoint here returns it:
+```json
+{
+  "id": "6f2b9d1e-4c7a-4e3b-9a85-1d2c3e4f5a6b",
+  "fullName": "Asha K",
+  "phone": "9845012345",
+  "line1": "12, 3rd Cross, Indiranagar",
+  "line2": null,
+  "city": "Bengaluru",
+  "state": "Karnataka",
+  "pincode": "560038",
+  "isDefault": true,
+  "createdAt": "2026-11-01T12:00:00.000Z",
+  "updatedAt": "2026-11-01T12:00:00.000Z"
+}
+```
+
+The rules for each field:
+
+| Field | Rules |
+|---|---|
+| `fullName` | Who receives the parcel, 1 to 100 characters, trimmed |
+| `phone` | A 10-digit Indian mobile number starting with 6 to 9. Spaces, hyphens and a leading `+91`, `91` or `0` are allowed and removed: `+91 98450 12345` is stored as `9845012345`. |
+| `line1` | House number and street, 1 to 200 characters |
+| `line2` | Optional, up to 200 characters. An empty value or `null` means none. |
+| `city` | 1 to 100 characters |
+| `state` | One of India's 28 states and 8 union territories, spelled exactly as listed in `apps/api/src/addresses/addresses.schemas.ts` (for example `Karnataka`, `Delhi`, `Tamil Nadu`) |
+| `pincode` | 6 digits, not starting with 0. A space is allowed and removed: `560 038` is stored as `560038`. |
+
+**There is always exactly one default address,** as long as the customer has any:
+- the first address is the default;
+- another one becomes it only when asked;
+- removing the default makes the newest remaining address the default.
+
+### GET `/v1/me/addresses`
+
+Response `200`: `{ "addresses": [...] }`, the default first, then the newest. An empty list for a customer without addresses.
+
+Errors: `401`; `429` (the 600 per minute limit).
+
+### POST `/v1/me/addresses`
+
+Adds an address. The body has the fields above, and optionally `"isDefault": true` to make it the default. The first address always becomes the default, whatever is sent.
+
+Response `201`: the saved address.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | A missing or invalid field, each named in `errors` |
+| `401` | see "Authentication errors on protected endpoints" | No valid customer access token |
+| `409` | `You can save at most 10 addresses. Remove one first.` | The customer already has 10 |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+Two requests at the same moment (a double tap) are handled one after the other: both are saved, and there is still exactly one default.
+
+### PATCH `/v1/me/addresses/:id`
+
+Changes an address. Send only the fields that change, with the same rules, or `{ "isDefault": true }` to make it the default (the old default then stops being it).
+
+Response `200`: the changed address.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `400` | `Validation failed` | An invalid field, an empty change (`Nothing to change`), or `"isDefault": false` (make another address the default instead) |
+| `401` | see above | No valid customer access token |
+| `404` | `Address not found` | No such address, or it belongs to someone else |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### DELETE `/v1/me/addresses/:id`
+
+Removes an address. If it was the default, the newest remaining address becomes the default.
+
+Response `204 No Content`.
+
+Errors: `400` (the ID is not a UUID); `401`; `404 Address not found` (no such address, or someone else's); `429` (the 600 per minute limit).
+
 ## Staff authentication
 
 For Admins and Super Users only. Customers cannot sign in here, and staff cannot sign in at `/v1/auth/login`. An invited Admin first chooses a password (`accept-invite` below). Then a developer sets up the staff member's authenticator app (README, "Set up staff MFA").
@@ -600,4 +685,4 @@ Rules for clients:
 
 ## Not yet implemented
 
-Delivery addresses (part 3C-2), changing the email address, a phone number, deleting an account, a list of active sessions, and staff password changes. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0018 and `docs/security.md`.
+Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0019 and `docs/security.md`.
