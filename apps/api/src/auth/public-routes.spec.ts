@@ -24,7 +24,7 @@ function publicHandlers(controller: { prototype: object }): string[] {
 }
 
 describe('public routes', () => {
-    it('are exactly the sign-up, sign-in, password reset, invitation, health and category list endpoints', () => {
+  it('are exactly the sign-up, sign-in, password reset, invitation, health and category list endpoints', () => {
     expect(publicHandlers(AuthController)).toEqual([
       'register',
       'verifyEmail',
