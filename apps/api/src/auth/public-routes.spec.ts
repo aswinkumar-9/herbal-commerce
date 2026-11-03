@@ -1,6 +1,7 @@
 import { Reflector } from '@nestjs/core';
 import { HealthController } from '../health/health.controller';
 import { AddressesController } from '../addresses/addresses.controller';
+import { CategoriesController } from '../catalog/categories.controller';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
 import { StaffAuditLogController } from '../staff/staff-audit-log.controller';
@@ -23,7 +24,7 @@ function publicHandlers(controller: { prototype: object }): string[] {
 }
 
 describe('public routes', () => {
-  it('are exactly the sign-up, sign-in, password reset, invitation and health endpoints', () => {
+    it('are exactly the sign-up, sign-in, password reset, invitation, health and category list endpoints', () => {
     expect(publicHandlers(AuthController)).toEqual([
       'register',
       'verifyEmail',
@@ -47,5 +48,7 @@ describe('public routes', () => {
     expect(publicHandlers(StaffAuditLogController)).toEqual([]);
     expect(publicHandlers(AddressesController)).toEqual([]);
     expect(publicHandlers(StaffCategoriesController)).toEqual([]);
+    // Part 4A: customers browse the shop before they sign in.
+    expect(publicHandlers(CategoriesController)).toEqual(['list']);
   });
 });

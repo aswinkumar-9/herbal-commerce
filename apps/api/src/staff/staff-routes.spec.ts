@@ -45,4 +45,18 @@ describe('staff routes', () => {
       ]).toEqual([controller.name, undefined]);
     }
   });
+
+  // Part 4A: of the category routes, only deleting is for Super Users.
+  it('let only Super Users delete categories', () => {
+    const handlers = StaffCategoriesController.prototype as unknown as Record<
+      string,
+      () => unknown
+    >;
+    const superUserOnly = Object.getOwnPropertyNames(handlers).filter(
+      (name) =>
+        name !== 'constructor' &&
+        reflector.get(SUPER_USER_ONLY, handlers[name]) === true,
+    );
+    expect(superUserOnly).toEqual(['remove']);
+  });
 });

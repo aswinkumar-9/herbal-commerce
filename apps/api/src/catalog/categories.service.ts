@@ -29,9 +29,21 @@ const CATEGORY_FIELDS = {
   updatedAt: true,
 } satisfies Prisma.CategorySelect;
 
+// Staff and customers see categories in the same order.
+const CATEGORY_ORDER = [
+  { position: 'asc' },
+  { name: 'asc' },
+  { id: 'asc' },
+] satisfies Prisma.CategoryOrderByWithRelationInput[];
+
 type Category = Prisma.CategoryGetPayload<{ select: typeof CATEGORY_FIELDS }>;
 type Field = keyof CategoryUpdateInput;
 type Changes = Partial<Pick<Category, Field>>;
+
+// What the audit log keeps of a category: everything staff can set.
+function auditFields({ name, slug, description, isActive, position }: Category) {
+  return { name, slug, description, isActive, position };
+}
 
 // The fields the change gives a new value. Sending a field with the value
 // it already has is no change.
@@ -47,8 +59,9 @@ function pick(from: Changes, fields: Field[]): Changes {
   ) as Changes;
 }
 
-// Product categories (ADR 0020). Admins and Super Users manage them, and
-// every change is written to the audit log in the same transaction.
+// Product categories (ADR 0020). Admins and Super Users manage them, only
+// Super Users delete them, and every change is written to the audit log in
+// the same transaction. Customers see the active ones.
 @Injectable()
 export class CategoriesService {
   constructor(
@@ -62,8 +75,19 @@ export class CategoriesService {
   // A catalog has only a few, so there is no paging.
   async list(): Promise<{ categories: Category[] }> {
     const categories = await this.prisma.category.findMany({
-      orderBy: [{ position: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+      orderBy: CATEGORY_ORDER,
       select: CATEGORY_FIELDS,
+    });
+    return { categories };
+  }
+
+  // What customers see: active categories only, and only what a shop page
+  // needs.
+  async listActive() {
+    const categories = await this.prisma.category.findMany({
+      where: { isActive: true },
+      orderBy: CATEGORY_ORDER,
+      select: { name: true, slug: true, description: true },
     });
     return { categories };
   }
@@ -79,13 +103,12 @@ export class CategoriesService {
           select: CATEGORY_FIELDS,
         });
         // In the same transaction: no category without its audit entry.
-        const { name, slug, description, isActive, position } = created;
         await this.audit.record(tx, {
           ...context,
           action: 'category.created',
           targetType: 'category',
           targetId: created.id,
-          after: { name, slug, description, isActive, position },
+          after: auditFields(created),
         });
         return created;
       }),
@@ -106,18 +129,7 @@ export class CategoriesService {
   ): Promise<Category> {
     const { category, changed } = await this.saving(() =>
       this.prisma.$transaction(async (tx) => {
-        // One change at a time for each category, so the audit entry's
-        // "before" is exactly what this change replaced. The ID is sent as
-        // a parameter, never pasted into the SQL.
-        const locked = await tx.$queryRaw<{ id: string }[]>`
-          SELECT id FROM categories WHERE id = ${id}::uuid FOR UPDATE`;
-        if (locked.length === 0) {
-          throw new NotFoundException(CATEGORY_NOT_FOUND);
-        }
-        const current = await tx.category.findUniqueOrThrow({
-          where: { id },
-          select: CATEGORY_FIELDS,
-        });
+        const current = await this.lockedCategory(tx, id);
         const fields = changedFields(current, input);
         if (fields.length === 0) {
           return { category: current, changed: false };
@@ -147,6 +159,45 @@ export class CategoriesService {
       );
     }
     return category;
+  }
+
+  // Deletes a category for good. Only Super Users may: the route is
+  // @SuperUserOnly(). The audit entry keeps what the category was.
+  async remove(id: string, context: AuditContext): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const current = await this.lockedCategory(tx, id);
+      await tx.category.delete({ where: { id }, select: { id: true } });
+      await this.audit.record(tx, {
+        ...context,
+        action: 'category.deleted',
+        targetType: 'category',
+        targetId: id,
+        before: auditFields(current),
+      });
+    });
+    this.logger.info(
+      { categoryId: id, actorId: context.actorId },
+      'Category deleted',
+    );
+  }
+
+  // Locks the category until the transaction ends, then reads it, or
+  // answers 404. One change at a time for each category, so an audit
+  // entry's "before" is exactly what the change replaced. The ID is sent as
+  // a parameter, never pasted into the SQL.
+  private async lockedCategory(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<Category> {
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM categories WHERE id = ${id}::uuid FOR UPDATE`;
+    if (locked.length === 0) {
+      throw new NotFoundException(CATEGORY_NOT_FOUND);
+    }
+    return tx.category.findUniqueOrThrow({
+      where: { id },
+      select: CATEGORY_FIELDS,
+    });
   }
 
   // A slug used by another category answers 409. The unique index decides,

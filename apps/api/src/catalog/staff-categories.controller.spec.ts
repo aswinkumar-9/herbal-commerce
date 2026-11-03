@@ -13,6 +13,7 @@ function setup() {
     list: jest.fn().mockResolvedValue({ categories: [] }),
     create: jest.fn().mockResolvedValue({ id: ID }),
     update: jest.fn().mockResolvedValue({ id: ID }),
+    remove: jest.fn().mockResolvedValue(undefined),
   };
   const controller = new StaffCategoriesController(
     categories as unknown as CategoriesService,
@@ -49,5 +50,12 @@ describe('StaffCategoriesController', () => {
       { isActive: true },
       context,
     );
+  });
+
+  it('deletes a category by its ID, recording who did it', async () => {
+    const { controller, categories } = setup();
+
+    await expect(controller.remove(ID, context)).resolves.toBeUndefined();
+    expect(categories.remove).toHaveBeenCalledWith(ID, context);
   });
 });

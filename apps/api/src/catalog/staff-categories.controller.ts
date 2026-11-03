@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -12,6 +13,7 @@ import {
 import type { AuditContext } from '../audit/audit-context';
 import { CurrentAuditContext } from '../audit/audit-context.decorator';
 import { StaffOnly } from '../auth/staff-only.decorator';
+import { SuperUserOnly } from '../auth/super-user-only.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { categorySchema, categoryUpdateSchema } from './categories.schemas';
 import type {
@@ -21,8 +23,8 @@ import type {
 import { CategoriesService } from './categories.service';
 
 // Product categories for staff (ADR 0020). Admins and Super Users may
-// create, change, activate and deactivate them, and every change is written
-// to the audit log.
+// create, change, activate and deactivate them; only Super Users may delete
+// them. Every change is written to the audit log.
 @StaffOnly()
 @Controller('staff/categories')
 export class StaffCategoriesController {
@@ -54,5 +56,16 @@ export class StaffCategoriesController {
     @CurrentAuditContext() context: AuditContext,
   ) {
     return this.categories.update(id, body, context);
+  }
+
+  // Deletes a category for good. Admins get 403: they deactivate instead.
+  @SuperUserOnly()
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.categories.remove(id, context);
   }
 }

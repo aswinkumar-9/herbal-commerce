@@ -1,5 +1,7 @@
 import { Reflector } from '@nestjs/core';
 import { AddressesController } from '../addresses/addresses.controller';
+import { CategoriesController } from '../catalog/categories.controller';
+import { StaffCategoriesController } from '../catalog/staff-categories.controller';
 import { RATE_LIMIT } from '../rate-limit/rate-limit.decorator';
 import { StaffAuthController } from '../staff/staff-auth.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
@@ -64,6 +66,17 @@ describe('rate-limited routes', () => {
       add: undefined,
       update: undefined,
       remove: undefined,
+    });
+    // Categories send no email and check no password, so the per-IP
+    // baseline is enough, for the public list too.
+    expect(routeLimits(StaffCategoriesController)).toStrictEqual({
+      list: undefined,
+      create: undefined,
+      update: undefined,
+      remove: undefined,
+    });
+    expect(routeLimits(CategoriesController)).toStrictEqual({
+      list: undefined,
     });
   });
 });

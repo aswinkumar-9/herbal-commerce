@@ -39,6 +39,7 @@ function setup(categories: object[] = []) {
       create: jest.fn().mockResolvedValue(stored()),
       findUniqueOrThrow: jest.fn().mockResolvedValue(stored()),
       update: jest.fn().mockResolvedValue(stored({ isActive: true })),
+      delete: jest.fn().mockResolvedValue({ id: ID }),
     },
   };
   const prisma = {
@@ -82,6 +83,23 @@ describe('CategoriesService.list', () => {
       'slug',
       'updatedAt',
     ]);
+  });
+});
+
+describe('CategoriesService.listActive', () => {
+  it('lists only active categories, in the same order, with only what a shop page needs', async () => {
+    const shown = { name: 'Hair Care', slug: 'hair-care', description: null };
+    const { service, prisma } = setup([shown]);
+
+    await expect(service.listActive()).resolves.toEqual({
+      categories: [shown],
+    });
+
+    expect(prisma.category.findMany).toHaveBeenCalledWith({
+      where: { isActive: true },
+      orderBy: [{ position: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+      select: { name: true, slug: true, description: true },
+    });
   });
 });
 
@@ -220,5 +238,55 @@ describe('CategoriesService.update', () => {
       service.update(ID, { slug: 'skin-care' }, context),
     ).rejects.toBeInstanceOf(ConflictException);
     expect(audit.record).not.toHaveBeenCalled();
+  });
+});
+
+describe('CategoriesService.remove', () => {
+  it('locks the category, deletes it, and records what it was in the same transaction', async () => {
+    const { service, tx, audit, logger } = setup();
+    tx.category.findUniqueOrThrow.mockResolvedValue(
+      stored({ description: 'Oils', isActive: true, position: 3 }),
+    );
+
+    await expect(service.remove(ID, context)).resolves.toBeUndefined();
+
+    const [sql, id] = tx.$queryRaw.mock.calls[0] as [string[], string];
+    expect(sql.join('?')).toMatch(/FROM categories WHERE id = \?::uuid FOR UPDATE/);
+    expect(id).toBe(ID);
+    expect(tx.category.delete).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: ID } }),
+    );
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.category.delete.mock.invocationCallOrder[0],
+    );
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...context,
+      action: 'category.deleted',
+      targetType: 'category',
+      targetId: ID,
+      before: {
+        name: 'Hair Care',
+        slug: 'hair-care',
+        description: 'Oils',
+        isActive: true,
+        position: 3,
+      },
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      { categoryId: ID, actorId: context.actorId },
+      'Category deleted',
+    );
+  });
+
+  it('answers 404 for an unknown ID, and deletes nothing', async () => {
+    const { service, tx, audit, logger } = setup();
+    tx.$queryRaw.mockResolvedValue([]);
+
+    await expect(service.remove(ID, context)).rejects.toThrow(
+      new NotFoundException('Category not found'),
+    );
+    expect(tx.category.delete).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
   });
 });
