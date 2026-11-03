@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has started with categories: Admins and Super Users create, change, activate and deactivate them, only Super Users delete them, and anyone can list the active ones without signing in. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -75,10 +75,11 @@ It first clears the local rate-limit counters, so it can run again at once. Then
 - the rate limits: a per-IP limit that a faked `X-Forwarded-For` cannot get around, the block after 5 wrong passwords, and at most 5 emails per hour to one address;
 - the customer's own account: changing the name (and nothing else), changing the password (a wrong current one is refused, and both of two signed-in "devices" are signed out), the second "password changed" email, and signing out everywhere;
 - delivery addresses: two added at the same moment (both saved, exactly one default), the phone and PIN code cleaned, moving and removing the default, and a second customer who sees none of the first one's addresses and gets `404` on them;
-- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, and cannot read the audit log;
+- product categories: the public list shows only the name, slug and description of each active category, the same with or without a customer's token;
+- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, and cannot list, create, change or delete categories;
 - that a made-up invitation link is refused.
 
-The staff login and a real invitation need a phone, so they are tried by hand: see "Sign in as staff" and "Invite an Admin".
+The staff login, a real invitation and managing categories need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin" and "Manage categories".
 
 Every line should say `PASS`, followed by `All checks passed.`
 
@@ -268,9 +269,10 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
 4. **Filter,** and combine filters as you like:
    - `?action=admin.removed`: one kind of entry;
    - `?actorId=<an account's ID>`: what that person did;
-   - `?targetId=<an Admin's ID>`: that Admin's whole story, from invitation to removal.
+   - `?targetId=<an Admin's ID>`: that Admin's whole story, from invitation to removal;
+   - `?targetId=<a category's ID>`: that category's story, from creation to deletion.
 
-   The IDs come from the entries themselves, or from the Admin list in "Manage Admins".
+   The IDs come from the entries themselves, or from the lists in "Manage Admins" and "Manage categories".
 5. **Sign out and clean up:**
    ```powershell
    Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/logout -ContentType 'application/json' -Body (@{ refreshToken = $login.refreshToken } | ConvertTo-Json)
@@ -280,6 +282,53 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
 - An empty `actor` means a developer command, such as the MFA setup, or an account that no longer exists. An empty `target` means the target is not an account (a session, for example), or no longer exists. The IDs stay in `actorId` and `targetId` either way.
 - A removed Admin's `admin.removed` entry keeps who they were, in `before`.
 - Use `nextBefore` to page, never your own counting: new entries keep arriving at the top.
+
+## Manage categories
+
+Admins and Super Users create, change, activate and deactivate product categories. Only a Super User deletes one (ADR 0020). Customers see the active ones at `GET /v1/categories`, without signing in.
+
+1. **Sign in as staff** (an Admin or a Super User), as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`: `$login` is needed here. Check that `$login.accessToken` is not empty before going on.
+2. **List every category,** hidden ones too:
+   ```powershell
+   $auth = @{ Authorization = "Bearer $($login.accessToken)" }
+   $categories = (Invoke-RestMethod -Uri http://localhost:3000/v1/staff/categories -Headers $auth).categories
+   $categories | Format-Table name, slug, isActive, position, id
+   ```
+3. **Create one, or pick one from the list.** A new category's slug is made from its name (`Hair Care` becomes `hair-care`), and it starts hidden from customers.
+   ```powershell
+   # Either create one:
+   $id = (Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/categories -Headers $auth -ContentType 'application/json; charset=utf-8' -Body '{"name":"Hair Care","description":"Oils and powders for the hair"}').id
+   # Or pick one by its slug:
+   $id = ($categories | Where-Object slug -eq 'hair-care').id
+   "[$id]"
+   ```
+   The last line shows the category's ID in brackets. **If the brackets are empty, stop:** the next commands would call the wrong URL.
+4. **Run only the line you need:**
+   ```powershell
+   # Show it to customers. Use false to hide it again.
+   Invoke-RestMethod -Method Patch -Uri "http://localhost:3000/v1/staff/categories/$id" -Headers $auth -ContentType 'application/json; charset=utf-8' -Body '{"isActive":true}'
+   # Rename it. The slug stays, so links keep working.
+   Invoke-RestMethod -Method Patch -Uri "http://localhost:3000/v1/staff/categories/$id" -Headers $auth -ContentType 'application/json; charset=utf-8' -Body '{"name":"Hair and Scalp"}'
+   # Change its place in the list (lower first) and its slug.
+   Invoke-RestMethod -Method Patch -Uri "http://localhost:3000/v1/staff/categories/$id" -Headers $auth -ContentType 'application/json; charset=utf-8' -Body '{"position":1,"slug":"hair-scalp"}'
+   # Delete it for good: Super Users only. An Admin hides it instead.
+   Invoke-RestMethod -Method Delete -Uri "http://localhost:3000/v1/staff/categories/$id" -Headers $auth
+   ```
+5. **What customers see,** without a token:
+   ```powershell
+   (Invoke-RestMethod http://localhost:3000/v1/categories).categories | Format-Table name, slug, description
+   ```
+6. **Sign out and clean up:**
+   ```powershell
+   Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/logout -ContentType 'application/json' -Body (@{ refreshToken = $login.refreshToken } | ConvertTo-Json)
+   Remove-Variable login, auth, categories, id
+   ```
+
+- **Keep `charset=utf-8` in the content type.** Without it, Windows PowerShell 5.1 sends letters outside English wrongly: `é` arrives broken, and Devanagari as `??`.
+- A name without Latin letters or digits, in Devanagari for example, needs its own slug: add `"slug":"ayurveda"` to the body.
+- A change that sets the values a category already has changes nothing, and writes no audit entry.
+- Every change is in the audit log: `category.created`, `category.updated` (with only what changed) and `category.deleted` (with what was deleted). See "Read the audit log", with `?targetId=$id`. Its `target` column stays empty for categories, because it names accounts only.
+- The staff access token lasts 15 minutes. After that, sign in again (step 1).
 
 ## Repository structure
 
@@ -293,6 +342,7 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
 │           ├── addresses/      customers' delivery addresses
 │           ├── audit/          the append-only audit log, a request's audit context, and reading the log page by page
 │           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset and change, access and roles guards, /v1/me
+│           ├── catalog/        product categories: the rules and the slug, the staff routes and the public list
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
 │           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
 │           ├── rate-limit/     limits, rate-limit guard, client IP
@@ -371,3 +421,9 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
 - **Adding an address answers `409`:** the customer already has 10. Remove one first.
 - **An address answers `404 Address not found`:** it was removed, or it belongs to another customer. Addresses are only ever reachable by their owner.
 - **A new address answers `400` for the state:** it must be spelled exactly as in the list (`Karnataka`, not `karnataka` or `Bangalore`).
+- **A staff route answers `401 Missing access token` right after signing in:** `$login` is empty. Either the sign-in failed (its red error says why, see "The staff login answers `401`" above), or the commands ran in another PowerShell window. Sign in again, and check that `$login.accessToken` is not empty before going on.
+- **Creating or changing a category answers `409`:** another category already has that slug. Send a different `slug`. Without one, it is made from the name, so a second "Hair Care" needs its own slug.
+- **Creating a category answers `400` for `slug`:** either the name has no Latin letters or digits (send a `slug` too), or the slug sent has capitals, spaces, underscores or double hyphens. A slug looks like `hair-care`.
+- **A category's name arrives garbled (`Caf�`, or `??` for Devanagari):** the request was sent with `application/json` without `charset=utf-8`. Change the name again with the content type from "Manage categories".
+- **Deleting a category answers `403 Only a Super User may do this.`:** you are signed in as an Admin. Hide it instead (`{"isActive":false}`), or ask a Super User.
+- **A category answers `404 Category not found`:** it was deleted, or the ID is wrong. List the categories and pick the ID again.

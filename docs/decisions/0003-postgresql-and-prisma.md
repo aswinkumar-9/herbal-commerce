@@ -3,6 +3,7 @@
 - Status: Accepted
 - Date: 2026-10-20
 - Updated: 2026-11-01 (part 3C-2: the preview feature `partialIndexes`, and a row lock in raw SQL, see ADR 0019)
+- Updated: 2026-11-03 (part 4A: a second row lock, on a category being changed, see ADR 0020)
 
 ## Context
 
@@ -31,5 +32,5 @@ At the time of writing, the `latest` tag of the `prisma` package on npm pointed 
 ## Consequences
 
 - Strong typing and a clear migration history.
-- Atomic stock updates and other hot paths may need explicit SQL, which Prisma supports. The first case is the row lock that keeps a customer's address changes in turn (ADR 0019).
+- Atomic stock updates and other hot paths may need explicit SQL, which Prisma supports. The first case is the row lock that keeps a customer's address changes in turn (ADR 0019), and the second the lock that keeps changes to one category in turn (ADR 0020).
 - The Prisma generator and driver setup differs between major versions, so upgrades are deliberate and tested.

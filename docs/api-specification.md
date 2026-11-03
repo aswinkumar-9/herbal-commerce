@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.11.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.12.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned.
 
@@ -406,6 +406,27 @@ Response `204 No Content`.
 
 Errors: `400` (the ID is not a UUID); `401`; `404 Address not found` (no such address, or someone else's); `429` (the 600 per minute limit).
 
+## Categories
+
+### GET `/v1/categories`
+
+**Public.** The product categories customers see, with or without a token (ADR 0020). Only **active** categories, ordered as staff chose (by `position`, then by name).
+
+Response `200`:
+```json
+{
+  "categories": [
+    { "name": "Hair Care", "slug": "hair-care", "description": "Oils and powders for the hair" },
+    { "name": "Herbal Teas", "slug": "herbal-teas", "description": null }
+  ]
+}
+```
+- Each category has exactly these three fields. `description` may be `null`.
+- `slug` is the readable part of a web address (`/categories/hair-care`): lowercase letters, digits and single hyphens. Use it in links. It stays the same when a category is renamed.
+- An empty list while no category is active.
+
+Errors: `429` (the 600 per minute limit).
+
 ## Staff authentication
 
 For Admins and Super Users only. Customers cannot sign in here, and staff cannot sign in at `/v1/auth/login`. An invited Admin first chooses a password (`accept-invite` below). Then a developer sets up the staff member's authenticator app (README, "Set up staff MFA").
@@ -630,6 +651,111 @@ Errors:
 
 Client tip: offer "Remove" only for disabled and pending Admins, and "Disable" first for active ones.
 
+## Managing categories (staff)
+
+Product categories for staff (ADR 0020). These endpoints need a **staff** access token: an Admin's or a Super User's. **Deleting is for Super Users only.** Every change is written to the audit log, with the staff member, the client IP and the request ID.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/staff/categories` | List every category, hidden ones too |
+| `POST /v1/staff/categories` | Create a category |
+| `PATCH /v1/staff/categories/:id` | Change, activate or deactivate a category |
+| `DELETE /v1/staff/categories/:id` | Delete a category (Super Users only) |
+
+A category, as these endpoints return it:
+```json
+{
+  "id": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "name": "Hair Care",
+  "slug": "hair-care",
+  "description": "Oils and powders for the hair",
+  "isActive": false,
+  "position": 0,
+  "createdAt": "2026-11-03T06:15:05.292Z",
+  "updatedAt": "2026-11-03T06:15:05.292Z"
+}
+```
+
+The rules for each field:
+
+| Field | Rules |
+|---|---|
+| `name` | 1 to 60 characters, trimmed |
+| `slug` | Lowercase letters `a`–`z`, digits and single hyphens, at most 60 characters, like `hair-care`. Unique. |
+| `description` | Optional, up to 500 characters, trimmed. An empty value, or `null` in a change, means none. |
+| `position` | A whole number from 0 to 9999. Customers see lower numbers first. Default `0`. |
+| `isActive` | `true` shows the category to customers. Default `false`. |
+
+### GET `/v1/staff/categories`
+
+Every category, hidden ones too, in the order customers see them. No paging: a catalog has only a few categories.
+
+Response `200`: `{ "categories": [...] }`, each in the form above.
+
+Errors: `401` (see "Authentication errors on protected endpoints"), also for a customer access token; `429` (the 600 per minute limit).
+
+### POST `/v1/staff/categories`
+
+Creates a category. Only `name` is required.
+
+Request:
+```json
+{ "name": "Hair Care", "description": "Oils and powders for the hair" }
+```
+- **Without a `slug`, it is made from the name:** accents are dropped, and every run of other characters becomes one hyphen. `Café Crème (Natural)` becomes `cafe-creme-natural`.
+- **A name without Latin letters or digits** (in Devanagari, for example) needs a `slug` too: `{ "name": "आयुर्वेद", "slug": "ayurveda" }`.
+- **A new category is hidden from customers** unless `"isActive": true` is sent.
+- Any other field, such as `id`, is ignored.
+
+Response `201`: the category.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | A missing or invalid field, each named in `errors`. A name without Latin letters and no slug gives `The name has no Latin letters or digits: give a slug` for `slug`. |
+| `401` | see "Authentication errors on protected endpoints" | No staff access token, or a customer's |
+| `409` | `Another category already has this slug. Choose a different one.` | The slug, sent or made from the name, is taken |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### PATCH `/v1/staff/categories/:id`
+
+Changes a category. Send only the fields that change: `{ "isActive": true }` activates it, and `{ "description": null }` removes the description.
+
+- **Renaming keeps the slug,** so links keep working. Send a `slug` to change it.
+- **Sending the values the category already has changes nothing,** answers `200` too, and writes no audit entry. It is safe to send the same request twice.
+
+Response `200`: the category, as it is now.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `400` | `Validation failed` | An invalid field, or an empty change (`Nothing to change`) |
+| `401` | see above | No staff access token, or a customer's |
+| `404` | `Category not found` | No category with this ID |
+| `409` | `Another category already has this slug. Choose a different one.` | The new slug is taken |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### DELETE `/v1/staff/categories/:id`
+
+Deletes a category for good. **Super Users only.** An Admin deactivates it instead (`{ "isActive": false }`), which hides it from customers and can be undone. The audit log keeps what was deleted.
+
+Response `204 No Content`.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `401` | see above | No staff access token, or a customer's |
+| `403` | `Only a Super User may do this.` | Called by an Admin |
+| `404` | `Category not found` | No category with this ID, also when it was just deleted |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+From part 4B, a category that still has products cannot be deleted.
+
 ## Audit log (Super Users only)
 
 ### GET `/v1/staff/audit-log`
@@ -644,7 +770,7 @@ Query parameters, all optional:
 | `before` | UUID | The `nextBefore` of the previous page: continue just after it |
 | `action` | Like `thing.verb`, for example `admin.removed` | Only this action |
 | `actorId` | UUID | Only what this account did |
-| `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's ID |
+| `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's or a category's ID |
 
 The filters combine. Any other parameter is ignored.
 
@@ -671,11 +797,11 @@ Response `200`:
 }
 ```
 - `actor`: the account that acted, or `null` for the developer commands or an account that no longer exists. `actorId` stays either way.
-- `target`: the account an entry is about, for user targets only. It is `null` for other targets, such as the session of a `staff.signed_in`, and for removed accounts.
+- `target`: the account an entry is about, for user targets only. It is `null` for other targets, such as the session of a `staff.signed_in` or a category, and for removed accounts.
 - `before` and `after`: the relevant fields before and after the change, never a password, secret or token.
 - `nextBefore`: send it as `?before=` to get the next, older page. It is `null` on the last page.
 
-Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled` and `admin.removed`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
+Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, and since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted). A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
 
 Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` and `403` (as for the Admin endpoints); `429` (the 600 per minute limit).
 
@@ -685,4 +811,4 @@ Rules for clients:
 
 ## Not yet implemented
 
-Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0019 and `docs/security.md`.
+Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: products (part 4B), variants and prices (part 4C) and product images (part 4D). See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0020 and `docs/security.md`.
