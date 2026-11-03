@@ -1,6 +1,6 @@
 # Architecture
 
-Status: **Draft v0.12.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
+Status: **Draft v0.13.** This document describes what exists today and the direction we intend to follow. Items marked "planned" are not built yet.
 
 ## 1. Principles
 
@@ -28,7 +28,7 @@ Built so far:
 |------|-------|
 | Configuration | Environment variables validated at startup. The app refuses to start on invalid config and never prints secret values. In production it also refuses placeholder secrets and a non-HTTPS website URL (ADR 0008). Two strong secrets: `JWT_ACCESS_SECRET` and `MFA_ENCRYPTION_KEY`, which must differ. |
 | Health | `GET /health` (liveness) and `GET /health/ready` (PostgreSQL and Valkey reachable, 503 otherwise) |
-| Database | Prisma 7 with the PostgreSQL driver adapter. Tables: `users` (roles `CUSTOMER`, `ADMIN`, `SUPER_USER`), `email_verification_tokens`, `password_reset_tokens`, `staff_invitations`, `sessions`, `refresh_tokens`, `audit_log` and `addresses` (with a partial unique index: at most one default per customer) |
+| Database | Prisma 7 with the PostgreSQL driver adapter. Tables: `users` (roles `CUSTOMER`, `ADMIN`, `SUPER_USER`), `email_verification_tokens`, `password_reset_tokens`, `staff_invitations`, `sessions`, `refresh_tokens`, `audit_log`, `addresses` (with a partial unique index: at most one default per customer) and `categories` (with a unique slug) |
 | HTTP baseline | Security headers (helmet), JSON-only bodies up to 100 kB, compressed bodies refused, listening on `127.0.0.1` only (ADR 0008) |
 | Valkey | One shared connection (`ValkeyService`) that fails fast while Valkey is down and logs only changes of state |
 | Rate limiting | A global guard limits every route per client IP, and each sign-up and sign-in endpoint further. Login has three failure counters with temporary blocks, shared by the customer and the staff login (`LoginAttemptsService`), and register and resend are limited per email address. Counters live in Valkey, falling back to memory, with hashed keys. Only proxies in `TRUST_PROXY` may report the client IP (ADR 0009). |
@@ -38,6 +38,7 @@ Built so far:
 | Customer sign-in | Login, refresh with rotation and reuse detection, logout. 15-minute access tokens (JWT, HS256, audience `customer`) and 30-day sessions (ADR 0007) |
 | Customer account | `GET` and `PATCH /v1/me` (the name only), `POST /v1/me/password` (with the current password; every session ends, and wrong guesses count as failed logins) and `DELETE /v1/me/sessions` (sign out everywhere). The account is always the one in the token (ADR 0018). |
 | Delivery addresses | `GET` and `POST /v1/me/addresses`, `PATCH` and `DELETE /v1/me/addresses/:id`. Indian addresses, with the phone and PIN code cleaned, the state from a fixed list, and at most 10 per customer. Exactly one default. Every query names the owner, so another customer's address answers `404`. A customer's changes take turns behind a row lock on their `users` row (ADR 0019). |
+| Product categories | One level of categories, each with a unique slug made from the name (or given, for a name without Latin letters), a position and an active flag. A new one starts hidden. Admins and Super Users create, change, activate and deactivate them at `/v1/staff/categories`, and only Super Users delete one. Every change is audited in the same transaction, with only the changed fields, after a row lock on the category. Anyone may read the active ones at `GET /v1/categories`, which returns only the name, slug and description (ADR 0020). |
 | Data retention | An hourly job inside the API (`RetentionScheduler`) deletes ended sessions after 30 days, used refresh tokens after 7 days, expired verification, reset and Admin invitation links, and customer sign-ups still unverified after 7 days. It logs counts only (ADR 0011). |
 | Audit log | The append-only `audit_log` table: database triggers refuse `UPDATE`, `DELETE` and `TRUNCATE`. `AuditService.record(tx, entry)` writes in the same transaction as the change and redacts secret-looking fields (ADR 0012). Entries made through the API carry the checked actor, the client IP and the request ID, from `@CurrentAuditContext()` (ADR 0015). Super Users read it at `GET /v1/staff/audit-log`: newest first, paged by cursor, with filters and the accounts named (`AuditReaderService`, ADR 0017). |
 | Super Users | Created only with `pnpm api:create-super-user`, a standalone Nest context without HTTP. At most 3, enforced by the app and a database trigger. Each creation is audited (ADR 0012). |
@@ -49,15 +50,15 @@ Built so far:
 | Email | Sent through SMTP behind a swappable mail service. Mailpit catches all mail in development. TLS is required in production. |
 | Logging | Structured JSON logs with a request ID on every request (ADR 0006). No emails, passwords, codes or tokens in logs. |
 | Errors | One consistent error format that includes the request ID, plus a `code` field where clients must react to a specific case, and `Retry-After` on `429` and `503` (ADR 0006, `docs/api-specification.md`) |
-| Tests | Unit tests for every module (326 tests in 45 suites), a type check of all code including the tests (`pnpm api:typecheck`), and an end-to-end smoke test against the running API (`pnpm api:smoke`, 54 checks, including the rate limits, password recovery, a customer changing their name and password and signing out everywhere, delivery addresses with a double tap and a second customer who gets `404`, that customers cannot use the staff routes, invite or manage Admins or read the audit log, and that a made-up invitation link fails). The staff login, inviting and managing Admins and reading the audit log are tested by hand with a phone (README). |
+| Tests | Unit tests for every module (357 tests in 50 suites), a type check of all code including the tests (`pnpm api:typecheck`), and an end-to-end smoke test against the running API (`pnpm api:smoke`, 58 checks, including the rate limits, password recovery, a customer changing their name and password and signing out everywhere, delivery addresses with a double tap and a second customer who gets `404`, the public category list, that customers cannot use the staff routes, invite or manage Admins, read the audit log or manage categories, and that a made-up invitation link fails). The staff login, inviting and managing Admins, reading the audit log and managing categories are tested by hand with a phone (README). |
 
-Not built yet: changing the email address, product catalog, inventory, cart, orders, payments, admin console, customer app and website, notifications, support tickets, CI/CD.
+Not built yet: changing the email address, products, variants, prices and product images, inventory, cart, orders, payments, admin console, customer app and website, notifications, support tickets, CI/CD.
 
 ## 3. Roles
 
 Three roles: Customer, Admin, Super User (ADR 0004). Customers self-register. Admins are invited only by a Super User and choose their own password (ADR 0015). Only a Super User disables, enables or removes them (ADR 0016). Super Users (maximum three) are created by developers with `pnpm api:create-super-user`, never through the application (ADR 0012).
 
-Customers sign in at `/v1/auth/login`. Staff (Admins and Super Users) sign in at `/v1/staff/auth/login`, with the password and a code from their authenticator app together, once a developer has set up their MFA (`pnpm api:setup-staff-mfa`, ADR 0013). Staff tokens have their own audience and open only staff routes (ADR 0014). Staff routes come in two levels: `@StaffOnly()` for both staff roles, and `@SuperUserOnly()` for Super Users only, such as inviting Admins (ADR 0015).
+Customers sign in at `/v1/auth/login`. Staff (Admins and Super Users) sign in at `/v1/staff/auth/login`, with the password and a code from their authenticator app together, once a developer has set up their MFA (`pnpm api:setup-staff-mfa`, ADR 0013). Staff tokens have their own audience and open only staff routes (ADR 0014). Staff routes come in two levels: `@StaffOnly()` for both staff roles, and `@SuperUserOnly()` for Super Users only, such as inviting Admins (ADR 0015) or deleting a category (ADR 0020).
 
 ## 4. Request flows
 
@@ -121,12 +122,16 @@ Customers sign in at `/v1/auth/login`. Staff (Admins and Super Users) sign in at
 - API: REST with OpenAPI documentation (ADR 0002). Business endpoints live under `/v1`. The documentation tooling will be added later.
 - Database: forward-only migrations committed to Git (ADR 0003).
 - Secrets: only in the untracked `.env` locally; `.env.example` holds placeholders.
-- Module layout: one folder per module under `apps/api/src` (today `addresses`, `audit`, `auth`, `cli`, `config`, `health`, `logging`, `mail`, `prisma`, `rate-limit`, `retention`, `staff`, `valkey`, `common`), each with its controller, services and unit tests next to the code. `cli` holds developer commands, which run in their own Nest context without HTTP.
+- Module layout: one folder per module under `apps/api/src` (today `addresses`, `audit`, `auth`, `catalog`, `cli`, `config`, `health`, `logging`, `mail`, `prisma`, `rate-limit`, `retention`, `staff`, `valkey`, `common`), each with its controller, services and unit tests next to the code. `cli` holds developer commands, which run in their own Nest context without HTTP.
 - New endpoints are protected by default. Mark a handler `@Public()` only on purpose, and never a whole controller.
-- Staff endpoints go in `src/staff`, in controllers marked `@StaffOnly()` or `@SuperUserOnly()` as a whole, so a route added later cannot be missed. Every other protected endpoint is for customers.
+- Staff endpoints live under `/v1/staff`, in controllers marked `@StaffOnly()` or `@SuperUserOnly()` as a whole, so a route added later cannot be missed. Every other protected endpoint is for customers.
+  - Staff accounts and sign-in are in `src/staff`.
+  - A feature's staff routes live in the feature's own module, in a controller named `Staff…Controller`, for example `src/catalog/staff-categories.controller.ts` (ADR 0020).
+  - Every staff controller is listed in `staff/staff-routes.spec.ts`.
+  - A single handler of a `@StaffOnly()` controller may be narrowed further with `@SuperUserOnly()`, such as deleting a category. The route test then names that handler.
 - A change to staff data writes its audit entry in the same transaction, with the actor, IP and request ID from `@CurrentAuditContext()`.
 - New endpoints get the per-IP baseline automatically. Add `@RateLimit()` to endpoints that are expensive or attractive to abuse, and add each new limit to `rate-limits.ts`.
 
 ## 6. Planned direction
 
-See `docs/requirements.md` for scope and open decisions. Identity and access for staff is complete with part 3B-6 (ADR 0012 to ADR 0017). For customers, part 3C-1 added the name, password and sessions (ADR 0018), and part 3C-2 delivery addresses (ADR 0019). What is still open is listed in `docs/security.md`. The next milestone comes from the MVP scope in `docs/requirements.md`. Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.
+See `docs/requirements.md` for scope and open decisions. Identity and access for staff is complete with part 3B-6 (ADR 0012 to ADR 0017). For customers, part 3C-1 added the name, password and sessions (ADR 0018), and part 3C-2 delivery addresses (ADR 0019). What is still open is listed in `docs/security.md`. The product catalog is built in part 4: categories in 4A (ADR 0020), then products (4B), variants and prices (4C) and product images (4D), assuming one national catalog (open decision 5 in `docs/requirements.md`). Scaling work (caching, queues, search, replicas) is introduced only when measurements justify it.

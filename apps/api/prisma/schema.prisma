@@ -162,3 +162,23 @@ model Address {
   @@unique([userId], map: "addresses_one_default_per_user", where: { isDefault: true })
   @@map("addresses")
 }
+
+// A product category, such as "Hair care" (ADR 0020). One level for now:
+// categories do not contain other categories.
+model Category {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  // The category's part of a web address, such as "hair-care". Unique, so
+  // two categories can never share a name that only differs in case.
+  slug        String   @unique
+  description String?
+  // Customers never see an inactive category. A new one starts inactive,
+  // so staff can prepare it before it shows.
+  isActive    Boolean  @default(false)
+  // Customers see the categories in this order, then by name.
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("categories")
+}

@@ -1,5 +1,6 @@
-// End-to-end check of customer sign-up, sign-in and the customer's own account
-// against the running API, and that customers can never use the staff routes.
+// End-to-end check of customer sign-up, sign-in, the customer's own account and
+// the public category list against the running API, and that customers can
+// never use the staff routes.
 // Needs the API (pnpm api:dev) and Mailpit (docker compose) to be running.
 // Each run creates two throwaway customer accounts in the local database.
 // `pnpm api:smoke` clears the local rate limits first, so it can run again at once.
@@ -566,6 +567,45 @@ async function main() {
       remaining.body.addresses.filter((address) => address.isDefault)
         .length === 1 &&
       !remaining.body.addresses.some((address) => address.id === work.body?.id),
+  );
+  // Product categories (part 4A). Anyone may read the active ones. Staff
+  // manage them, which is tried by hand with a phone.
+  const shop = await call('GET', '/v1/categories');
+  check(
+    'GET /v1/categories is public, with only the name, slug and description of each',
+    shop.status === 200 &&
+      Array.isArray(shop.body?.categories) &&
+      shop.body.categories.every(
+        (category) =>
+          Object.keys(category).sort().join() === 'description,name,slug',
+      ),
+  );
+  const shopSignedIn = await call('GET', '/v1/categories', {
+    token: ownerToken,
+  });
+  check(
+    'a signed-in customer gets the same category list',
+    shopSignedIn.status === 200 &&
+      JSON.stringify(shopSignedIn.body) === JSON.stringify(shop.body),
+  );
+  check(
+    'the staff category list without a token answers 401',
+    (await call('GET', '/v1/staff/categories')).status === 401,
+  );
+  const categoryRoutes = [
+    ['GET', '/v1/staff/categories'],
+    ['POST', '/v1/staff/categories', { name: 'Smoke Category' }],
+    ['PATCH', `/v1/staff/categories/${anyId}`, { isActive: true }],
+    ['DELETE', `/v1/staff/categories/${anyId}`],
+  ];
+  const categoryAnswers = [];
+  for (const [method, path, json] of categoryRoutes) {
+    const answer = await call(method, path, { json, token: ownerToken });
+    categoryAnswers.push(answer.status);
+  }
+  check(
+    'a customer access token cannot list, create, change or delete categories',
+    categoryAnswers.every((status) => status === 401),
   );
   console.log(
     failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`,
