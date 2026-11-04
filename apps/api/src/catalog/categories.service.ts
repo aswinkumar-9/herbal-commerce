@@ -13,6 +13,7 @@ import type {
   CategoryInput,
   CategoryUpdateInput,
 } from './categories.schemas';
+import { changedFields, pick } from './changes';
 
 export const CATEGORY_NOT_FOUND = 'Category not found';
 export const SLUG_TAKEN =
@@ -37,26 +38,10 @@ const CATEGORY_ORDER = [
 ] satisfies Prisma.CategoryOrderByWithRelationInput[];
 
 type Category = Prisma.CategoryGetPayload<{ select: typeof CATEGORY_FIELDS }>;
-type Field = keyof CategoryUpdateInput;
-type Changes = Partial<Pick<Category, Field>>;
 
 // What the audit log keeps of a category: everything staff can set.
 function auditFields({ name, slug, description, isActive, position }: Category) {
   return { name, slug, description, isActive, position };
-}
-
-// The fields the change gives a new value. Sending a field with the value
-// it already has is no change.
-function changedFields(current: Category, input: CategoryUpdateInput): Field[] {
-  return (Object.keys(input) as Field[]).filter(
-    (field) => input[field] !== undefined && input[field] !== current[field],
-  );
-}
-
-function pick(from: Changes, fields: Field[]): Changes {
-  return Object.fromEntries(
-    fields.map((field) => [field, from[field]]),
-  ) as Changes;
 }
 
 // Product categories (ADR 0020). Admins and Super Users manage them, only

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { slugSchema as slug, slugify } from './slug';
+
 const name = z.string().trim().min(1, 'Name is required').max(60);
 
 // An empty description means none.

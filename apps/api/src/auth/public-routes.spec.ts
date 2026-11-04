@@ -3,6 +3,7 @@ import { HealthController } from '../health/health.controller';
 import { AddressesController } from '../addresses/addresses.controller';
 import { CategoriesController } from '../catalog/categories.controller';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
+import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
 import { StaffAuditLogController } from '../staff/staff-audit-log.controller';
 import { StaffAuthController } from '../staff/staff-auth.controller';
@@ -48,6 +49,7 @@ describe('public routes', () => {
     expect(publicHandlers(StaffAuditLogController)).toEqual([]);
     expect(publicHandlers(AddressesController)).toEqual([]);
     expect(publicHandlers(StaffCategoriesController)).toEqual([]);
+    expect(publicHandlers(StaffProductsController)).toEqual([]);
     // Part 4A: customers browse the shop before they sign in.
     expect(publicHandlers(CategoriesController)).toEqual(['list']);
   });

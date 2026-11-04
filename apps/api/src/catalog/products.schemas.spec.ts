@@ -1,4 +1,8 @@
-import { productSchema, productUpdateSchema } from './products.schemas';
+import {
+  productListQuerySchema,
+  productSchema,
+  productUpdateSchema,
+} from './products.schemas';
 
 const CATEGORY = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
 const draft = { categoryId: CATEGORY, name: ' Ashwagandha Capsules ' };
@@ -167,5 +171,38 @@ describe('productUpdateSchema', () => {
     expect(
       productUpdateSchema.safeParse({ categoryId: 'hair-care' }).success,
     ).toBe(false);
+  });
+});
+
+describe('productListQuerySchema', () => {
+  it('turns the query text into a page size and filters, 50 by default', () => {
+    expect(productListQuerySchema.parse({})).toEqual({ limit: 50 });
+    expect(
+      productListQuerySchema.parse({
+        limit: '20',
+        after: CATEGORY,
+        categoryId: CATEGORY,
+        isActive: 'false',
+        sort: 'price',
+      }),
+    ).toEqual({ limit: 20, after: CATEGORY, categoryId: CATEGORY, isActive: false });
+    expect(productListQuerySchema.parse({ isActive: 'true' }).isActive).toBe(true);
+  });
+
+  it('refuses a page size outside 1 to 100, and filters that are not IDs or true or false', () => {
+    const wrong = [
+      { limit: '0' },
+      { limit: '101' },
+      { limit: 'ten' },
+      { after: 'last' },
+      { categoryId: 'hair-care' },
+      { isActive: 'yes' },
+    ];
+    for (const query of wrong) {
+      expect([query, productListQuerySchema.safeParse(query).success]).toEqual([
+        query,
+        false,
+      ]);
+    }
   });
 });

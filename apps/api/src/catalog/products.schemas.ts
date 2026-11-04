@@ -106,3 +106,16 @@ export const productUpdateSchema = z
     'Nothing to change',
   );
 export type ProductUpdateInput = z.infer<typeof productUpdateSchema>;
+
+// What staff may ask of the product list. Query values arrive as text, so
+// the number and the yes or no are converted. Unknown parameters are dropped.
+export const productListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  after: z.uuid().optional(),
+  categoryId: z.uuid().optional(),
+  isActive: z
+    .enum(['true', 'false'], 'Use true or false')
+    .transform((value) => value === 'true')
+    .optional(),
+});
+export type ProductListQuery = z.infer<typeof productListQuerySchema>;

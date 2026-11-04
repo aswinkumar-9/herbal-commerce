@@ -2,6 +2,7 @@ import { Reflector } from '@nestjs/core';
 import { STAFF_ONLY } from '../auth/staff-only.decorator';
 import { SUPER_USER_ONLY } from '../auth/super-user-only.decorator';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
+import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffAdminsController } from './staff-admins.controller';
 import { StaffAuditLogController } from './staff-audit-log.controller';
 import { StaffAuthController } from './staff-auth.controller';
@@ -17,6 +18,7 @@ describe('staff routes', () => {
       StaffAdminsController,
       StaffAuditLogController,
       StaffCategoriesController,
+      StaffProductsController,
     ]) {
       expect([controller.name, reflector.get(STAFF_ONLY, controller)]).toEqual([
         controller.name,
@@ -33,11 +35,12 @@ describe('staff routes', () => {
         reflector.get(SUPER_USER_ONLY, controller),
       ]).toEqual([controller.name, true]);
     }
-    // Admins manage categories too (Part 4A).
+    // Admins manage categories (Part 4A) and products (Part 4B) too.
     for (const controller of [
       StaffAuthController,
       StaffMeController,
       StaffCategoriesController,
+      StaffProductsController,
     ]) {
       expect([
         controller.name,
