@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has started with categories: Admins and Super Users create, change, activate and deactivate them, only Super Users delete them, and anyone can list the active ones without signing in. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories and products: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details and its ingredients. Anyone can browse the shop without signing in: the active categories, each category's live products, and each product's page. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -76,10 +76,14 @@ It first clears the local rate-limit counters, so it can run again at once. Then
 - the customer's own account: changing the name (and nothing else), changing the password (a wrong current one is refused, and both of two signed-in "devices" are signed out), the second "password changed" email, and signing out everywhere;
 - delivery addresses: two added at the same moment (both saved, exactly one default), the phone and PIN code cleaned, moving and removing the default, and a second customer who sees none of the first one's addresses and gets `404` on them;
 - product categories: the public list shows only the name, slug and description of each active category, the same with or without a customer's token;
-- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, and cannot list, create, change or delete categories;
+- the shop:
+  - unknown pages answer `404`, and a category page refuses more than 50 products at once;
+  - every live category page shows only the name, slug and summary of its products;
+  - every product page shows its licence and maker details, and no IDs or staff fields;
+- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, and cannot list, create, change or delete categories or products;
 - that a made-up invitation link is refused.
 
-The staff login, a real invitation and managing categories need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin" and "Manage categories".
+The staff login, a real invitation and managing categories and products need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories" and "Manage products". With an empty shop, the two page checks have nothing to look at. They are most useful while a product is live.
 
 Every line should say `PASS`, followed by `All checks passed.`
 
@@ -270,9 +274,9 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
    - `?action=admin.removed`: one kind of entry;
    - `?actorId=<an account's ID>`: what that person did;
    - `?targetId=<an Admin's ID>`: that Admin's whole story, from invitation to removal;
-   - `?targetId=<a category's ID>`: that category's story, from creation to deletion.
+   - `?targetId=<a category's ID>` or `?targetId=<a product's ID>`: that category's or product's story, from creation to deletion.
 
-   The IDs come from the entries themselves, or from the lists in "Manage Admins" and "Manage categories".
+   The IDs come from the entries themselves, or from the lists in "Manage Admins", "Manage categories" and "Manage products".
 5. **Sign out and clean up:**
    ```powershell
    Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/logout -ContentType 'application/json' -Body (@{ refreshToken = $login.refreshToken } | ConvertTo-Json)
@@ -330,6 +334,73 @@ Admins and Super Users create, change, activate and deactivate product categorie
 - Every change is in the audit log: `category.created`, `category.updated` (with only what changed) and `category.deleted` (with what was deleted). See "Read the audit log", with `?targetId=$id`. Its `target` column stays empty for categories, because it names accounts only.
 - The staff access token lasts 15 minutes. After that, sign in again (step 1).
 
+## Manage products
+
+Admins and Super Users create, change, activate and deactivate products. Only a Super User deletes one (ADR 0021). A product starts as a draft. It goes live only with its type, licence number, maker's name and address and its ingredients, and customers see it only while its category is active too.
+
+1. **Sign in as staff**, as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`, and check that `$login.accessToken` is not empty. Then:
+   ```powershell
+   $auth = @{ Authorization = "Bearer $($login.accessToken)" }
+   $api = 'http://localhost:3000/v1'
+   $json = 'application/json; charset=utf-8'
+   ```
+2. **List the products,** one page at a time, drafts too:
+   ```powershell
+   $page = Invoke-RestMethod -Uri "$api/staff/products?limit=20" -Headers $auth
+   $page.products | Format-Table name, slug, isActive, type, id
+   "[$($page.nextAfter)]"
+   ```
+   - For the next page, add `&after=<the nextAfter value>`.
+   - Add `&categoryId=<a category's ID>` for one category, or `&isActive=false` for the drafts only.
+3. **Create a draft, or pick one by its slug.** The draft needs only a category (its ID, from "Manage categories") and a name:
+   ```powershell
+   # Either create one:
+   $body = @{ categoryId = '<a category ID>'; name = 'Ashwagandha Capsules'; summary = 'For calm and strength' } | ConvertTo-Json
+   $id = (Invoke-RestMethod -Method Post -Uri "$api/staff/products" -Headers $auth -ContentType $json -Body $body).id
+   # Or pick one by its slug:
+   $id = ($page.products | Where-Object slug -eq 'ashwagandha-capsules').id
+   "[$id]"
+   ```
+   **If the brackets are empty, stop:** the next commands would call the wrong URL.
+4. **Complete it and go live, in one request:**
+   ```powershell
+   $details = @{
+     type = 'AYURVEDIC_MEDICINE'   # or FOOD_OR_SUPPLEMENT (FSSAI, 14 digits), or COSMETIC
+     licenceNumber = '25D/123/2015'
+     manufacturerName = 'Herbal Works Pvt Ltd'
+     manufacturerAddress = '12, Industrial Area, Mysuru 570016'
+     ingredients = 'Each capsule contains: Ashwagandha root extract 500 mg'
+     usage = '1 capsule twice a day after meals'
+     isActive = $true
+   } | ConvertTo-Json
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/products/$id" -Headers $auth -ContentType $json -Body $details | Format-List name, isActive, licenceNumber
+   ```
+5. **Run only the line you need:**
+   ```powershell
+   # Take it out of the shop. Use true to show it again.
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/products/$id" -Headers $auth -ContentType $json -Body '{"isActive":false}'
+   # Move it to another category.
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/products/$id" -Headers $auth -ContentType $json -Body '{"categoryId":"<another category ID>"}'
+   # Delete it for good: Super Users only. An Admin takes it out of the shop instead.
+   Invoke-RestMethod -Method Delete -Uri "$api/staff/products/$id" -Headers $auth
+   ```
+6. **What customers see,** without a token:
+   ```powershell
+   (Invoke-RestMethod "$api/categories/<a category slug>/products").products | Format-Table name, slug, summary
+   Invoke-RestMethod "$api/products/ashwagandha-capsules" | Format-List
+   ```
+7. **Sign out and clean up:**
+   ```powershell
+   Invoke-RestMethod -Method Post -Uri "$api/staff/auth/logout" -ContentType 'application/json' -Body (@{ refreshToken = $login.refreshToken } | ConvertTo-Json)
+   Remove-Variable login, auth, api, json, page, body, details, id -ErrorAction SilentlyContinue
+   ```
+
+- **A refused request prints a red error.** For a `400`, its body names each refused field. To see the body as JSON, wrap the request: `try { <the request> } catch { $_.ErrorDetails.Message }`. If that prints nothing, read the response itself: `(New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())).ReadToEnd()`.
+- **Licence numbers are stored in one form:** spaces dropped, letters made capitals. An FSSAI licence (`FOOD_OR_SUPPLEMENT`) is exactly 14 digits.
+- **Removing a detail from a live product is refused.** Take the product out of the shop first.
+- Every change is in the audit log: `product.created`, `product.updated` (with only what changed) and `product.deleted`. Read a product's story with `?targetId=$id` (see "Read the audit log").
+- A category that still has products cannot be deleted (`409`).
+
 ## Repository structure
 
 ```
@@ -342,7 +413,7 @@ Admins and Super Users create, change, activate and deactivate product categorie
 │           ├── addresses/      customers' delivery addresses
 │           ├── audit/          the append-only audit log, a request's audit context, and reading the log page by page
 │           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset and change, access and roles guards, /v1/me
-│           ├── catalog/        product categories: the rules and the slug, the staff routes and the public list
+│           ├── catalog/        categories and products: their rules (slug, going live), the staff routes and the public shop
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
 │           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
 │           ├── rate-limit/     limits, rate-limit guard, client IP
@@ -427,3 +498,10 @@ Admins and Super Users create, change, activate and deactivate product categorie
 - **A category's name arrives garbled (`Caf�`, or `??` for Devanagari):** the request was sent with `application/json` without `charset=utf-8`. Change the name again with the content type from "Manage categories".
 - **Deleting a category answers `403 Only a Super User may do this.`:** you are signed in as an Admin. Hide it instead (`{"isActive":false}`), or ask a Super User.
 - **A category answers `404 Category not found`:** it was deleted, or the ID is wrong. List the categories and pick the ID again.
+- **Deleting a category answers `409 This category still has products.`:** move its products to another category (`{"categoryId":"..."}`) or delete them first. To hide it from the shop, deactivate it instead: that hides its products too.
+- **Activating a product answers `400` with "Needed before the product can go live":** the `errors` list names each missing detail (type, licence number, maker's name and address, ingredients). Send them in the same request as `"isActive":true`, or first.
+- **A product answers `400` "An FSSAI licence number has exactly 14 digits":** the type is `FOOD_OR_SUPPLEMENT`, and the licence isn't 14 digits. Fix the number, or choose the right type.
+- **Creating or moving a product answers `400` for `categoryId` "No category with this ID":** the category was deleted, or the ID is wrong.
+- **Creating or changing a product answers `409`:** another product already has that slug. Send a different `slug`.
+- **A live product's page answers `404`:** its category is hidden. A product shows in the shop only while both it and its category are active.
+- **`prisma migrate dev` asks "Enter a name for the new migration" right after applying one:** the schema and the database still differ, usually because something was lost from the migration you edited. Press `Ctrl+C`, then see what a new migration would contain: `pnpm exec prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script` (in `apps/api`; it only reads). Put a missing piece into a **new** migration. Never edit one that has been applied: Prisma would then want to reset the database.

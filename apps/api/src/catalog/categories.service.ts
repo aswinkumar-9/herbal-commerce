@@ -7,16 +7,22 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { AuditContext } from '../audit/audit-context';
 import { AuditService } from '../audit/audit.service';
 import type { Prisma } from '../generated/prisma/client';
-import { isUniqueViolation } from '../prisma/prisma-errors';
+import {
+  isForeignKeyViolation,
+  isUniqueViolation,
+} from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   CategoryInput,
   CategoryUpdateInput,
 } from './categories.schemas';
+import { changedFields, pick } from './changes';
 
 export const CATEGORY_NOT_FOUND = 'Category not found';
 export const SLUG_TAKEN =
   'Another category already has this slug. Choose a different one.';
+export const CATEGORY_HAS_PRODUCTS =
+  'This category still has products. Move them to another category or delete them first.';
 
 const CATEGORY_FIELDS = {
   id: true,
@@ -37,26 +43,10 @@ const CATEGORY_ORDER = [
 ] satisfies Prisma.CategoryOrderByWithRelationInput[];
 
 type Category = Prisma.CategoryGetPayload<{ select: typeof CATEGORY_FIELDS }>;
-type Field = keyof CategoryUpdateInput;
-type Changes = Partial<Pick<Category, Field>>;
 
 // What the audit log keeps of a category: everything staff can set.
 function auditFields({ name, slug, description, isActive, position }: Category) {
   return { name, slug, description, isActive, position };
-}
-
-// The fields the change gives a new value. Sending a field with the value
-// it already has is no change.
-function changedFields(current: Category, input: CategoryUpdateInput): Field[] {
-  return (Object.keys(input) as Field[]).filter(
-    (field) => input[field] !== undefined && input[field] !== current[field],
-  );
-}
-
-function pick(from: Changes, fields: Field[]): Changes {
-  return Object.fromEntries(
-    fields.map((field) => [field, from[field]]),
-  ) as Changes;
 }
 
 // Product categories (ADR 0020). Admins and Super Users manage them, only
@@ -162,19 +152,28 @@ export class CategoriesService {
   }
 
   // Deletes a category for good. Only Super Users may: the route is
-  // @SuperUserOnly(). The audit entry keeps what the category was.
+  // @SuperUserOnly(). The audit entry keeps what the category was. While the
+  // category has products, the database refuses (ON DELETE RESTRICT), and
+  // the answer is 409.
   async remove(id: string, context: AuditContext): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      const current = await this.lockedCategory(tx, id);
-      await tx.category.delete({ where: { id }, select: { id: true } });
-      await this.audit.record(tx, {
-        ...context,
-        action: 'category.deleted',
-        targetType: 'category',
-        targetId: id,
-        before: auditFields(current),
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const current = await this.lockedCategory(tx, id);
+        await tx.category.delete({ where: { id }, select: { id: true } });
+        await this.audit.record(tx, {
+          ...context,
+          action: 'category.deleted',
+          targetType: 'category',
+          targetId: id,
+          before: auditFields(current),
+        });
       });
-    });
+    } catch (error) {
+      if (isForeignKeyViolation(error)) {
+        throw new ConflictException(CATEGORY_HAS_PRODUCTS);
+      }
+      throw error;
+    }
     this.logger.info(
       { categoryId: id, actorId: context.actorId },
       'Category deleted',

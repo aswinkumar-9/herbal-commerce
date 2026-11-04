@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.12.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.13.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned.
 
@@ -427,6 +427,71 @@ Response `200`:
 
 Errors: `429` (the 600 per minute limit).
 
+### GET `/v1/categories/:slug/products`
+
+**Public.** A category's page in the shop: the category and one page of its products (ADR 0021). Only **live** products are listed: those that are active, in an active category. The order is the one staff chose, by `position`, then by name.
+
+Query parameters, both optional:
+
+| Parameter | Rules | Meaning |
+|---|---|---|
+| `limit` | Whole number, 1 to 50, default 20 | Products per page |
+| `after` | A product's slug | The `nextAfter` of the previous page: continue just after it |
+
+Response `200`:
+```json
+{
+  "category": { "name": "Herbal Supplements", "slug": "herbal-supplements", "description": null },
+  "products": [
+    { "name": "Ashwagandha Capsules", "slug": "ashwagandha-capsules", "summary": "For calm and strength" }
+  ],
+  "nextAfter": null
+}
+```
+- Each product has exactly these three fields. Its page has the rest (below). Prices come in a later part.
+- `nextAfter`: send it as `?after=` for the next page. It is `null` on the last page.
+- The shop never shows IDs.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | `limit` outside 1 to 50, or `after` not a slug |
+| `404` | `Category not found` | No active category with this slug: unknown or hidden, which look the same |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+## Products
+
+### GET `/v1/products/:slug`
+
+**Public.** A product's own page in the shop (ADR 0021). Only for a live product: active, in an active category.
+
+Response `200`:
+```json
+{
+  "name": "Ashwagandha Capsules",
+  "slug": "ashwagandha-capsules",
+  "summary": "For calm and strength",
+  "description": null,
+  "ingredients": "Each capsule contains: Ashwagandha root extract 500 mg",
+  "usage": "1 capsule twice a day after meals",
+  "type": "AYURVEDIC_MEDICINE",
+  "licenceNumber": "25D/123/2015",
+  "manufacturerName": "Herbal Works Pvt Ltd",
+  "manufacturerAddress": "12, Industrial Area, Mysuru 570016",
+  "countryOfOrigin": "India",
+  "category": { "name": "Herbal Supplements", "slug": "herbal-supplements" }
+}
+```
+- **The licence and maker details must be shown on the product's page:** Indian labelling rules want them.
+- `type`:
+  - `AYURVEDIC_MEDICINE`: the licence is an AYUSH licence;
+  - `FOOD_OR_SUPPLEMENT`: an FSSAI licence, always 14 digits;
+  - `COSMETIC`: a cosmetics licence.
+- `summary`, `description` and `usage` may be `null`. A live product always has its type, licence, maker's name and address, ingredients and country.
+
+Errors: `404 Product not found` (no live product with this slug: unknown, a draft, or in a hidden category, which all look the same); `429` (the 600 per minute limit).
+
 ## Staff authentication
 
 For Admins and Super Users only. Customers cannot sign in here, and staff cannot sign in at `/v1/auth/login`. An invited Admin first chooses a password (`accept-invite` below). Then a developer sets up the staff member's authenticator app (README, "Set up staff MFA").
@@ -752,9 +817,148 @@ Errors:
 | `401` | see above | No staff access token, or a customer's |
 | `403` | `Only a Super User may do this.` | Called by an Admin |
 | `404` | `Category not found` | No category with this ID, also when it was just deleted |
+| `409` | `This category still has products. Move them to another category or delete them first.` | The category still has products, live or not. The database refuses the delete. |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
-From part 4B, a category that still has products cannot be deleted.
+## Managing products (staff)
+
+Products for staff (ADR 0021). These endpoints need a **staff** access token: an Admin's or a Super User's. **Deleting is for Super Users only.** Every change is written to the audit log, with the staff member, the client IP and the request ID.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/staff/products` | List every product, drafts too, one page at a time |
+| `POST /v1/staff/products` | Create a product |
+| `PATCH /v1/staff/products/:id` | Change it, move it to another category, activate or deactivate it |
+| `DELETE /v1/staff/products/:id` | Delete a product (Super Users only) |
+
+A product, as these endpoints return it:
+```json
+{
+  "id": "3f2b8c1d-5e6a-4b7c-8d9e-0f1a2b3c4d5e",
+  "categoryId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "name": "Ashwagandha Capsules",
+  "slug": "ashwagandha-capsules",
+  "summary": "For calm and strength",
+  "description": null,
+  "ingredients": "Each capsule contains: Ashwagandha root extract 500 mg",
+  "usage": "1 capsule twice a day after meals",
+  "type": "AYURVEDIC_MEDICINE",
+  "licenceNumber": "25D/123/2015",
+  "manufacturerName": "Herbal Works Pvt Ltd",
+  "manufacturerAddress": "12, Industrial Area, Mysuru 570016",
+  "countryOfOrigin": "India",
+  "isActive": true,
+  "position": 0,
+  "createdAt": "2026-11-04T04:10:01.184Z",
+  "updatedAt": "2026-11-04T04:11:30.175Z"
+}
+```
+
+The rules for each field:
+
+| Field | Rules |
+|---|---|
+| `categoryId` | The ID of an existing category. Required to create. |
+| `name` | 1 to 100 characters, trimmed. Required to create. |
+| `slug` | As for categories: lowercase letters `a`–`z`, digits and single hyphens, at most 60, unique among products. Made from the name if not sent. |
+| `summary` | Optional, up to 160 characters: one line for list pages |
+| `description` | Optional, up to 5000 characters |
+| `ingredients` | Optional for a draft, up to 2000 characters, exactly as printed on the pack |
+| `usage` | Optional, up to 2000 characters |
+| `type` | `AYURVEDIC_MEDICINE`, `FOOD_OR_SUPPLEMENT` or `COSMETIC`. Optional for a draft. |
+| `licenceNumber` | Optional for a draft. Letters, digits, `/`, `.` and `-`, at most 50. Spaces are dropped and letters made capitals: ` 25d / 123 / 2015 ` is stored as `25D/123/2015`. For `FOOD_OR_SUPPLEMENT`, exactly 14 digits (an FSSAI licence). |
+| `manufacturerName` | Optional for a draft, up to 200 characters |
+| `manufacturerAddress` | Optional for a draft, up to 500 characters |
+| `countryOfOrigin` | 2 to 60 characters. Default `India`. Cannot be emptied. |
+| `isActive` | `true` makes it live. Default `false` (a draft). |
+| `position` | A whole number from 0 to 9999, the order within its category. Default `0`. |
+
+An empty text, or `null` in a change, means none.
+
+**Going live:** `"isActive": true` needs `type`, `licenceNumber`, `manufacturerName`, `manufacturerAddress` and `ingredients`. The check looks at the product **as it will be saved**:
+- a create or a change can add the missing details and go live at once;
+- a change that removes one of them from a live product is refused;
+- so is a change of `type` that the stored licence no longer fits.
+
+The answer then is `400 Validation failed`, with one entry in `errors` for each problem:
+```json
+{
+  "message": "Validation failed",
+  "errors": [
+    { "field": "manufacturerAddress", "message": "Needed before the product can go live" },
+    { "field": "ingredients", "message": "Needed before the product can go live" }
+  ],
+  "statusCode": 400,
+  "requestId": "..."
+}
+```
+The database refuses such a product too, as the last line of defence.
+
+### GET `/v1/staff/products`
+
+Every product, drafts too, **one page at a time**, in the order customers see them: by `position`, then by name.
+
+Query parameters, all optional:
+
+| Parameter | Rules | Meaning |
+|---|---|---|
+| `limit` | Whole number, 1 to 100, default 50 | Products per page |
+| `after` | UUID | The `nextAfter` of the previous page: continue just after it |
+| `categoryId` | UUID | Only this category's products |
+| `isActive` | `true` or `false` | Only live products, or only drafts |
+
+Response `200`: `{ "products": [...], "nextAfter": "<id>" }`, each product in the form above. `nextAfter` is `null` on the last page.
+
+Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` (see "Authentication errors on protected endpoints"), also for a customer access token; `429` (the 600 per minute limit).
+
+### POST `/v1/staff/products`
+
+Creates a product. Only `categoryId` and `name` are required. It is a draft unless `"isActive": true` is sent with all the details. Any other field, such as `id`, is ignored.
+
+Request (a draft):
+```json
+{ "categoryId": "7c9e6679-7425-40de-944b-e07fc1f90ae7", "name": "Ashwagandha Capsules", "summary": "For calm and strength" }
+```
+
+Response `201`: the product.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | A missing or invalid field, a live product without its details, or a `categoryId` with no category behind it (`No category with this ID`) |
+| `401` | see "Authentication errors on protected endpoints" | No staff access token, or a customer's |
+| `409` | `Another product already has this slug. Choose a different one.` | The slug, sent or made from the name, is taken |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### PATCH `/v1/staff/products/:id`
+
+Changes a product. Send only the fields that change:
+- `{ "isActive": false }` takes it out of the shop;
+- `{ "categoryId": "..." }` moves it to another category.
+
+**Renaming keeps the slug.** Sending the values the product already has changes nothing, answers `200` too, and writes no audit entry.
+
+Response `200`: the product, as it is now.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `400` | `Validation failed` | An invalid field, an empty change (`Nothing to change`), the going-live rules above, or a category that doesn't exist |
+| `401` | see above | No staff access token, or a customer's |
+| `404` | `Product not found` | No product with this ID |
+| `409` | `Another product already has this slug. Choose a different one.` | The new slug is taken |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### DELETE `/v1/staff/products/:id`
+
+Deletes a product for good. **Super Users only.** An Admin deactivates it instead. The audit log keeps everything the product was.
+
+Response `204 No Content`.
+
+Errors: `400` (the ID is not a UUID); `401`; `403 Only a Super User may do this.` (called by an Admin); `404 Product not found`; `429` (the 600 per minute limit).
 
 ## Audit log (Super Users only)
 
@@ -770,7 +974,7 @@ Query parameters, all optional:
 | `before` | UUID | The `nextBefore` of the previous page: continue just after it |
 | `action` | Like `thing.verb`, for example `admin.removed` | Only this action |
 | `actorId` | UUID | Only what this account did |
-| `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's or a category's ID |
+| `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's, a category's or a product's ID |
 
 The filters combine. Any other parameter is ignored.
 
@@ -797,11 +1001,11 @@ Response `200`:
 }
 ```
 - `actor`: the account that acted, or `null` for the developer commands or an account that no longer exists. `actorId` stays either way.
-- `target`: the account an entry is about, for user targets only. It is `null` for other targets, such as the session of a `staff.signed_in` or a category, and for removed accounts.
+- `target`: the account an entry is about, for user targets only. It is `null` for other targets, such as the session of a `staff.signed_in`, a category or a product, and for removed accounts.
 - `before` and `after`: the relevant fields before and after the change, never a password, secret or token.
 - `nextBefore`: send it as `?before=` to get the next, older page. It is `null` on the last page.
 
-Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, and since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted). A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
+Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), and since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
 
 Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` and `403` (as for the Admin endpoints); `429` (the 600 per minute limit).
 
@@ -811,4 +1015,4 @@ Rules for clients:
 
 ## Not yet implemented
 
-Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: products (part 4B), variants and prices (part 4C) and product images (part 4D). See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0020 and `docs/security.md`.
+Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: pack sizes and prices (part 4C), product images (part 4D), stock with batch and expiry (part 5), and search. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0021 and `docs/security.md`.

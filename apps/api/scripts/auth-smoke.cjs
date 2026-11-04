@@ -1,6 +1,6 @@
 // End-to-end check of customer sign-up, sign-in, the customer's own account and
-// the public category list against the running API, and that customers can
-// never use the staff routes.
+// the public shop (categories and products) against the running API, and that
+// customers can never use the staff routes.
 // Needs the API (pnpm api:dev) and Mailpit (docker compose) to be running.
 // Each run creates two throwaway customer accounts in the local database.
 // `pnpm api:smoke` clears the local rate limits first, so it can run again at once.
@@ -606,6 +606,89 @@ async function main() {
   check(
     'a customer access token cannot list, create, change or delete categories',
     categoryAnswers.every((status) => status === 401),
+  );
+  // Products (part 4B). The shop is public: a category's page and a product's
+  // page. Staff manage products, which is tried by hand with a phone.
+  const missingSlug = `no-such-page-${Date.now()}`;
+  const unknownCategory = await call('GET', `/v1/categories/${missingSlug}/products`);
+  const unknownProduct = await call('GET', `/v1/products/${missingSlug}`);
+  check(
+    'an unknown category page and an unknown product page answer 404, without a token',
+    unknownCategory.status === 404 &&
+      unknownCategory.body?.message === 'Category not found' &&
+      unknownProduct.status === 404 &&
+      unknownProduct.body?.message === 'Product not found',
+  );
+  check(
+    'a category page refuses more than 50 products at once with 400',
+    (await call('GET', `/v1/categories/${missingSlug}/products?limit=51`)).status ===
+      400,
+  );
+  // Every active category's page, and every product page it links to, show
+  // only what a shop needs: no IDs and no staff fields. With an empty shop
+  // there is nothing to look at; the manual test fills it.
+  const categoryPages = [];
+  for (const category of shop.body?.categories ?? []) {
+    categoryPages.push(
+      await call('GET', `/v1/categories/${category.slug}/products`),
+    );
+  }
+  check(
+    "each active category's page shows the category, and only the name, slug and summary of its products",
+    categoryPages.every(
+      (page) =>
+        page.status === 200 &&
+        Object.keys(page.body).sort().join() === 'category,nextAfter,products' &&
+        Object.keys(page.body.category).sort().join() ===
+          'description,name,slug' &&
+        page.body.products.every(
+          (product) => Object.keys(product).sort().join() === 'name,slug,summary',
+        ),
+    ),
+  );
+  const productPages = [];
+  for (const page of categoryPages) {
+    for (const product of page.body?.products ?? []) {
+      productPages.push(await call('GET', `/v1/products/${product.slug}`));
+    }
+  }
+  const PAGE_FIELDS = [
+    'category',
+    'countryOfOrigin',
+    'description',
+    'ingredients',
+    'licenceNumber',
+    'manufacturerAddress',
+    'manufacturerName',
+    'name',
+    'slug',
+    'summary',
+    'type',
+    'usage',
+  ].join();
+  check(
+    "each product's page shows its licence and maker details, and no IDs or staff fields",
+    productPages.every(
+      (page) =>
+        page.status === 200 &&
+        Object.keys(page.body).sort().join() === PAGE_FIELDS &&
+        Boolean(page.body.licenceNumber && page.body.manufacturerName),
+    ),
+  );
+  const productRoutes = [
+    ['GET', '/v1/staff/products'],
+    ['POST', '/v1/staff/products', { categoryId: anyId, name: 'Smoke Product' }],
+    ['PATCH', `/v1/staff/products/${anyId}`, { name: 'Smoke Product' }],
+    ['DELETE', `/v1/staff/products/${anyId}`],
+  ];
+  const productAnswers = [];
+  for (const [method, path, json] of productRoutes) {
+    const answer = await call(method, path, { json, token: ownerToken });
+    productAnswers.push(answer.status);
+  }
+  check(
+    'a customer access token cannot list, create, change or delete products',
+    productAnswers.every((status) => status === 401),
   );
   console.log(
     failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`,

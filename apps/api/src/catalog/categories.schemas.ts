@@ -1,15 +1,8 @@
 import { z } from 'zod';
-import { SLUG_MAX, SLUG_PATTERN, slugify } from './slug';
+import { slugSchema as slug, slugify } from './slug';
 
 const name = z.string().trim().min(1, 'Name is required').max(60);
-const slug = z
-  .string()
-  .trim()
-  .max(SLUG_MAX)
-  .regex(
-    SLUG_PATTERN,
-    'A slug has lowercase letters, digits and single hyphens, like "hair-care"',
-  );
+
 // An empty description means none.
 const description = z
   .string()

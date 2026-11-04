@@ -2,6 +2,7 @@ import { Reflector } from '@nestjs/core';
 import { STAFF_ONLY } from '../auth/staff-only.decorator';
 import { SUPER_USER_ONLY } from '../auth/super-user-only.decorator';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
+import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffAdminsController } from './staff-admins.controller';
 import { StaffAuditLogController } from './staff-audit-log.controller';
 import { StaffAuthController } from './staff-auth.controller';
@@ -17,6 +18,7 @@ describe('staff routes', () => {
       StaffAdminsController,
       StaffAuditLogController,
       StaffCategoriesController,
+      StaffProductsController,
     ]) {
       expect([controller.name, reflector.get(STAFF_ONLY, controller)]).toEqual([
         controller.name,
@@ -33,11 +35,12 @@ describe('staff routes', () => {
         reflector.get(SUPER_USER_ONLY, controller),
       ]).toEqual([controller.name, true]);
     }
-    // Admins manage categories too (Part 4A).
+    // Admins manage categories (Part 4A) and products (Part 4B) too.
     for (const controller of [
       StaffAuthController,
       StaffMeController,
       StaffCategoriesController,
+      StaffProductsController,
     ]) {
       expect([
         controller.name,
@@ -46,17 +49,22 @@ describe('staff routes', () => {
     }
   });
 
-  // Part 4A: of the category routes, only deleting is for Super Users.
-  it('let only Super Users delete categories', () => {
-    const handlers = StaffCategoriesController.prototype as unknown as Record<
-      string,
-      () => unknown
-    >;
-    const superUserOnly = Object.getOwnPropertyNames(handlers).filter(
-      (name) =>
-        name !== 'constructor' &&
-        reflector.get(SUPER_USER_ONLY, handlers[name]) === true,
-    );
-    expect(superUserOnly).toEqual(['remove']);
+  // Parts 4A and 4B: of the catalog routes, only deleting is for Super Users.
+  it('let only Super Users delete categories and products', () => {
+    for (const controller of [StaffCategoriesController, StaffProductsController]) {
+      const handlers = controller.prototype as unknown as Record<
+        string,
+        () => unknown
+      >;
+      const superUserOnly = Object.getOwnPropertyNames(handlers).filter(
+        (name) =>
+          name !== 'constructor' &&
+          reflector.get(SUPER_USER_ONLY, handlers[name]) === true,
+      );
+      expect([controller.name, superUserOnly]).toEqual([
+        controller.name,
+        ['remove'],
+      ]);
+    }
   });
 });

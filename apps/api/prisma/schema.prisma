@@ -179,6 +179,50 @@ model Category {
   position    Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  products Product[]
 
   @@map("categories")
+}
+
+// What a product is under Indian law. It decides which licence its page
+// shows: AYUSH for an Ayurvedic medicine, FSSAI for a food or supplement,
+// and a cosmetics licence for a cosmetic.
+enum ProductType {
+  AYURVEDIC_MEDICINE
+  FOOD_OR_SUPPLEMENT
+  COSMETIC
+}
+
+model Product {
+  id                  String       @id @default(uuid()) @db.Uuid
+  categoryId          String       @db.Uuid
+  name                String
+  // The product's part of a web address, such as "ashwagandha-capsules".
+  slug                String       @unique
+  // One line for list pages. The rest is for the product's own page.
+  summary             String?
+  description         String?
+  // Exactly as printed on the pack.
+  ingredients         String?
+  usage               String?
+  // The licence and maker details its page must show. A draft may lack
+  // them, but a product goes live only with all of them and its
+  // ingredients: a check constraint in the migration enforces that too.
+  type                ProductType?
+  licenceNumber       String?
+  manufacturerName    String?
+  manufacturerAddress String?
+  countryOfOrigin     String       @default("India")
+  // Customers see a product only while it and its category are active.
+  isActive            Boolean      @default(false)
+  // The order within its category, then by name.
+  position            Int          @default(0)
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  // A category that still has products cannot be deleted.
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@index([categoryId])
+  @@map("products")
 }
