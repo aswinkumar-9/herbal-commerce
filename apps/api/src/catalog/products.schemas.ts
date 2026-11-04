@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { ProductType } from '../generated/prisma/enums';
-import { productIssues } from './product-rules';
+import { GST_RATES, HSN_CODE, productIssues } from './product-rules';
 import { slugSchema as slug, slugify } from './slug';
 
 const categoryId = z.uuid('Choose a category by its ID');
@@ -37,6 +37,28 @@ const countryOfOrigin = z
   .trim()
   .min(2, 'Enter the country of origin')
   .max(60);
+// Digits only: "3004 90" is stored as "300490". Empty means none.
+const hsnCode = z
+  .string()
+  .transform((value) => value.replace(/\s+/g, ''))
+  .pipe(
+    z
+      .string()
+      .refine(
+        (value) => value === '' || HSN_CODE.test(value),
+        'An HSN code has 4, 6 or 8 digits',
+      ),
+  )
+  .nullable()
+  .transform((value) => value || null);
+// In percent, one of the rates the law allows today.
+const gstRate = z
+  .number()
+  .refine(
+    (rate) => (GST_RATES as readonly number[]).includes(rate),
+    `Choose a GST rate of ${GST_RATES.join(', ')} percent`,
+  )
+  .nullable();
 // Customers see lower numbers first, within the product's category.
 const position = z.number().int().min(0).max(9999);
 
@@ -52,13 +74,16 @@ const details = {
   manufacturerName: optionalText(200).optional(),
   manufacturerAddress: optionalText(500).optional(),
   countryOfOrigin: countryOfOrigin.optional(),
+  hsnCode: hsnCode.optional(),
+  gstRate: gstRate.optional(),
   isActive: z.boolean().optional(),
   position: position.optional(),
 };
 
 // A new product. The slug is made from the name, unless one is given. It
 // starts as a hidden draft unless asked; a live one needs its licence and
-// maker details and its ingredients (ADR 0021).
+// maker details, its ingredients (ADR 0021), and its HSN code and GST rate
+// (ADR 0022).
 export const productSchema = z
   .object({ categoryId, name, slug: slug.optional(), ...details })
   .transform(({ slug: given, ...input }) => ({
@@ -80,6 +105,8 @@ export const productSchema = z
       manufacturerName: input.manufacturerName ?? null,
       manufacturerAddress: input.manufacturerAddress ?? null,
       ingredients: input.ingredients ?? null,
+      hsnCode: input.hsnCode ?? null,
+      gstRate: input.gstRate ?? null,
     });
     for (const issue of issues) {
       context.addIssue({

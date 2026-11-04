@@ -13,6 +13,8 @@ const details = {
   manufacturerName: 'Herbal Works Pvt Ltd',
   manufacturerAddress: '12, Industrial Area, Mysuru 570016',
   ingredients: 'Each capsule contains: Ashwagandha root extract 500 mg',
+  hsnCode: '3004',
+  gstRate: 5,
 };
 
 // The fields an invalid input is refused for.
@@ -51,13 +53,15 @@ describe('productSchema', () => {
     ]);
   });
 
-  it('refuses to go live without the licence and maker details and the ingredients', () => {
+  it('refuses to go live without the licence, maker, ingredients, HSN code and GST rate', () => {
     expect(refusedFields({ ...draft, isActive: true })).toEqual([
       'type',
       'licenceNumber',
       'manufacturerName',
       'manufacturerAddress',
       'ingredients',
+      'hsnCode',
+      'gstRate',
     ]);
     expect(
       productSchema.parse({ ...draft, ...details, isActive: true }),
@@ -85,6 +89,34 @@ describe('productSchema', () => {
     expect(
       productSchema.parse({ ...draft, licenceNumber: ' ' }).licenceNumber,
     ).toBeNull();
+  });
+
+  it('writes an HSN code as digits only, and wants 4, 6 or 8 of them', () => {
+    expect(productSchema.parse({ ...draft, hsnCode: ' 3004 90 ' }).hsnCode).toBe(
+      '300490',
+    );
+    for (const hsnCode of ['0902', '30049011']) {
+      expect(productSchema.parse({ ...draft, hsnCode }).hsnCode).toBe(hsnCode);
+    }
+    for (const hsnCode of ['300', '30049', '3004901', '300490112', '30A4']) {
+      expect([hsnCode, refusedFields({ ...draft, hsnCode })]).toEqual([
+        hsnCode,
+        ['hsnCode'],
+      ]);
+    }
+    expect(productSchema.parse({ ...draft, hsnCode: ' ' }).hsnCode).toBeNull();
+  });
+
+  it('takes only a GST rate the law allows today', () => {
+    for (const gstRate of [0, 5, 18, 40]) {
+      expect(productSchema.parse({ ...draft, gstRate }).gstRate).toBe(gstRate);
+    }
+    for (const gstRate of [12, 28, 5.5, -5, '5']) {
+      expect([gstRate, refusedFields({ ...draft, gstRate })]).toEqual([
+        gstRate,
+        ['gstRate'],
+      ]);
+    }
   });
 
   it('knows only the three product types', () => {
@@ -161,6 +193,9 @@ describe('productUpdateSchema', () => {
     expect(
       productUpdateSchema.parse({ licenceNumber: null, summary: null }),
     ).toEqual({ licenceNumber: null, summary: null });
+     expect(
+      productUpdateSchema.parse({ hsnCode: null, gstRate: null }),
+    ).toEqual({ hsnCode: null, gstRate: null });
     expect(
       productUpdateSchema.safeParse({ countryOfOrigin: null }).success,
     ).toBe(false);

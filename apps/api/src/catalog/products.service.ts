@@ -46,6 +46,8 @@ const STAFF_FIELDS = [
   'manufacturerName',
   'manufacturerAddress',
   'countryOfOrigin',
+  'hsnCode',
+  'gstRate',
   'isActive',
   'position',
 ] as const;
@@ -64,6 +66,8 @@ const PRODUCT_FIELDS = {
   manufacturerName: true,
   manufacturerAddress: true,
   countryOfOrigin: true,
+  hsnCode: true,
+  gstRate: true,
   isActive: true,
   position: true,
   createdAt: true,

@@ -31,6 +31,8 @@ const draftFields = {
   manufacturerName: null,
   manufacturerAddress: null,
   countryOfOrigin: 'India',
+  hsnCode: null,
+  gstRate: null,
   isActive: false,
   position: 0,
 };
@@ -40,6 +42,8 @@ const details = {
   manufacturerName: 'Herbal Works Pvt Ltd',
   manufacturerAddress: '12, Industrial Area, Mysuru 570016',
   ingredients: 'Each capsule contains: Ashwagandha root extract 500 mg',
+  hsnCode: '3004',
+  gstRate: 5,
 };
 
 // A product as the query returns it.
