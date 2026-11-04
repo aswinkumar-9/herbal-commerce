@@ -213,6 +213,10 @@ model Product {
   manufacturerName    String?
   manufacturerAddress String?
   countryOfOrigin     String       @default("India")
+  // How the goods are classified for GST, and the GST rate in percent. All
+  // pack sizes of the product share them. Needed before it goes live too.
+  hsnCode             String?
+  gstRate             Int?
   // Customers see a product only while it and its category are active.
   isActive            Boolean      @default(false)
   // The order within its category, then by name.
@@ -221,8 +225,50 @@ model Product {
   updatedAt           DateTime     @updatedAt
 
   // A category that still has products cannot be deleted.
-  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  category Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  variants ProductVariant[]
 
   @@index([categoryId])
   @@map("products")
+}
+
+
+// The unit of a pack's net quantity, as the label states it.
+enum PackUnit {
+  G
+  KG
+  ML
+  L
+  CAPSULES
+  TABLETS
+  PIECES
+}
+
+// One pack size of a product, such as 60 capsules or 100 g, with its own
+// prices. Prices are whole paise: 45000 is Rs 450.00.
+model ProductVariant {
+  id         String   @id @default(uuid()) @db.Uuid
+  productId  String   @db.Uuid
+  // Staff's own code for this pack, such as "ASH-CAP-60". Unique.
+  sku        String   @unique
+  // The net quantity on the label: 60 and CAPSULES, or 100 and G.
+  quantity   Int
+  unit       PackUnit
+  // The MRP printed on the pack, and the price the shop charges, which is
+  // never more: a check constraint in the migration enforces that too.
+  mrpPaise   Int
+  pricePaise Int
+  // A pack can be taken off sale without touching the product.
+  isActive   Boolean  @default(true)
+  // The order on the product's page.
+  position   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // The pack sizes go with their product when it is deleted.
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  // A product has each pack size once.
+  @@unique([productId, quantity, unit])
+  @@map("product_variants")
 }
