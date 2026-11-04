@@ -14,6 +14,7 @@ function setup() {
     list: jest.fn().mockResolvedValue({ products: [], nextAfter: null }),
     create: jest.fn().mockResolvedValue({ id: ID }),
     update: jest.fn().mockResolvedValue({ id: ID }),
+    remove: jest.fn().mockResolvedValue(undefined),
   };
   const controller = new StaffProductsController(
     products as unknown as ProductsService,
@@ -48,5 +49,12 @@ describe('StaffProductsController', () => {
       controller.update(ID, { isActive: true }, context),
     ).resolves.toEqual({ id: ID });
     expect(products.update).toHaveBeenCalledWith(ID, { isActive: true }, context);
+  });
+
+  it('deletes a product by its ID, recording who did it', async () => {
+    const { controller, products } = setup();
+
+    await expect(controller.remove(ID, context)).resolves.toBeUndefined();
+    expect(products.remove).toHaveBeenCalledWith(ID, context);
   });
 });

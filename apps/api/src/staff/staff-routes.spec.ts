@@ -49,17 +49,22 @@ describe('staff routes', () => {
     }
   });
 
-  // Part 4A: of the category routes, only deleting is for Super Users.
-  it('let only Super Users delete categories', () => {
-    const handlers = StaffCategoriesController.prototype as unknown as Record<
-      string,
-      () => unknown
-    >;
-    const superUserOnly = Object.getOwnPropertyNames(handlers).filter(
-      (name) =>
-        name !== 'constructor' &&
-        reflector.get(SUPER_USER_ONLY, handlers[name]) === true,
-    );
-    expect(superUserOnly).toEqual(['remove']);
+  // Parts 4A and 4B: of the catalog routes, only deleting is for Super Users.
+  it('let only Super Users delete categories and products', () => {
+    for (const controller of [StaffCategoriesController, StaffProductsController]) {
+      const handlers = controller.prototype as unknown as Record<
+        string,
+        () => unknown
+      >;
+      const superUserOnly = Object.getOwnPropertyNames(handlers).filter(
+        (name) =>
+          name !== 'constructor' &&
+          reflector.get(SUPER_USER_ONLY, handlers[name]) === true,
+      );
+      expect([controller.name, superUserOnly]).toEqual([
+        controller.name,
+        ['remove'],
+      ]);
+    }
   });
 });

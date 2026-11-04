@@ -7,7 +7,10 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { AuditContext } from '../audit/audit-context';
 import { AuditService } from '../audit/audit.service';
 import type { Prisma } from '../generated/prisma/client';
-import { isUniqueViolation } from '../prisma/prisma-errors';
+import {
+  isForeignKeyViolation,
+  isUniqueViolation,
+} from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   CategoryInput,
@@ -18,6 +21,8 @@ import { changedFields, pick } from './changes';
 export const CATEGORY_NOT_FOUND = 'Category not found';
 export const SLUG_TAKEN =
   'Another category already has this slug. Choose a different one.';
+export const CATEGORY_HAS_PRODUCTS =
+  'This category still has products. Move them to another category or delete them first.';
 
 const CATEGORY_FIELDS = {
   id: true,
@@ -147,19 +152,28 @@ export class CategoriesService {
   }
 
   // Deletes a category for good. Only Super Users may: the route is
-  // @SuperUserOnly(). The audit entry keeps what the category was.
+  // @SuperUserOnly(). The audit entry keeps what the category was. While the
+  // category has products, the database refuses (ON DELETE RESTRICT), and
+  // the answer is 409.
   async remove(id: string, context: AuditContext): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      const current = await this.lockedCategory(tx, id);
-      await tx.category.delete({ where: { id }, select: { id: true } });
-      await this.audit.record(tx, {
-        ...context,
-        action: 'category.deleted',
-        targetType: 'category',
-        targetId: id,
-        before: auditFields(current),
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const current = await this.lockedCategory(tx, id);
+        await tx.category.delete({ where: { id }, select: { id: true } });
+        await this.audit.record(tx, {
+          ...context,
+          action: 'category.deleted',
+          targetType: 'category',
+          targetId: id,
+          before: auditFields(current),
+        });
       });
-    });
+    } catch (error) {
+      if (isForeignKeyViolation(error)) {
+        throw new ConflictException(CATEGORY_HAS_PRODUCTS);
+      }
+      throw error;
+    }
     this.logger.info(
       { categoryId: id, actorId: context.actorId },
       'Category deleted',

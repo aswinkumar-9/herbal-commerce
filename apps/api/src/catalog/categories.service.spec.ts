@@ -290,3 +290,31 @@ describe('CategoriesService.remove', () => {
     expect(logger.info).not.toHaveBeenCalled();
   });
 });
+
+describe('CategoriesService.remove, with products', () => {
+  it('answers 409 while the category still has products, and records nothing', async () => {
+    const { service, tx, audit, logger } = setup();
+    tx.category.delete.mockRejectedValue(
+      Object.assign(new Error('Foreign key constraint violated'), {
+        code: 'P2003',
+      }),
+    );
+
+    await expect(service.remove(ID, context)).rejects.toThrow(
+      new ConflictException(
+        'This category still has products. Move them to another category or delete them first.',
+      ),
+    );
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+  });
+
+  it('passes on any other error unchanged', async () => {
+    const { service, tx } = setup();
+    const broken = new Error('connection lost');
+    tx.category.delete.mockRejectedValue(broken);
+
+    await expect(service.remove(ID, context)).rejects.toBe(broken);
+  });
+});
+

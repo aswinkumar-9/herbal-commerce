@@ -2,6 +2,7 @@ import {
   productListQuerySchema,
   productSchema,
   productUpdateSchema,
+  shopProductListQuerySchema,
 } from './products.schemas';
 
 const CATEGORY = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
@@ -200,6 +201,21 @@ describe('productListQuerySchema', () => {
     ];
     for (const query of wrong) {
       expect([query, productListQuerySchema.safeParse(query).success]).toEqual([
+        query,
+        false,
+      ]);
+    }
+  });
+});
+
+describe('shopProductListQuerySchema', () => {
+  it('pages by 20 by default, at most 50, and continues after a slug', () => {
+    expect(shopProductListQuerySchema.parse({})).toEqual({ limit: 20 });
+    expect(
+      shopProductListQuerySchema.parse({ limit: '50', after: 'tulsi-tea', sort: 'x' }),
+    ).toEqual({ limit: 50, after: 'tulsi-tea' });
+    for (const query of [{ limit: '51' }, { limit: '0' }, { after: 'Tulsi Tea' }]) {
+      expect([query, shopProductListQuerySchema.safeParse(query).success]).toEqual([
         query,
         false,
       ]);

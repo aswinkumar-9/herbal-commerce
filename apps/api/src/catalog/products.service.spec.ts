@@ -46,7 +46,11 @@ const details = {
 function stored(changes: object = {}) {
   return { id: ID, ...draftFields, createdAt, updatedAt: createdAt, ...changes };
 }
-
+const shopCategory = {
+  name: 'Herbal Supplements',
+  slug: 'herbal-supplements',
+  description: null,
+};
 const withCode = (code: string) =>
   Object.assign(new Error('Prisma error'), { code });
 
@@ -57,10 +61,15 @@ function setup(products: object[] = []) {
       create: jest.fn().mockResolvedValue(stored()),
       findUniqueOrThrow: jest.fn().mockResolvedValue(stored()),
       update: jest.fn().mockResolvedValue(stored({ name: 'Renamed' })),
+      delete: jest.fn().mockResolvedValue({ id: ID }),
     },
   };
   const prisma = {
-    product: { findMany: jest.fn().mockResolvedValue(products) },
+    product: {
+      findMany: jest.fn().mockResolvedValue(products),
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
+    category: { findFirst: jest.fn().mockResolvedValue(shopCategory) },
     $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)),
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
@@ -343,5 +352,137 @@ describe('ProductsService.update', () => {
       errors: [{ field: 'categoryId', message: 'No category with this ID' }],
     });
     expect(audit.record).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProductsService.remove', () => {
+  it('locks the product, deletes it, and records what it was in the same transaction', async () => {
+    const { service, tx, audit, logger } = setup();
+    tx.product.findUniqueOrThrow.mockResolvedValue(stored({ ...details, isActive: true }));
+
+    await expect(service.remove(ID, context)).resolves.toBeUndefined();
+
+    const [sql, id] = tx.$queryRaw.mock.calls[0] as [string[], string];
+    expect(sql.join('?')).toMatch(/FROM products WHERE id = \?::uuid FOR UPDATE/);
+    expect(id).toBe(ID);
+    expect(tx.product.delete).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: ID } }),
+    );
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.product.delete.mock.invocationCallOrder[0],
+    );
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...context,
+      action: 'product.deleted',
+      targetType: 'product',
+      targetId: ID,
+      before: { ...draftFields, ...details, isActive: true },
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      { productId: ID, actorId: context.actorId },
+      'Product deleted',
+    );
+  });
+
+  it('answers 404 for an unknown ID, and deletes nothing', async () => {
+    const { service, tx, audit, logger } = setup();
+    tx.$queryRaw.mockResolvedValue([]);
+
+    await expect(service.remove(ID, context)).rejects.toThrow(
+      new NotFoundException('Product not found'),
+    );
+    expect(tx.product.delete).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProductsService.listForShop', () => {
+  const card = (slug: string) => ({ name: slug, slug, summary: null });
+
+  it("shows an active category and one page of its active products, only a card's fields", async () => {
+    const { service, prisma } = setup([card('a'), card('b')]);
+
+    await expect(service.listForShop('herbal-supplements', { limit: 20 })).resolves.toEqual({
+      category: shopCategory,
+      products: [card('a'), card('b')],
+      nextAfter: null,
+    });
+    expect(prisma.category.findFirst).toHaveBeenCalledWith({
+      where: { slug: 'herbal-supplements', isActive: true },
+      select: { name: true, slug: true, description: true },
+    });
+    expect(prisma.product.findMany).toHaveBeenCalledWith({
+      where: {
+        isActive: true,
+        category: { slug: 'herbal-supplements', isActive: true },
+      },
+      orderBy: [{ position: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+      take: 21,
+      select: { name: true, slug: true, summary: true },
+    });
+  });
+
+  it('continues after the slug of the last product shown', async () => {
+    const { service, prisma } = setup([card('b'), card('c'), card('d')]);
+
+    await expect(
+      service.listForShop('herbal-supplements', { limit: 2, after: 'a' }),
+    ).resolves.toMatchObject({ products: [card('b'), card('c')], nextAfter: 'c' });
+    expect(prisma.product.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 3, cursor: { slug: 'a' }, skip: 1 }),
+    );
+  });
+
+  it('answers 404 for a hidden or unknown category, and looks for no products', async () => {
+    const { service, prisma } = setup();
+    prisma.category.findFirst.mockResolvedValue(null);
+
+    await expect(
+      service.listForShop('hidden-category', { limit: 20 }),
+    ).rejects.toThrow(new NotFoundException('Category not found'));
+    expect(prisma.product.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProductsService.findForShop', () => {
+  it("shows an active product of an active category, with its licence and maker details", async () => {
+    const { service, prisma } = setup();
+    const page = { name: 'Ashwagandha Capsules', slug: 'ashwagandha-capsules' };
+    prisma.product.findFirst.mockResolvedValue(page);
+
+    await expect(service.findForShop('ashwagandha-capsules')).resolves.toBe(page);
+
+    const [query] = prisma.product.findFirst.mock.calls[0] as [
+      { where: object; select: Record<string, unknown> },
+    ];
+    expect(query.where).toEqual({
+      slug: 'ashwagandha-capsules',
+      isActive: true,
+      category: { isActive: true },
+    });
+    expect(Object.keys(query.select).sort()).toEqual([
+      'category',
+      'countryOfOrigin',
+      'description',
+      'ingredients',
+      'licenceNumber',
+      'manufacturerAddress',
+      'manufacturerName',
+      'name',
+      'slug',
+      'summary',
+      'type',
+      'usage',
+    ]);
+    expect(query.select.category).toEqual({ select: { name: true, slug: true } });
+  });
+
+  it('answers 404 for a hidden or unknown product', async () => {
+    const { service } = setup();
+
+    await expect(service.findForShop('draft-product')).rejects.toThrow(
+      new NotFoundException('Product not found'),
+    );
   });
 });

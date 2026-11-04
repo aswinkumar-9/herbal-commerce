@@ -13,6 +13,7 @@ import {
   isUniqueViolation,
 } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
+import { CATEGORY_NOT_FOUND } from './categories.service';
 import { changedFields, pick } from './changes';
 import { productIssues } from './product-rules';
 import type { ProductIssue } from './product-rules';
@@ -20,6 +21,7 @@ import type {
   ProductInput,
   ProductListQuery,
   ProductUpdateInput,
+  ShopProductListQuery,
 } from './products.schemas';
 
 export const PRODUCT_NOT_FOUND = 'Product not found';
@@ -76,6 +78,30 @@ const PRODUCT_ORDER = [
   { id: 'asc' },
 ] satisfies Prisma.ProductOrderByWithRelationInput[];
 
+// What a category's page shows of each product. Prices come in part 4C.
+const SHOP_LIST_FIELDS = {
+  name: true,
+  slug: true,
+  summary: true,
+} satisfies Prisma.ProductSelect;
+
+// What a product's own page shows. The licence and maker details must be
+// on it (ADR 0021).
+const SHOP_PAGE_FIELDS = {
+  name: true,
+  slug: true,
+  summary: true,
+  description: true,
+  ingredients: true,
+  usage: true,
+  type: true,
+  licenceNumber: true,
+  manufacturerName: true,
+  manufacturerAddress: true,
+  countryOfOrigin: true,
+  category: { select: { name: true, slug: true } },
+} satisfies Prisma.ProductSelect;
+
 type Product = Prisma.ProductGetPayload<{ select: typeof PRODUCT_FIELDS }>;
 
 export interface ProductPage {
@@ -93,9 +119,10 @@ function invalid(issues: ProductIssue[]): BadRequestException {
   });
 }
 
-// Products (ADR 0021). Admins and Super Users manage them, and every change
-// is written to the audit log in the same transaction. A product goes live
-// only with its licence and maker details and its ingredients.
+// Products (ADR 0021). Admins and Super Users manage them, only Super Users
+// delete them, and every change is written to the audit log in the same
+// transaction. A product goes live only with its licence and maker details
+// and its ingredients. Customers see it while it and its category are active.
 @Injectable()
 export class ProductsService {
   constructor(
@@ -193,6 +220,69 @@ export class ProductsService {
         { productId: id, actorId: context.actorId },
         'Product changed',
       );
+    }
+    return product;
+  }
+
+  // Deletes a product for good. Only Super Users may: the route is
+  // @SuperUserOnly(). The audit entry keeps what the product was.
+  async remove(id: string, context: AuditContext): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const current = await this.lockedProduct(tx, id);
+      await tx.product.delete({ where: { id }, select: { id: true } });
+      await this.audit.record(tx, {
+        ...context,
+        action: 'product.deleted',
+        targetType: 'product',
+        targetId: id,
+        before: pick(current, STAFF_FIELDS),
+      });
+    });
+    this.logger.info(
+      { productId: id, actorId: context.actorId },
+      'Product deleted',
+    );
+  }
+
+  // A category's page in the shop: the category and its active products,
+  // one page at a time. A hidden category answers 404, like an unknown one.
+  // Pages continue after a product's slug: customers never see product IDs.
+  async listForShop(categorySlug: string, query: ShopProductListQuery) {
+    const category = await this.prisma.category.findFirst({
+      where: { slug: categorySlug, isActive: true },
+      select: { name: true, slug: true, description: true },
+    });
+    if (!category) {
+      throw new NotFoundException(CATEGORY_NOT_FOUND);
+    }
+    const rows = await this.prisma.product.findMany({
+      where: {
+        isActive: true,
+        category: { slug: categorySlug, isActive: true },
+      },
+      orderBy: PRODUCT_ORDER,
+      take: query.limit + 1,
+      ...(query.after ? { cursor: { slug: query.after }, skip: 1 } : {}),
+      select: SHOP_LIST_FIELDS,
+    });
+    const products = rows.slice(0, query.limit);
+    return {
+      category,
+      products,
+      nextAfter:
+        rows.length > query.limit ? products[products.length - 1].slug : null,
+    };
+  }
+
+  // A product's own page in the shop. Only an active product in an active
+  // category: any other answers 404, like an unknown one.
+  async findForShop(slug: string) {
+    const product = await this.prisma.product.findFirst({
+      where: { slug, isActive: true, category: { isActive: true } },
+      select: SHOP_PAGE_FIELDS,
+    });
+    if (!product) {
+      throw new NotFoundException(PRODUCT_NOT_FOUND);
     }
     return product;
   }

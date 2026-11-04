@@ -1,6 +1,7 @@
 import { Reflector } from '@nestjs/core';
 import { AddressesController } from '../addresses/addresses.controller';
 import { CategoriesController } from '../catalog/categories.controller';
+import { ProductsController } from '../catalog/products.controller';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
 import { RATE_LIMIT } from '../rate-limit/rate-limit.decorator';
@@ -78,12 +79,17 @@ describe('rate-limited routes', () => {
     });
     expect(routeLimits(CategoriesController)).toStrictEqual({
       list: undefined,
+      listProducts: undefined,
     });
     // Products too: small writes and paged reads.
     expect(routeLimits(StaffProductsController)).toStrictEqual({
       list: undefined,
       create: undefined,
       update: undefined,
+      remove: undefined,
+    });
+    expect(routeLimits(ProductsController)).toStrictEqual({
+      detail: undefined,
     });
   });
 });

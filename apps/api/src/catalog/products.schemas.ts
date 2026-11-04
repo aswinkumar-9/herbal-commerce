@@ -119,3 +119,11 @@ export const productListQuerySchema = z.object({
     .optional(),
 });
 export type ProductListQuery = z.infer<typeof productListQuerySchema>;
+
+// What customers may ask of a category's products: a page size, and where
+// to continue, by the slug of the last product shown.
+export const shopProductListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  after: slug.optional(),
+});
+export type ShopProductListQuery = z.infer<typeof shopProductListQuerySchema>;
