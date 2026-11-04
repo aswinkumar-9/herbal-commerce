@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -23,6 +22,7 @@ import type {
   ProductUpdateInput,
   ShopProductListQuery,
 } from './products.schemas';
+import { validationFailed } from './validation-failed';
 
 export const PRODUCT_NOT_FOUND = 'Product not found';
 export const PRODUCT_SLUG_TAKEN =
@@ -114,15 +114,6 @@ export interface ProductPage {
   nextAfter: string | null;
 }
 
-// The answer the validation pipe gives, for the rules that need the stored
-// product or the database.
-function invalid(issues: ProductIssue[]): BadRequestException {
-  return new BadRequestException({
-    message: 'Validation failed',
-    errors: issues,
-  });
-}
-
 // Products (ADR 0021). Admins and Super Users manage them, only Super Users
 // delete them, and every change is written to the audit log in the same
 // transaction. A product goes live only with its licence and maker details
@@ -201,7 +192,7 @@ export class ProductsService {
         const after = pick(input, fields);
         const issues = productIssues({ ...current, ...after });
         if (issues.length > 0) {
-          throw invalid(issues);
+          throw validationFailed(issues);
         }
         const updated = await tx.product.update({
           where: { id },
@@ -322,7 +313,7 @@ export class ProductsService {
         throw new ConflictException(PRODUCT_SLUG_TAKEN);
       }
       if (isForeignKeyViolation(error)) {
-        throw invalid([NO_SUCH_CATEGORY]);
+        throw validationFailed([NO_SUCH_CATEGORY]);
       }
       throw error;
     }
