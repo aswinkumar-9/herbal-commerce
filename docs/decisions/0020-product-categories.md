@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 4A)
 - Date: 2026-11-03
+- Updated: 2026-11-04 (part 4B: products, and a category with products cannot be deleted, see ADR 0021)
 
 ## Context
 
@@ -118,7 +119,7 @@ The slug is the readable part of a web address: `/categories/hair-care`.
 
 ### Deleting a category that has products
 
-There are no products yet. From part 4B, a product belongs to one category, and the database will refuse to delete a category that still has products: a foreign key without cascade. The API will then answer `409`. Staff deactivate the category instead, or move its products first.
+Since part 4B, a product belongs to one category, and the database refuses to delete a category that still has products: a foreign key with `ON DELETE RESTRICT`. The API then answers `409 This category still has products. Move them to another category or delete them first.` Staff deactivate the category instead, which hides its products from the shop too, or move or delete its products first (ADR 0021).
 
 ## Alternatives considered
 
