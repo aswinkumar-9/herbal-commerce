@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 4B)
 - Date: 2026-11-04
+- Updated: 2026-11-05 (part 4C: going live also needs the HSN code and GST rate, and the shop shows pack sizes and prices, see ADR 0022)
 
 ## Context
 
@@ -47,6 +48,8 @@ A product is live (`isActive`) only with all five of: `type`, `licenceNumber`, `
 2. **The database** has a hand-written check constraint, `products_live_needs_details_chk`, in the migration. Even a bug in the API cannot put a product online without its details. Prisma does not manage check constraints, so it lives only in the migration's SQL, like the lowercase-email check (ADR 0003).
 
 The rule lives in one function, `productIssues` in `catalog/product-rules.ts`. The create schema and the change both use it.
+
+Since part 4C, going live also needs `hsnCode` and `gstRate`, for the GST invoices, in both layers (ADR 0022).
 
 ### The licence number
 
@@ -98,8 +101,8 @@ The foreign key's `RESTRICT` makes Postgres refuse it. The API turns that refusa
 
 | Endpoint | Shows |
 |---|---|
-| `GET /v1/categories/:slug/products` | The category (name, slug, description) and one page of its live products: name, slug and summary. Prices come with part 4C. |
-| `GET /v1/products/:slug` | The product's own page: the texts, the type, the licence number, the maker's name and address, the country of origin, and its category's name and slug |
+| `GET /v1/categories/:slug/products` | The category (name, slug, description) and one page of its live products: name, slug and summary. Since part 4C also the lowest price on sale (ADR 0022). |
+| `GET /v1/products/:slug` | The product's own page: the texts, the type, the licence number, the maker's name and address, the country of origin, and its category's name and slug. Since part 4C also its packs on sale, with their prices (ADR 0022). |
 
 - **Both are `@Public()`,** and answer `404` for anything hidden or unknown, so a draft cannot be told from a product that doesn't exist.
 - **The shop never shows IDs or staff fields.** Its pages continue after the **slug** of the last product shown (`?after=<slug>`). The staff list continues after an ID.

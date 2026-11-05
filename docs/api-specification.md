@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.13.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.14.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned.
 
@@ -9,6 +9,7 @@ Base path: `/v1` for business endpoints. Health endpoints are unversioned.
 - **JSON only.** Request bodies must be JSON (`Content-Type: application/json`), at most 100 kB and not compressed. A form body fails validation (`400`), a compressed body gets `415` and a larger body gets `413` (ADR 0008).
 - Every response carries an `X-Request-Id` header. A client may send its own `X-Request-Id` (8 to 64 characters of letters, digits, `_` or `-`); otherwise one is generated.
 - **IDs in paths** are UUIDs. Any other value gets `400` with `"message": "Validation failed (uuid is expected)"`, before any other work.
+- **Money** is a whole number, and its field name says the unit: `priceRupees: 449` is ₹449. Prices are whole rupees and include GST (ADR 0022).
 - Every response carries the standard security headers (helmet), and no `X-Powered-By`.
 - **Authentication.** Every endpoint needs an access token unless it is marked **Public** below. Send it as `Authorization: Bearer <accessToken>`. There are two kinds: customer endpoints take customer access tokens, and staff endpoints (`/v1/staff/...`) take staff access tokens. Neither works on the other's endpoints. Some staff endpoints are for **Super Users only**, marked so below.
 - **Caching.** Token responses and every authenticated response carry `Cache-Control: no-store`. Clients and proxies must not store them.
@@ -443,12 +444,14 @@ Response `200`:
 {
   "category": { "name": "Herbal Supplements", "slug": "herbal-supplements", "description": null },
   "products": [
-    { "name": "Ashwagandha Capsules", "slug": "ashwagandha-capsules", "summary": "For calm and strength" }
+    { "name": "Ashwagandha Capsules", "slug": "ashwagandha-capsules", "summary": "For calm and strength", "fromPriceRupees": 400 },
+    { "name": "Tulsi Tea", "slug": "tulsi-tea", "summary": null, "fromPriceRupees": null }
   ],
   "nextAfter": null
 }
 ```
-- Each product has exactly these three fields. Its page has the rest (below). Prices come in a later part.
+- Each product has exactly these four fields. Its page has the rest (below).
+- `fromPriceRupees`: the lowest price among the product's packs on sale, for "from ₹400". It is `null` while no pack is on sale (ADR 0022).
 - `nextAfter`: send it as `?after=` for the next page. It is `null` on the last page.
 - The shop never shows IDs.
 
@@ -480,10 +483,21 @@ Response `200`:
   "manufacturerName": "Herbal Works Pvt Ltd",
   "manufacturerAddress": "12, Industrial Area, Mysuru 570016",
   "countryOfOrigin": "India",
-  "category": { "name": "Herbal Supplements", "slug": "herbal-supplements" }
+  "category": { "name": "Herbal Supplements", "slug": "herbal-supplements" },
+  "variants": [
+    { "sku": "ASH-CAP-60", "quantity": 60, "unit": "CAPSULES", "mrpRupees": 500, "priceRupees": 400 },
+    { "sku": "ASH-CAP-120", "quantity": 120, "unit": "CAPSULES", "mrpRupees": 900, "priceRupees": 800 }
+  ]
 }
 ```
 - **The licence and maker details must be shown on the product's page:** Indian labelling rules want them.
+- `variants`: the packs on sale, in the order staff chose (ADR 0022). Each has exactly these five fields:
+  - `sku`: the pack's code, which identifies it (the shop shows no IDs);
+  - `quantity` and `unit`: the net quantity, such as 60 `CAPSULES` or 100 `G`. Units: `G`, `KG`, `ML`, `L`, `CAPSULES`, `TABLETS`, `PIECES`;
+  - `mrpRupees`: the MRP printed on the pack;
+  - `priceRupees`: the shop's price, never more than the MRP.
+
+  The list is empty while no pack is on sale.
 - `type`:
   - `AYURVEDIC_MEDICINE`: the licence is an AYUSH licence;
   - `FOOD_OR_SUPPLEMENT`: an FSSAI licence, always 14 digits;
@@ -847,6 +861,8 @@ A product, as these endpoints return it:
   "manufacturerName": "Herbal Works Pvt Ltd",
   "manufacturerAddress": "12, Industrial Area, Mysuru 570016",
   "countryOfOrigin": "India",
+  "hsnCode": "300490",
+  "gstRate": 5,
   "isActive": true,
   "position": 0,
   "createdAt": "2026-11-04T04:10:01.184Z",
@@ -870,12 +886,14 @@ The rules for each field:
 | `manufacturerName` | Optional for a draft, up to 200 characters |
 | `manufacturerAddress` | Optional for a draft, up to 500 characters |
 | `countryOfOrigin` | 2 to 60 characters. Default `India`. Cannot be emptied. |
+| `hsnCode` | Optional for a draft. 4, 6 or 8 digits, which classify the goods for GST. Spaces are dropped: `3004 90` is stored as `300490`. |
+| `gstRate` | Optional for a draft. In percent: `0`, `5`, `18` or `40`, the rates since GST 2.0. A chartered accountant confirms the rate for each HSN code. |
 | `isActive` | `true` makes it live. Default `false` (a draft). |
 | `position` | A whole number from 0 to 9999, the order within its category. Default `0`. |
 
 An empty text, or `null` in a change, means none.
 
-**Going live:** `"isActive": true` needs `type`, `licenceNumber`, `manufacturerName`, `manufacturerAddress` and `ingredients`. The check looks at the product **as it will be saved**:
+**Going live:** `"isActive": true` needs `type`, `licenceNumber`, `manufacturerName`, `manufacturerAddress`, `ingredients`, `hsnCode` and `gstRate`. A pack on sale is not needed: without one, the shop shows the product with no price. The check looks at the product **as it will be saved**:
 - a create or a change can add the missing details and go live at once;
 - a change that removes one of them from a live product is refused;
 - so is a change of `type` that the stored licence no longer fits.
@@ -954,11 +972,123 @@ Errors:
 
 ### DELETE `/v1/staff/products/:id`
 
-Deletes a product for good. **Super Users only.** An Admin deactivates it instead. The audit log keeps everything the product was.
+Deletes a product for good, **with its pack sizes. Super Users only.** An Admin deactivates it instead. The audit log keeps everything the product was, its pack sizes and their prices included.
 
 Response `204 No Content`.
 
 Errors: `400` (the ID is not a UUID); `401`; `403 Only a Super User may do this.` (called by an Admin); `404 Product not found`; `429` (the 600 per minute limit).
+
+## Managing pack sizes and prices (staff)
+
+A product's packs, such as 60 capsules or 100 g, each with its MRP and price (ADR 0022). These endpoints need a **staff** access token. **Deleting is for Super Users only.** Every change, a new price included, is written to the audit log, with the staff member, the client IP and the request ID.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/staff/products/:productId/variants` | List every pack of a product, off sale ones too |
+| `POST /v1/staff/products/:productId/variants` | Add a pack |
+| `PATCH /v1/staff/variants/:id` | Change it: its prices, SKU, size or position, or take it off sale |
+| `DELETE /v1/staff/variants/:id` | Delete a pack (Super Users only) |
+
+A pack, as these endpoints return it:
+```json
+{
+  "id": "b2c4e6f8-1a3c-4e5f-9a7b-2c4d6e8f0a1b",
+  "productId": "3f2b8c1d-5e6a-4b7c-8d9e-0f1a2b3c4d5e",
+  "sku": "ASH-CAP-60",
+  "quantity": 60,
+  "unit": "CAPSULES",
+  "mrpRupees": 500,
+  "priceRupees": 449,
+  "isActive": true,
+  "position": 0,
+  "createdAt": "2026-11-05T05:12:44.018Z",
+  "updatedAt": "2026-11-05T05:12:44.018Z"
+}
+```
+
+The rules for each field:
+
+| Field | Rules |
+|---|---|
+| `sku` | Staff's own code for the pack. 3 to 40 characters: letters, digits and single hyphens. Trimmed and made capitals: ` ash-cap-60 ` is stored as `ASH-CAP-60`. Unique across all products. Required to add. |
+| `quantity` | The net quantity on the label: a whole number from 1 to 1,000,000. Required to add. |
+| `unit` | `G`, `KG`, `ML`, `L`, `CAPSULES`, `TABLETS` or `PIECES`. Required to add. |
+| `mrpRupees` | The MRP printed on the pack, in whole rupees: a whole number from 1 to 10,00,000. `449.50` is refused. Required to add. |
+| `priceRupees` | The shop's price, with the same rules, and **never more than `mrpRupees`**. Required to add. |
+| `isActive` | `true` while on sale. Default `true`. |
+| `position` | A whole number from 0 to 9999, the order on the product's page. Default `0`. Packs with the same position are ordered by quantity. |
+
+A product has each size once: a second pack of 60 `CAPSULES` is refused.
+
+**The price is checked against the pack as it will be saved:** a change that lowers only the MRP is refused if the stored price would then be above it. The answer is `400 Validation failed`:
+```json
+{
+  "message": "Validation failed",
+  "errors": [{ "field": "priceRupees", "message": "The price may not be more than the MRP" }],
+  "statusCode": 400,
+  "requestId": "..."
+}
+```
+The database refuses such a pack too.
+
+### GET `/v1/staff/products/:productId/variants`
+
+Every pack of the product, off sale ones too, in the order of the product's page. Not paged: a product has only a few.
+
+Response `200`: `{ "variants": [...] }`, each pack in the form above.
+
+Errors: `400` (the ID is not a UUID); `401` (see "Authentication errors on protected endpoints"), also for a customer access token; `404 Product not found`; `429` (the 600 per minute limit).
+
+### POST `/v1/staff/products/:productId/variants`
+
+Adds a pack to the product. It is on sale at once unless `"isActive": false` is sent. Customers see it while the product is live. Any other field, such as `id`, is ignored.
+
+Request:
+```json
+{ "sku": "ASH-CAP-60", "quantity": 60, "unit": "CAPSULES", "mrpRupees": 500, "priceRupees": 449 }
+```
+
+Response `201`: the pack.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | A missing or invalid field, or a price above the MRP |
+| `401` | see "Authentication errors on protected endpoints" | No staff access token, or a customer's |
+| `404` | `Product not found` | No product with this ID |
+| `409` | `Another pack size already has this SKU. Choose a different one.` | The SKU is taken, by this product or another |
+| `409` | `This product already has a pack of this size.` | Same quantity and unit as one of its packs |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### PATCH `/v1/staff/variants/:id`
+
+Changes a pack. Send only the fields that change:
+- `{ "priceRupees": 399 }` sets a new price;
+- `{ "isActive": false }` takes it off sale, and `true` puts it back.
+
+Sending the values the pack already has changes nothing, answers `200` too, and writes no audit entry.
+
+Response `200`: the pack, as it is now.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `400` | `Validation failed` | An invalid field, an empty change (`Nothing to change`), or a price that would be above the MRP |
+| `401` | see above | No staff access token, or a customer's |
+| `404` | `Pack size not found` | No pack with this ID |
+| `409` | the two clashes of `POST` | The new SKU or size is taken |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### DELETE `/v1/staff/variants/:id`
+
+Deletes a pack for good. **Super Users only.** An Admin takes it off sale instead. The audit log keeps everything the pack was.
+
+Response `204 No Content`.
+
+Errors: `400` (the ID is not a UUID); `401`; `403 Only a Super User may do this.` (called by an Admin); `404 Pack size not found`; `429` (the 600 per minute limit).
 
 ## Audit log (Super Users only)
 
@@ -974,7 +1104,7 @@ Query parameters, all optional:
 | `before` | UUID | The `nextBefore` of the previous page: continue just after it |
 | `action` | Like `thing.verb`, for example `admin.removed` | Only this action |
 | `actorId` | UUID | Only what this account did |
-| `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's, a category's or a product's ID |
+| `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's, a category's, a product's or a pack's ID |
 
 The filters combine. Any other parameter is ignored.
 
@@ -1001,11 +1131,11 @@ Response `200`:
 }
 ```
 - `actor`: the account that acted, or `null` for the developer commands or an account that no longer exists. `actorId` stays either way.
-- `target`: the account an entry is about, for user targets only. It is `null` for other targets, such as the session of a `staff.signed_in`, a category or a product, and for removed accounts.
+- `target`: the account an entry is about, for user targets only. It is `null` for other targets, such as the session of a `staff.signed_in`, a category, a product or a pack, and for removed accounts.
 - `before` and `after`: the relevant fields before and after the change, never a password, secret or token.
 - `nextBefore`: send it as `?before=` to get the next, older page. It is `null` on the last page.
 
-Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), and since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
+Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way, and since part 4C `variant.created`, `variant.updated` and `variant.deleted` for pack sizes. A price change is a `variant.updated` with the old and new price. A `product.deleted` entry also keeps the product's packs, in `before.variants`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
 
 Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` and `403` (as for the Admin endpoints); `429` (the 600 per minute limit).
 
@@ -1015,4 +1145,4 @@ Rules for clients:
 
 ## Not yet implemented
 
-Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: pack sizes and prices (part 4C), product images (part 4D), stock with batch and expiry (part 5), and search. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0021 and `docs/security.md`.
+Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: product images (part 4D), stock with batch and expiry (part 5), and search. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0022 and `docs/security.md`.
