@@ -277,7 +277,7 @@ export class ProductsService {
 
   // A category's page in the shop: the category and its active products,
   // one page at a time, each with the lowest price of its packs on sale
-  // (fromPriceRupee, null while none is on sale). A hidden category answers
+  // (fromPriceRupees, null while none is on sale). A hidden category answers
   // 404, like an unknown one. Pages continue after a product's slug:
   // customers never see product IDs.
   async listForShop(categorySlug: string, query: ShopProductListQuery) {
@@ -302,7 +302,7 @@ export class ProductsService {
       .slice(0, query.limit)
       .map(({ variants, ...card }) => ({
         ...card,
-        fromPriceRupee: variants[0]?.priceRupees ?? null,
+        fromPriceRupees: variants[0]?.priceRupees ?? null,
       }));
     return {
       category,

@@ -644,7 +644,7 @@ async function main() {
         page.body.products.every(
           (product) =>
             Object.keys(product).sort().join() ===
-            'fromPriceRupee,name,slug,summary',
+            'fromPriceRupees,name,slug,summary',
         ),
     ),
   );
@@ -698,7 +698,7 @@ async function main() {
     productPages.every(({ card, page }) => {
       const prices = (page.body?.variants ?? []).map((pack) => pack.priceRupees);
       const lowest = prices.length > 0 ? Math.min(...prices) : null;
-      return card.fromPriceRupee === lowest;
+      return card.fromPriceRupees === lowest;
     }),
   );
   const productRoutes = [

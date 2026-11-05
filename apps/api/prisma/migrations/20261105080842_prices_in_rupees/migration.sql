@@ -11,5 +11,5 @@ BEGIN
   END IF;
 END $$;
 
-ALTER TABLE "product_variants" RENAME COLUMN "mrpRupees" TO "mrpRupees";
-ALTER TABLE "product_variants" RENAME COLUMN "priceRupees" TO "priceRupees";
+ALTER TABLE "product_variants" RENAME COLUMN "mrpPaise" TO "mrpRupees";
+ALTER TABLE "product_variants" RENAME COLUMN "pricePaise" TO "priceRupees";

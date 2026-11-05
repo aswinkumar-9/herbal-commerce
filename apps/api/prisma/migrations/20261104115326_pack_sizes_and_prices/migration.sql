@@ -12,8 +12,8 @@ CREATE TABLE "product_variants" (
     "sku" TEXT NOT NULL,
     "quantity" INTEGER NOT NULL,
     "unit" "PackUnit" NOT NULL,
-    "mrpRupees" INTEGER NOT NULL,
-    "priceRupees" INTEGER NOT NULL,
+    "mrpPaise" INTEGER NOT NULL,
+    "pricePaise" INTEGER NOT NULL,
     "isActive" BOOLEAN NOT NULL DEFAULT true,
     "position" INTEGER NOT NULL DEFAULT 0,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -35,9 +35,9 @@ ALTER TABLE "product_variants" ADD CONSTRAINT "product_variants_productId_fkey" 
 -- more than the printed MRP (ADR 0022).
 ALTER TABLE "product_variants" ADD CONSTRAINT "product_variants_quantity_and_price_chk" CHECK (
     "quantity" > 0
-    AND "mrpRupees" > 0
-    AND "priceRupees" > 0
-    AND "priceRupees" <= "mrpRupees"
+    AND "mrpPaise" > 0
+    AND "pricePaise" > 0
+    AND "pricePaise" <= "mrpPaise"
 );
 
 -- A live product now also needs its HSN code and GST rate (ADR 0022).

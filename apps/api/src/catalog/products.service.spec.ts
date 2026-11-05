@@ -431,11 +431,11 @@ describe('ProductsService.listForShop', () => {
     variants: priceRupees ? [{ priceRupees }] : [],
   });
   // The same product as a customer sees its card.
-  const card = (slug: string, fromPriceRupee: number | null = null) => ({
+  const card = (slug: string, fromPriceRupees: number | null = null) => ({
     name: slug,
     slug,
     summary: null,
-    fromPriceRupee,
+    fromPriceRupees,
   });
 
   it("shows an active category and one page of its active products: a card's fields and the lowest price", async () => {
