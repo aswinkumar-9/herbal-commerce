@@ -245,25 +245,25 @@ enum PackUnit {
 }
 
 // One pack size of a product, such as 60 capsules or 100 g, with its own
-// prices. Prices are whole paise: 45000 is Rs 450.00.
+// prices. Prices are whole rupees: 499 is Rs 499 (ADR 0022).
 model ProductVariant {
-  id         String   @id @default(uuid()) @db.Uuid
-  productId  String   @db.Uuid
+  id          String   @id @default(uuid()) @db.Uuid
+  productId   String   @db.Uuid
   // Staff's own code for this pack, such as "ASH-CAP-60". Unique.
-  sku        String   @unique
+  sku         String   @unique
   // The net quantity on the label: 60 and CAPSULES, or 100 and G.
-  quantity   Int
-  unit       PackUnit
+  quantity    Int
+  unit        PackUnit
   // The MRP printed on the pack, and the price the shop charges, which is
   // never more: a check constraint in the migration enforces that too.
-  mrpPaise   Int
-  pricePaise Int
+  mrpRupees   Int
+  priceRupees Int
   // A pack can be taken off sale without touching the product.
-  isActive   Boolean  @default(true)
+  isActive    Boolean  @default(true)
   // The order on the product's page.
-  position   Int      @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  position    Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // The pack sizes go with their product when it is deleted.
   product Product @relation(fields: [productId], references: [id], onDelete: Cascade)

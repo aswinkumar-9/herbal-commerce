@@ -644,7 +644,7 @@ async function main() {
         page.body.products.every(
           (product) =>
             Object.keys(product).sort().join() ===
-            'fromPricePaise,name,slug,summary',
+            'fromPriceRupee,name,slug,summary',
         ),
     ),
   );
@@ -688,17 +688,17 @@ async function main() {
       (page.body?.variants ?? []).every(
         (pack) =>
           Object.keys(pack).sort().join() ===
-            'mrpPaise,pricePaise,quantity,sku,unit' &&
-          pack.pricePaise <= pack.mrpPaise,
+            'mrpRupees,priceRupees,quantity,sku,unit' &&
+          pack.priceRupees <= pack.mrpRupees,
       ),
     ),
   );
   check(
     "each card's from-price is the lowest price on the product's page, or null without a pack on sale",
     productPages.every(({ card, page }) => {
-      const prices = (page.body?.variants ?? []).map((pack) => pack.pricePaise);
+      const prices = (page.body?.variants ?? []).map((pack) => pack.priceRupees);
       const lowest = prices.length > 0 ? Math.min(...prices) : null;
-      return card.fromPricePaise === lowest;
+      return card.fromPriceRupee === lowest;
     }),
   );
   const productRoutes = [
@@ -723,9 +723,9 @@ async function main() {
     [
       'POST',
       `/v1/staff/products/${anyId}/variants`,
-      { sku: 'SMOKE-1', quantity: 1, unit: 'PIECES', mrpPaise: 100, pricePaise: 100 },
+      { sku: 'SMOKE-1', quantity: 1, unit: 'PIECES', mrpRupees: 100, priceRupees: 100 },
     ],
-    ['PATCH', `/v1/staff/variants/${anyId}`, { pricePaise: 100 }],
+    ['PATCH', `/v1/staff/variants/${anyId}`, { priceRupees: 100 }],
     ['DELETE', `/v1/staff/variants/${anyId}`],
   ];
   const packAnswers = [];

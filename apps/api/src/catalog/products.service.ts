@@ -91,9 +91,9 @@ const SHOP_LIST_FIELDS = {
   summary: true,
   variants: {
     where: { isActive: true },
-    orderBy: { pricePaise: 'asc' },
+    orderBy: { priceRupees: 'asc' },
     take: 1,
-    select: { pricePaise: true },
+    select: { priceRupees: true },
   },
 } satisfies Prisma.ProductSelect;
 
@@ -120,8 +120,8 @@ const SHOP_PAGE_FIELDS = {
       sku: true,
       quantity: true,
       unit: true,
-      mrpPaise: true,
-      pricePaise: true,
+      mrpRupees: true,
+      priceRupees: true,
     },
   },
 } satisfies Prisma.ProductSelect;
@@ -131,8 +131,8 @@ const DELETED_VARIANT_FIELDS = {
   sku: true,
   quantity: true,
   unit: true,
-  mrpPaise: true,
-  pricePaise: true,
+  mrpRupees: true,
+  priceRupees: true,
   isActive: true,
 } satisfies Prisma.ProductVariantSelect;
 
@@ -277,7 +277,7 @@ export class ProductsService {
 
   // A category's page in the shop: the category and its active products,
   // one page at a time, each with the lowest price of its packs on sale
-  // (fromPricePaise, null while none is on sale). A hidden category answers
+  // (fromPriceRupee, null while none is on sale). A hidden category answers
   // 404, like an unknown one. Pages continue after a product's slug:
   // customers never see product IDs.
   async listForShop(categorySlug: string, query: ShopProductListQuery) {
@@ -302,7 +302,7 @@ export class ProductsService {
       .slice(0, query.limit)
       .map(({ variants, ...card }) => ({
         ...card,
-        fromPricePaise: variants[0]?.pricePaise ?? null,
+        fromPriceRupee: variants[0]?.priceRupees ?? null,
       }));
     return {
       category,

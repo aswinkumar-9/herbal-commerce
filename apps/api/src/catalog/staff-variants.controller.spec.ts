@@ -12,8 +12,8 @@ const input = {
   sku: 'ASH-CAP-60',
   quantity: 60,
   unit: 'CAPSULES' as const,
-  mrpPaise: 50000,
-  pricePaise: 45000,
+  mrpRupees: 500,
+  priceRupees: 450,
 };
 
 function setup() {
@@ -50,11 +50,11 @@ describe('StaffVariantsController', () => {
     const { controller, variants } = setup();
 
     await expect(
-      controller.update(ID, { pricePaise: 40000 }, context),
+      controller.update(ID, { priceRupees: 400 }, context),
     ).resolves.toEqual({ id: ID });
     expect(variants.update).toHaveBeenCalledWith(
       ID,
-      { pricePaise: 40000 },
+      { priceRupees: 400 },
       context,
     );
   });

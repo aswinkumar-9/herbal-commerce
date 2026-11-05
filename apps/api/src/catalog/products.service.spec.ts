@@ -365,7 +365,7 @@ describe('ProductsService.remove', () => {
     const { service, tx, audit, logger } = setup();
     tx.product.findUniqueOrThrow.mockResolvedValue(stored({ ...details, isActive: true }));
     const packs = [
-      { sku: 'ASH-CAP-60', quantity: 60, unit: 'CAPSULES', mrpPaise: 50000, pricePaise: 45000, isActive: true },
+      { sku: 'ASH-CAP-60', quantity: 60, unit: 'CAPSULES', mrpRupees: 500, priceRupees: 450, isActive: true },
     ];
     tx.productVariant.findMany.mockResolvedValue(packs);
 
@@ -388,8 +388,8 @@ describe('ProductsService.remove', () => {
         sku: true,
         quantity: true,
         unit: true,
-        mrpPaise: true,
-        pricePaise: true,
+        mrpRupees: true,
+        priceRupees: true,
         isActive: true,
       },
     });
@@ -424,26 +424,26 @@ describe('ProductsService.remove', () => {
 
 describe('ProductsService.listForShop', () => {
   // A product as the query returns it, with its cheapest pack on sale, if any.
-  const row = (slug: string, pricePaise?: number) => ({
+  const row = (slug: string, priceRupees?: number) => ({
     name: slug,
     slug,
     summary: null,
-    variants: pricePaise ? [{ pricePaise }] : [],
+    variants: priceRupees ? [{ priceRupees }] : [],
   });
   // The same product as a customer sees its card.
-  const card = (slug: string, fromPricePaise: number | null = null) => ({
+  const card = (slug: string, fromPriceRupee: number | null = null) => ({
     name: slug,
     slug,
     summary: null,
-    fromPricePaise,
+    fromPriceRupee,
   });
 
   it("shows an active category and one page of its active products: a card's fields and the lowest price", async () => {
-    const { service, prisma } = setup([row('a', 45000), row('b')]);
+    const { service, prisma } = setup([row('a', 450), row('b')]);
 
     await expect(service.listForShop('herbal-supplements', { limit: 20 })).resolves.toEqual({
       category: shopCategory,
-      products: [card('a', 45000), card('b')],
+      products: [card('a', 450), card('b')],
       nextAfter: null,
     });
     expect(prisma.category.findFirst).toHaveBeenCalledWith({
@@ -464,9 +464,9 @@ describe('ProductsService.listForShop', () => {
         // Only the cheapest pack on sale.
         variants: {
           where: { isActive: true },
-          orderBy: { pricePaise: 'asc' },
+          orderBy: { priceRupees: 'asc' },
           take: 1,
-          select: { pricePaise: true },
+          select: { priceRupees: true },
         },
       },
     });
@@ -534,8 +534,8 @@ describe('ProductsService.findForShop', () => {
         sku: true,
         quantity: true,
         unit: true,
-        mrpPaise: true,
-        pricePaise: true,
+        mrpRupees: true,
+        priceRupees: true,
       },
     });
   });

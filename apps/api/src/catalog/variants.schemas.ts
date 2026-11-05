@@ -22,19 +22,19 @@ const unit = z.enum(
   PackUnit,
   'Choose G, KG, ML, L, CAPSULES, TABLETS or PIECES',
 );
-// Whole paise: 45000 is Rs 450.00. At most Rs 10,00,000.
-const paise = z.number().int().min(1).max(100_000_000);
+// Whole rupees: 499 is Rs 499. At most Rs 10,00,000.
+const rupees = z.number().int().min(1).max(1_000_000);
 // The order on the product's page.
 const position = z.number().int().min(0).max(9999);
 
 // What stops a pack size from being saved with these prices: the law
 // forbids charging more than the MRP printed on the pack (ADR 0022).
 export function priceIssues(variant: {
-  mrpPaise: number;
-  pricePaise: number;
+  mrpRupees: number;
+  priceRupees: number;
 }): ProductIssue[] {
-  return variant.pricePaise > variant.mrpPaise
-    ? [{ field: 'pricePaise', message: PRICE_ABOVE_MRP }]
+  return variant.priceRupees > variant.mrpRupees
+    ? [{ field: 'priceRupees', message: PRICE_ABOVE_MRP }]
     : [];
 }
 
@@ -44,14 +44,14 @@ export const variantSchema = z
     sku,
     quantity,
     unit,
-    mrpPaise: paise,
-    pricePaise: paise,
+    mrpRupees: rupees,
+    priceRupees: rupees,
     isActive: z.boolean().optional(),
     position: position.optional(),
   })
   .refine((input) => priceIssues(input).length === 0, {
     message: PRICE_ABOVE_MRP,
-    path: ['pricePaise'],
+    path: ['priceRupees'],
     // Only when everything else is valid, so a wrong MRP gets one error,
     // not a second one about the price.
     when: (payload) => payload.issues.length === 0,
@@ -66,8 +66,8 @@ export const variantUpdateSchema = z
     sku: sku.optional(),
     quantity: quantity.optional(),
     unit: unit.optional(),
-    mrpPaise: paise.optional(),
-    pricePaise: paise.optional(),
+    mrpRupees: rupees.optional(),
+    priceRupees: rupees.optional(),
     isActive: z.boolean().optional(),
     position: position.optional(),
   })

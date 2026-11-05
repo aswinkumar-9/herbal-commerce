@@ -23,8 +23,8 @@ const packFields = {
   sku: 'ASH-CAP-60',
   quantity: 60,
   unit: 'CAPSULES',
-  mrpPaise: 50000,
-  pricePaise: 45000,
+  mrpRupees: 500,
+  priceRupees: 450,
   isActive: true,
   position: 0,
 };
@@ -32,8 +32,8 @@ const input = {
   sku: 'ASH-CAP-60',
   quantity: 60,
   unit: 'CAPSULES' as const,
-  mrpPaise: 50000,
-  pricePaise: 45000,
+  mrpRupees: 500,
+  priceRupees: 450,
 };
 
 // A pack size as the query returns it.
@@ -50,7 +50,7 @@ function setup() {
     productVariant: {
       create: jest.fn().mockResolvedValue(stored()),
       findUniqueOrThrow: jest.fn().mockResolvedValue(stored()),
-      update: jest.fn().mockResolvedValue(stored({ pricePaise: 40000 })),
+      update: jest.fn().mockResolvedValue(stored({ priceRupees: 400 })),
       delete: jest.fn().mockResolvedValue({ id: ID }),
     },
   };
@@ -184,7 +184,7 @@ describe('VariantsService.update', () => {
   it('locks the pack size first, so the price check and the audit entry see it as it is', async () => {
     const { service, tx } = setup();
 
-    await service.update(ID, { pricePaise: 40000 }, context);
+    await service.update(ID, { priceRupees: 400 }, context);
 
     const [sql, id] = tx.$queryRaw.mock.calls[0] as [string[], string];
     expect(sql.join('?')).toMatch(
@@ -200,19 +200,19 @@ describe('VariantsService.update', () => {
     const { service, tx, audit, logger } = setup();
 
     await expect(
-      service.update(ID, { pricePaise: 40000, mrpPaise: 50000 }, context),
-    ).resolves.toEqual(stored({ pricePaise: 40000 }));
+      service.update(ID, { priceRupees: 400, mrpRupees: 500 }, context),
+    ).resolves.toEqual(stored({ priceRupees: 400 }));
 
     expect(tx.productVariant.update).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: ID }, data: { pricePaise: 40000 } }),
+      expect.objectContaining({ where: { id: ID }, data: { priceRupees: 400 } }),
     );
     expect(audit.record).toHaveBeenCalledWith(tx, {
       ...context,
       action: 'variant.updated',
       targetType: 'variant',
       targetId: ID,
-      before: { pricePaise: 45000 },
-      after: { pricePaise: 40000 },
+      before: { priceRupees: 450 },
+      after: { priceRupees: 400 },
     });
     expect(logger.info).toHaveBeenCalledWith(
       { variantId: ID, actorId: context.actorId },
@@ -223,11 +223,11 @@ describe('VariantsService.update', () => {
   it('refuses a lower MRP that falls below the stored price, and a price above the stored MRP', async () => {
     const { service, tx, audit } = setup();
 
-    for (const change of [{ mrpPaise: 40000 }, { pricePaise: 55000 }]) {
+    for (const change of [{ mrpRupees: 400 }, { priceRupees: 550 }]) {
       await expect(refusal(service.update(ID, change, context))).resolves.toEqual({
         message: 'Validation failed',
         errors: [
-          { field: 'pricePaise', message: 'The price may not be more than the MRP' },
+          { field: 'priceRupees', message: 'The price may not be more than the MRP' },
         ],
       });
     }
@@ -238,9 +238,9 @@ describe('VariantsService.update', () => {
   it('lets the MRP and the price change together', async () => {
     const { service, tx } = setup();
 
-    await service.update(ID, { mrpPaise: 40000, pricePaise: 38000 }, context);
+    await service.update(ID, { mrpRupees: 400, priceRupees: 380 }, context);
     expect(tx.productVariant.update).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { mrpPaise: 40000, pricePaise: 38000 } }),
+      expect.objectContaining({ data: { mrpRupees: 400, priceRupees: 380 } }),
     );
   });
 
@@ -248,7 +248,7 @@ describe('VariantsService.update', () => {
     const { service, tx, audit, logger } = setup();
 
     await expect(
-      service.update(ID, { pricePaise: 45000, isActive: true }, context),
+      service.update(ID, { priceRupees: 450, isActive: true }, context),
     ).resolves.toEqual(stored());
     expect(tx.productVariant.update).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
@@ -260,7 +260,7 @@ describe('VariantsService.update', () => {
     tx.$queryRaw.mockResolvedValue([]);
 
     await expect(
-      service.update(ID, { pricePaise: 40000 }, context),
+      service.update(ID, { priceRupees: 400 }, context),
     ).rejects.toThrow(new NotFoundException('Pack size not found'));
     expect(tx.productVariant.update).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
