@@ -64,6 +64,16 @@ const envSchema = z.object({
     .string()
     .regex(/^https?:\/\//)
     .default('http://localhost:3001'),
+  // Where uploaded images are kept (ADR 0023). A relative folder is inside
+  // the folder the API runs in, apps/api.
+  MEDIA_DIR: z.string().min(1).default('storage/media'),
+  // The address the shop links images from: the API itself on a laptop,
+  // later a CDN in front of object storage. A final "/" is dropped.
+  MEDIA_BASE_URL: z
+    .string()
+    .regex(/^https?:\/\/[^/]/, 'must be an http or https address')
+    .default('http://127.0.0.1:3000/media')
+    .transform((url) => url.replace(/\/+$/, '')),
   DATABASE_URL: z.string().min(1).startsWith('postgresql://'),
   VALKEY_URL: z.string().min(1).startsWith('redis://'),
   // Signs access tokens. Generate it with the command in .env.example.
@@ -100,6 +110,9 @@ function productionProblems(env: Env): string[] {
   }
   if (!env.WEB_BASE_URL.startsWith('https://')) {
     problems.push('WEB_BASE_URL: must use https in production');
+  }
+  if (!env.MEDIA_BASE_URL.startsWith('https://')) {
+    problems.push('MEDIA_BASE_URL: must use https in production');
   }
   return problems;
 }

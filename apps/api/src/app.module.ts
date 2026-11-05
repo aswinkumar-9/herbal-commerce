@@ -12,6 +12,7 @@ import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { Env, validateEnv } from './config/env';
 import { HealthModule } from './health/health.module';
 import { buildLoggerParams } from './logging/logger.config';
+import { MediaModule } from './media/media.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RateLimitGuard } from './rate-limit/rate-limit.guard';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
@@ -41,6 +42,7 @@ import { ValkeyModule } from './valkey/valkey.module';
     AuthModule,
     StaffModule,
     AddressesModule,
+    MediaModule,
     CatalogModule,
     HealthModule,
     RetentionModule,
