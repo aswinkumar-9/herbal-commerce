@@ -15,8 +15,10 @@ import { STAFF_ONLY } from './staff-only.decorator';
 
 const INVALID_ACCESS_TOKEN = 'Invalid or expired access token';
 
-// Reads "Authorization: Bearer <token>".
-function bearerToken(header: string | undefined): string | undefined {
+// Reads "Authorization: Bearer <token>". The image upload's body parser
+// uses it too (catalog/image-upload.ts).
+export function bearerToken(header: string | undefined): string | undefined {
+
   const [scheme, token, ...rest] = header?.split(' ') ?? [];
   const isBearer = scheme?.toLowerCase() === 'bearer';
   return isBearer && token && rest.length === 0 ? token : undefined;
