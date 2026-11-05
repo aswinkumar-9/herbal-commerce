@@ -53,7 +53,7 @@ describe('productSchema', () => {
     ]);
   });
 
-  it('refuses to go live without the licence, maker, ingredients, HSN code and GST rate', () => {
+  it('names all a live product needs, so a new one never starts live: it has no image yet', () => {
     expect(refusedFields({ ...draft, isActive: true })).toEqual([
       'type',
       'licenceNumber',
@@ -62,10 +62,14 @@ describe('productSchema', () => {
       'ingredients',
       'hsnCode',
       'gstRate',
+      'images',
+    ]);
+    expect(refusedFields({ ...draft, ...details, isActive: true })).toEqual([
+      'images',
     ]);
     expect(
-      productSchema.parse({ ...draft, ...details, isActive: true }),
-    ).toMatchObject({ isActive: true, type: 'AYURVEDIC_MEDICINE' });
+      productSchema.parse({ ...draft, ...details, isActive: false }),
+    ).toMatchObject({ isActive: false, type: 'AYURVEDIC_MEDICINE' });
   });
 
   it('writes a licence number in one form, and checks an FSSAI one', () => {

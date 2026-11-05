@@ -220,7 +220,12 @@ export class ProductsService {
         }
         const before = pick(current, fields);
         const after = pick(input, fields);
-        const issues = productIssues({ ...current, ...after });
+        // Going live needs an image too. Counted while the product is
+        // locked, so an image deleted at the same moment cannot slip by.
+        const imageCount = await tx.productImage.count({
+          where: { productId: id },
+        });
+        const issues = productIssues({ ...current, ...after, imageCount });
         if (issues.length > 0) {
           throw validationFailed(issues);
         }

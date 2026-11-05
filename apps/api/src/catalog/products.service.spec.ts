@@ -68,6 +68,7 @@ function setup(products: object[] = []) {
       delete: jest.fn().mockResolvedValue({ id: ID }),
     },
     productVariant: { findMany: jest.fn().mockResolvedValue([]) },
+    productImage: { count: jest.fn().mockResolvedValue(1) },
   };
   const prisma = {
     product: {
@@ -286,6 +287,33 @@ describe('ProductsService.update', () => {
     expect(tx.product.update).toHaveBeenLastCalledWith(
       expect.objectContaining({ data: { ...details, isActive: true } }),
     );
+  });
+
+  it('refuses to activate a product without an image, counted while it is locked', async () => {
+    const { service, tx, audit } = setup();
+    tx.product.findUniqueOrThrow.mockResolvedValue(stored(details));
+    tx.productImage.count.mockResolvedValue(0);
+
+    await expect(
+      refusal(service.update(ID, { isActive: true }, context)),
+    ).resolves.toEqual({
+      message: 'Validation failed',
+      errors: [
+        { field: 'images', message: 'Needed before the product can go live' },
+      ],
+    });
+    expect(tx.productImage.count).toHaveBeenCalledWith({
+      where: { productId: ID },
+    });
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.productImage.count.mock.invocationCallOrder[0],
+    );
+    expect(tx.product.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+
+    // A draft may still change without an image.
+    await service.update(ID, { name: 'Renamed' }, context);
+    expect(tx.product.update).toHaveBeenCalledTimes(1);
   });
 
   it('refuses to remove a detail from a live product', async () => {

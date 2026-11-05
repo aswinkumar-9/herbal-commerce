@@ -81,9 +81,10 @@ const details = {
 };
 
 // A new product. The slug is made from the name, unless one is given. It
-// starts as a hidden draft unless asked; a live one needs its licence and
-// maker details, its ingredients (ADR 0021), and its HSN code and GST rate
-// (ADR 0022).
+// always starts as a hidden draft: a live product needs its licence and
+// maker details, its ingredients (ADR 0021), its HSN code and GST rate
+// (ADR 0022), and an image, which can only be added to a product that
+// exists (ADR 0023). Asking for a live one names everything still missing.
 export const productSchema = z
   .object({ categoryId, name, slug: slug.optional(), ...details })
   .transform(({ slug: given, ...input }) => ({
@@ -107,6 +108,8 @@ export const productSchema = z
       ingredients: input.ingredients ?? null,
       hsnCode: input.hsnCode ?? null,
       gstRate: input.gstRate ?? null,
+      // A new product has no images yet.
+      imageCount: 0,
     });
     for (const issue of issues) {
       context.addIssue({
