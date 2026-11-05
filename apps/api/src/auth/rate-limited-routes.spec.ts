@@ -89,11 +89,15 @@ describe('rate-limited routes', () => {
       update: undefined,
       remove: undefined,
     });
+    expect(routeLimits(ProductsController)).toStrictEqual({
+      detail: undefined,
+    });
     // Pack sizes too: a few small writes for each product.
     expect(routeLimits(StaffVariantsController)).toStrictEqual({
       list: undefined,
       create: undefined,
       update: undefined,
+      remove: undefined,
     });
   });
 });

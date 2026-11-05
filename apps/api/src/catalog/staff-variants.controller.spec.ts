@@ -21,6 +21,7 @@ function setup() {
     listForProduct: jest.fn().mockResolvedValue({ variants: [] }),
     create: jest.fn().mockResolvedValue({ id: ID }),
     update: jest.fn().mockResolvedValue({ id: ID }),
+    remove: jest.fn().mockResolvedValue(undefined),
   };
   const controller = new StaffVariantsController(
     variants as unknown as VariantsService,
@@ -56,5 +57,12 @@ describe('StaffVariantsController', () => {
       { pricePaise: 40000 },
       context,
     );
+  });
+
+  it('deletes a pack size by its ID, recording who did it', async () => {
+    const { controller, variants } = setup();
+
+    await expect(controller.remove(ID, context)).resolves.toBeUndefined();
+    expect(variants.remove).toHaveBeenCalledWith(ID, context);
   });
 });

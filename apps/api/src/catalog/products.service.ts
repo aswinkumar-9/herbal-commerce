@@ -23,6 +23,7 @@ import type {
   ShopProductListQuery,
 } from './products.schemas';
 import { validationFailed } from './validation-failed';
+import { VARIANT_ORDER } from './variant-order';
 
 export const PRODUCT_NOT_FOUND = 'Product not found';
 export const PRODUCT_SLUG_TAKEN =
@@ -82,15 +83,23 @@ const PRODUCT_ORDER = [
   { id: 'asc' },
 ] satisfies Prisma.ProductOrderByWithRelationInput[];
 
-// What a category's page shows of each product. Prices come in part 4C.
+// What a category's page shows of each product, with the price of its
+// cheapest pack on sale, if any (ADR 0022).
 const SHOP_LIST_FIELDS = {
   name: true,
   slug: true,
   summary: true,
+  variants: {
+    where: { isActive: true },
+    orderBy: { pricePaise: 'asc' },
+    take: 1,
+    select: { pricePaise: true },
+  },
 } satisfies Prisma.ProductSelect;
 
 // What a product's own page shows. The licence and maker details must be
-// on it (ADR 0021).
+// on it (ADR 0021), and its packs on sale with their prices (ADR 0022). A
+// pack is known by its SKU: the shop shows no IDs.
 const SHOP_PAGE_FIELDS = {
   name: true,
   slug: true,
@@ -104,7 +113,28 @@ const SHOP_PAGE_FIELDS = {
   manufacturerAddress: true,
   countryOfOrigin: true,
   category: { select: { name: true, slug: true } },
+  variants: {
+    where: { isActive: true },
+    orderBy: VARIANT_ORDER,
+    select: {
+      sku: true,
+      quantity: true,
+      unit: true,
+      mrpPaise: true,
+      pricePaise: true,
+    },
+  },
 } satisfies Prisma.ProductSelect;
+
+// What the audit log keeps of a deleted product's pack sizes.
+const DELETED_VARIANT_FIELDS = {
+  sku: true,
+  quantity: true,
+  unit: true,
+  mrpPaise: true,
+  pricePaise: true,
+  isActive: true,
+} satisfies Prisma.ProductVariantSelect;
 
 type Product = Prisma.ProductGetPayload<{ select: typeof PRODUCT_FIELDS }>;
 
@@ -219,18 +249,24 @@ export class ProductsService {
     return product;
   }
 
-  // Deletes a product for good. Only Super Users may: the route is
-  // @SuperUserOnly(). The audit entry keeps what the product was.
+  // Deletes a product for good, with its pack sizes. Only Super Users may:
+  // the route is @SuperUserOnly(). The audit entry keeps what the product
+  // was, its pack sizes and their prices included.
   async remove(id: string, context: AuditContext): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       const current = await this.lockedProduct(tx, id);
+      const variants = await tx.productVariant.findMany({
+        where: { productId: id },
+        orderBy: VARIANT_ORDER,
+        select: DELETED_VARIANT_FIELDS,
+      });
       await tx.product.delete({ where: { id }, select: { id: true } });
       await this.audit.record(tx, {
         ...context,
         action: 'product.deleted',
         targetType: 'product',
         targetId: id,
-        before: pick(current, STAFF_FIELDS),
+        before: { ...pick(current, STAFF_FIELDS), variants },
       });
     });
     this.logger.info(
@@ -240,8 +276,10 @@ export class ProductsService {
   }
 
   // A category's page in the shop: the category and its active products,
-  // one page at a time. A hidden category answers 404, like an unknown one.
-  // Pages continue after a product's slug: customers never see product IDs.
+  // one page at a time, each with the lowest price of its packs on sale
+  // (fromPricePaise, null while none is on sale). A hidden category answers
+  // 404, like an unknown one. Pages continue after a product's slug:
+  // customers never see product IDs.
   async listForShop(categorySlug: string, query: ShopProductListQuery) {
     const category = await this.prisma.category.findFirst({
       where: { slug: categorySlug, isActive: true },
@@ -260,7 +298,12 @@ export class ProductsService {
       ...(query.after ? { cursor: { slug: query.after }, skip: 1 } : {}),
       select: SHOP_LIST_FIELDS,
     });
-    const products = rows.slice(0, query.limit);
+    const products = rows
+      .slice(0, query.limit)
+      .map(({ variants, ...card }) => ({
+        ...card,
+        fromPricePaise: variants[0]?.pricePaise ?? null,
+      }));
     return {
       category,
       products,

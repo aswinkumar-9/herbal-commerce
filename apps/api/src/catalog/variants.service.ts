@@ -15,6 +15,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { changedFields, pick } from './changes';
 import { PRODUCT_NOT_FOUND } from './products.service';
 import { validationFailed } from './validation-failed';
+import { VARIANT_ORDER } from './variant-order';
 import { priceIssues } from './variants.schemas';
 import type { VariantInput, VariantUpdateInput } from './variants.schemas';
 
@@ -50,20 +51,13 @@ const VARIANT_FIELDS = {
   updatedAt: true,
 } satisfies Prisma.ProductVariantSelect;
 
-// The order on the product's page: by position, then the smallest pack.
-const VARIANT_ORDER = [
-  { position: 'asc' },
-  { quantity: 'asc' },
-  { id: 'asc' },
-] satisfies Prisma.ProductVariantOrderByWithRelationInput[];
-
 type Variant = Prisma.ProductVariantGetPayload<{
   select: typeof VARIANT_FIELDS;
 }>;
 
 // The pack sizes of products, with their prices (ADR 0022). Admins and
-// Super Users manage them, and every change, a new price included, is
-// written to the audit log in the same transaction.
+// Super Users manage them, only Super Users delete them, and every change,
+// a new price included, is written to the audit log in the same transaction.
 @Injectable()
 export class VariantsService {
   constructor(
@@ -159,6 +153,26 @@ export class VariantsService {
       );
     }
     return variant;
+  }
+
+  // Deletes a pack size for good. Only Super Users may: the route is
+  // @SuperUserOnly(). The audit entry keeps what it was, prices included.
+  async remove(id: string, context: AuditContext): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const current = await this.lockedVariant(tx, id);
+      await tx.productVariant.delete({ where: { id }, select: { id: true } });
+      await this.audit.record(tx, {
+        ...context,
+        action: 'variant.deleted',
+        targetType: 'variant',
+        targetId: id,
+        before: pick(current, STAFF_FIELDS),
+      });
+    });
+    this.logger.info(
+      { variantId: id, actorId: context.actorId },
+      'Pack size deleted',
+    );
   }
 
   // Locks the pack size until the transaction ends, then reads it, or

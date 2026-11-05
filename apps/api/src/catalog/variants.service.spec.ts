@@ -51,6 +51,7 @@ function setup() {
       create: jest.fn().mockResolvedValue(stored()),
       findUniqueOrThrow: jest.fn().mockResolvedValue(stored()),
       update: jest.fn().mockResolvedValue(stored({ pricePaise: 40000 })),
+      delete: jest.fn().mockResolvedValue({ id: ID }),
     },
   };
   const prisma = {
@@ -284,5 +285,48 @@ describe('VariantsService.update', () => {
       new ConflictException('This product already has a pack of this size.'),
     );
     expect(prisma.productVariant.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('VariantsService.remove', () => {
+  it('locks the pack size, deletes it, and records what it was in the same transaction', async () => {
+    const { service, tx, audit, logger } = setup();
+
+    await expect(service.remove(ID, context)).resolves.toBeUndefined();
+
+    const [sql, id] = tx.$queryRaw.mock.calls[0] as [string[], string];
+    expect(sql.join('?')).toMatch(
+      /FROM product_variants WHERE id = \?::uuid FOR UPDATE/,
+    );
+    expect(id).toBe(ID);
+    expect(tx.productVariant.delete).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: ID } }),
+    );
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.productVariant.delete.mock.invocationCallOrder[0],
+    );
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...context,
+      action: 'variant.deleted',
+      targetType: 'variant',
+      targetId: ID,
+      before: packFields,
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      { variantId: ID, actorId: context.actorId },
+      'Pack size deleted',
+    );
+  });
+
+  it('answers 404 for an unknown ID, and deletes nothing', async () => {
+    const { service, tx, audit, logger } = setup();
+    tx.$queryRaw.mockResolvedValue([]);
+
+    await expect(service.remove(ID, context)).rejects.toThrow(
+      new NotFoundException('Pack size not found'),
+    );
+    expect(tx.productVariant.delete).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
   });
 });
