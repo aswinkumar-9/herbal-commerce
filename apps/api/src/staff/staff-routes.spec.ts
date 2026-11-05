@@ -53,8 +53,7 @@ describe('staff routes', () => {
     }
   });
 
-  // Parts 4A and 4B: of the catalog routes, only deleting is for Super Users.
-    // Parts 4A to 4C: of the catalog routes, only deleting is for Super Users.
+  // Parts 4A to 4C: of the catalog routes, only deleting is for Super Users.
   it('let only Super Users delete categories, products and pack sizes', () => {
     for (const controller of [
       StaffCategoriesController,
