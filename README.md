@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories and products: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details and its ingredients. Anyone can browse the shop without signing in: the active categories, each category's live products, and each product's page. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, and its HSN code and GST rate. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price, and each product's page with its packs on sale. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -78,12 +78,13 @@ It first clears the local rate-limit counters, so it can run again at once. Then
 - product categories: the public list shows only the name, slug and description of each active category, the same with or without a customer's token;
 - the shop:
   - unknown pages answer `404`, and a category page refuses more than 50 products at once;
-  - every live category page shows only the name, slug and summary of its products;
+  - every live category page shows only the name, slug, summary and lowest price of its products;
   - every product page shows its licence and maker details, and no IDs or staff fields;
-- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, and cannot list, create, change or delete categories or products;
+  - every pack on a product page shows only its SKU, size and prices, never a price above its MRP, and each card's lowest price matches its product page;
+- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, and cannot list, create, change or delete categories, products or pack sizes;
 - that a made-up invitation link is refused.
 
-The staff login, a real invitation and managing categories and products need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories" and "Manage products". With an empty shop, the two page checks have nothing to look at. They are most useful while a product is live.
+The staff login, a real invitation and managing categories, products and pack sizes need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products" and "Manage pack sizes and prices". With an empty shop, the page and price checks have nothing to look at. They are most useful while a product with packs is live.
 
 Every line should say `PASS`, followed by `All checks passed.`
 
@@ -274,9 +275,9 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
    - `?action=admin.removed`: one kind of entry;
    - `?actorId=<an account's ID>`: what that person did;
    - `?targetId=<an Admin's ID>`: that Admin's whole story, from invitation to removal;
-   - `?targetId=<a category's ID>` or `?targetId=<a product's ID>`: that category's or product's story, from creation to deletion.
+   - `?targetId=<a category's ID>`, `?targetId=<a product's ID>` or `?targetId=<a pack's ID>`: that category's, product's or pack's story, from creation to deletion. A pack's story is its price history.
 
-   The IDs come from the entries themselves, or from the lists in "Manage Admins", "Manage categories" and "Manage products".
+   The IDs come from the entries themselves, or from the lists in "Manage Admins", "Manage categories", "Manage products" and "Manage pack sizes and prices".
 5. **Sign out and clean up:**
    ```powershell
    Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/logout -ContentType 'application/json' -Body (@{ refreshToken = $login.refreshToken } | ConvertTo-Json)
@@ -336,7 +337,7 @@ Admins and Super Users create, change, activate and deactivate product categorie
 
 ## Manage products
 
-Admins and Super Users create, change, activate and deactivate products. Only a Super User deletes one (ADR 0021). A product starts as a draft. It goes live only with its type, licence number, maker's name and address and its ingredients, and customers see it only while its category is active too.
+Admins and Super Users create, change, activate and deactivate products. Only a Super User deletes one (ADR 0021). A product starts as a draft. It goes live only with its type, licence number, maker's name and address, its ingredients, and its HSN code and GST rate (ADR 0022). Customers see it only while its category is active too. Its prices are on its pack sizes: see "Manage pack sizes and prices".
 
 1. **Sign in as staff**, as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`, and check that `$login.accessToken` is not empty. Then:
    ```powershell
@@ -371,9 +372,11 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
      manufacturerAddress = '12, Industrial Area, Mysuru 570016'
      ingredients = 'Each capsule contains: Ashwagandha root extract 500 mg'
      usage = '1 capsule twice a day after meals'
+     hsnCode = '3004 90'           # stored as 300490
+     gstRate = 5                   # 0, 5, 18 or 40: ask your chartered accountant
      isActive = $true
    } | ConvertTo-Json
-   Invoke-RestMethod -Method Patch -Uri "$api/staff/products/$id" -Headers $auth -ContentType $json -Body $details | Format-List name, isActive, licenceNumber
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/products/$id" -Headers $auth -ContentType $json -Body $details | Format-List name, isActive, licenceNumber, hsnCode, gstRate
    ```
 5. **Run only the line you need:**
    ```powershell
@@ -386,7 +389,7 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
    ```
 6. **What customers see,** without a token:
    ```powershell
-   (Invoke-RestMethod "$api/categories/<a category slug>/products").products | Format-Table name, slug, summary
+   (Invoke-RestMethod "$api/categories/<a category slug>/products").products | Format-Table name, slug, summary, fromPriceRupees
    Invoke-RestMethod "$api/products/ashwagandha-capsules" | Format-List
    ```
 7. **Sign out and clean up:**
@@ -400,6 +403,57 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
 - **Removing a detail from a live product is refused.** Take the product out of the shop first.
 - Every change is in the audit log: `product.created`, `product.updated` (with only what changed) and `product.deleted`. Read a product's story with `?targetId=$id` (see "Read the audit log").
 - A category that still has products cannot be deleted (`409`).
+- Deleting a product deletes its pack sizes too. Its `product.deleted` entry keeps them.
+
+## Manage pack sizes and prices
+
+Each product has its packs, such as 60 capsules or 100 g, each with an MRP and a price (ADR 0022). Prices are **whole rupees**: send `499` for ₹499. The price is never above the MRP. Admins and Super Users add packs, change them and take them off sale. Only a Super User deletes one. Customers see the packs on sale of a live product.
+
+1. **Sign in as staff and set the variables,** as in "Manage products", step 1.
+2. **Pick the product** by its slug, from the list in "Manage products", step 2:
+   ```powershell
+   $page = Invoke-RestMethod -Uri "$api/staff/products?limit=100" -Headers $auth
+   $productId = ($page.products | Where-Object slug -eq 'ashwagandha-capsules').id
+   "[$productId]"
+   ```
+   **If the brackets are empty, stop.**
+3. **List its packs,** off sale ones too:
+   ```powershell
+   (Invoke-RestMethod -Uri "$api/staff/products/$productId/variants" -Headers $auth).variants | Format-Table sku, quantity, unit, mrpRupees, priceRupees, isActive, id
+   ```
+4. **Add a pack:**
+   ```powershell
+   $body = @{ sku = 'ASH-CAP-60'; quantity = 60; unit = 'CAPSULES'; mrpRupees = 500; priceRupees = 449 } | ConvertTo-Json
+   $variantId = (Invoke-RestMethod -Method Post -Uri "$api/staff/products/$productId/variants" -Headers $auth -ContentType $json -Body $body).id
+   "[$variantId]"
+   ```
+   - `unit` is one of `G`, `KG`, `ML`, `L`, `CAPSULES`, `TABLETS` and `PIECES`.
+   - The SKU is your own code for the pack, unique across all products. It is stored in capitals.
+   - To work on a pack that already exists, take its ID from the list in step 3: `$variantId = '<its id>'`.
+5. **Run only the line you need:**
+   ```powershell
+   # A new price.
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/variants/$variantId" -Headers $auth -ContentType $json -Body '{"priceRupees":399}'
+   # A new MRP and price together, for example when a new printed MRP arrives.
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/variants/$variantId" -Headers $auth -ContentType $json -Body '{"mrpRupees":550,"priceRupees":499}'
+   # Take it off sale. Use true to put it back.
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/variants/$variantId" -Headers $auth -ContentType $json -Body '{"isActive":false}'
+   # Delete it for good: Super Users only. An Admin takes it off sale instead.
+   Invoke-RestMethod -Method Delete -Uri "$api/staff/variants/$variantId" -Headers $auth
+   ```
+6. **What customers see,** without a token:
+   ```powershell
+   (Invoke-RestMethod "$api/products/ashwagandha-capsules").variants | Format-Table sku, quantity, unit, mrpRupees, priceRupees
+   ```
+7. **Sign out and clean up:**
+   ```powershell
+   Invoke-RestMethod -Method Post -Uri "$api/staff/auth/logout" -ContentType 'application/json' -Body (@{ refreshToken = $login.refreshToken } | ConvertTo-Json)
+   Remove-Variable login, auth, api, json, page, productId, body, variantId -ErrorAction SilentlyContinue
+   ```
+
+- **The price is checked against the pack as it will be.** Lowering only the MRP below the current price is refused: send both together.
+- A pack off sale disappears from the shop at once, and from the product's lowest price on its category page.
+- Every change is in the audit log: `variant.created`, `variant.updated` (with only what changed, so a price change shows the old and new price) and `variant.deleted`. Read a pack's price history with `?targetId=$variantId` (see "Read the audit log").
 
 ## Repository structure
 
@@ -413,7 +467,7 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
 │           ├── addresses/      customers' delivery addresses
 │           ├── audit/          the append-only audit log, a request's audit context, and reading the log page by page
 │           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset and change, access and roles guards, /v1/me
-│           ├── catalog/        categories and products: their rules (slug, going live), the staff routes and the public shop
+│           ├── catalog/        categories, products and pack sizes: their rules (slug, going live, prices), the staff routes and the public shop
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
 │           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
 │           ├── rate-limit/     limits, rate-limit guard, client IP
@@ -499,9 +553,23 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
 - **Deleting a category answers `403 Only a Super User may do this.`:** you are signed in as an Admin. Hide it instead (`{"isActive":false}`), or ask a Super User.
 - **A category answers `404 Category not found`:** it was deleted, or the ID is wrong. List the categories and pick the ID again.
 - **Deleting a category answers `409 This category still has products.`:** move its products to another category (`{"categoryId":"..."}`) or delete them first. To hide it from the shop, deactivate it instead: that hides its products too.
-- **Activating a product answers `400` with "Needed before the product can go live":** the `errors` list names each missing detail (type, licence number, maker's name and address, ingredients). Send them in the same request as `"isActive":true`, or first.
+- **Activating a product answers `400` with "Needed before the product can go live":** the `errors` list names each missing detail (type, licence number, maker's name and address, ingredients, HSN code, GST rate). Send them in the same request as `"isActive":true`, or first.
+- **A product answers `400` for `gstRate`:** the rate is one of `0`, `5`, `18` and `40`, sent as a number (`5`, not `"5"`). Other rates, such as 12, no longer exist since GST 2.0.
+- **A product answers `400` "An HSN code has 4, 6 or 8 digits":** send only the digits, such as `3004` or `300490`. Spaces are fine, other characters are not.
 - **A product answers `400` "An FSSAI licence number has exactly 14 digits":** the type is `FOOD_OR_SUPPLEMENT`, and the licence isn't 14 digits. Fix the number, or choose the right type.
 - **Creating or moving a product answers `400` for `categoryId` "No category with this ID":** the category was deleted, or the ID is wrong.
 - **Creating or changing a product answers `409`:** another product already has that slug. Send a different `slug`.
 - **A live product's page answers `404`:** its category is hidden. A product shows in the shop only while both it and its category are active.
+- **A pack answers `400` "The price may not be more than the MRP":** the price is above the MRP, perhaps because the change lowered only the MRP. Send the MRP and the price together.
+- **A pack answers `400` for `mrpRupees` or `priceRupees`:** a price is a whole number of rupees from 1 to 10,00,000. `449.50` and `"449"` are refused.
+- **Prices in the shop look 100 times too high:** they were typed in paise. Prices are whole rupees: change them, for example `{"mrpRupees":500,"priceRupees":449}`.
+- **Adding or changing a pack answers `409`:** read the message. Either another pack, maybe of another product, already has that SKU, or this product already has a pack of that quantity and unit. Change the existing pack instead.
+- **A pack answers `404`:** `Pack size not found` means it was deleted, maybe with its product, or the ID is wrong: list the packs again (step 3 of "Manage pack sizes and prices"). `Product not found` means the product ID is wrong.
+- **Right after `pnpm api:smoke`, a logout answers `429`:** the smoke test uses up the logout limit (120 per minute per IP) on purpose. Wait a minute, or run `pnpm api:limits:clear`.
+- **`prisma migrate dev` says a migration was modified after it was applied, and asks to reset the database:** answer **no**, because a reset deletes all data. An applied migration file was changed, maybe by a search and replace. Put it back exactly as it was applied:
+  - `git diff`, or `git log -p -- <the migration's folder>` once committed, shows what changed;
+  - Prisma keeps each applied file's SHA-256 in the `checksum` column of the `_prisma_migrations` table, so `Get-FileHash <the migration.sql file>` must match it again;
+  - then `prisma migrate dev` answers `Already in sync`.
+
+  Never change an applied migration (ADR 0003).
 - **`prisma migrate dev` asks "Enter a name for the new migration" right after applying one:** the schema and the database still differ, usually because something was lost from the migration you edited. Press `Ctrl+C`, then see what a new migration would contain: `pnpm exec prisma migrate diff --from-config-datasource --to-schema prisma/schema.prisma --script` (in `apps/api`; it only reads). Put a missing piece into a **new** migration. Never edit one that has been applied: Prisma would then want to reset the database.

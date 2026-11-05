@@ -4,6 +4,7 @@ import { CategoriesController } from '../catalog/categories.controller';
 import { ProductsController } from '../catalog/products.controller';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
+import { StaffVariantsController } from '../catalog/staff-variants.controller';
 import { RATE_LIMIT } from '../rate-limit/rate-limit.decorator';
 import { StaffAuthController } from '../staff/staff-auth.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
@@ -90,6 +91,13 @@ describe('rate-limited routes', () => {
     });
     expect(routeLimits(ProductsController)).toStrictEqual({
       detail: undefined,
+    });
+    // Pack sizes too: a few small writes for each product.
+    expect(routeLimits(StaffVariantsController)).toStrictEqual({
+      list: undefined,
+      create: undefined,
+      update: undefined,
+      remove: undefined,
     });
   });
 });

@@ -8,6 +8,8 @@ const draft: ProductState = {
   manufacturerName: null,
   manufacturerAddress: null,
   ingredients: null,
+  hsnCode: null,
+  gstRate: null,
 };
 const complete: ProductState = {
   isActive: true,
@@ -16,6 +18,8 @@ const complete: ProductState = {
   manufacturerName: 'Herbal Works Pvt Ltd',
   manufacturerAddress: '12, Industrial Area, Mysuru 570016',
   ingredients: 'Each capsule contains: Ashwagandha root extract 500 mg',
+  hsnCode: '3004',
+  gstRate: 5,
 };
 
 describe('productIssues', () => {
@@ -31,6 +35,8 @@ describe('productIssues', () => {
         'manufacturerName',
         'manufacturerAddress',
         'ingredients',
+        'hsnCode',
+        'gstRate',
       ].map((field) => ({
         field,
         message: 'Needed before the product can go live',
@@ -45,6 +51,17 @@ describe('productIssues', () => {
 
   it('lets a complete product go live', () => {
     expect(productIssues(complete)).toEqual([]);
+  });
+
+  it('treats a detail that is missing altogether like an empty one', () => {
+    const { hsnCode, licenceNumber, ...rest } = complete;
+    expect([hsnCode, licenceNumber]).toEqual(['3004', '25D/123/2015']);
+    expect(
+      productIssues({ ...rest, type: 'FOOD_OR_SUPPLEMENT' } as ProductState),
+    ).toEqual([
+      { field: 'licenceNumber', message: 'Needed before the product can go live' },
+      { field: 'hsnCode', message: 'Needed before the product can go live' },
+    ]);
   });
 
   it('wants exactly 14 digits for an FSSAI licence, even in a draft', () => {

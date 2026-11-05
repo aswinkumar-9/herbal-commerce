@@ -31,6 +31,8 @@ const draftFields = {
   manufacturerName: null,
   manufacturerAddress: null,
   countryOfOrigin: 'India',
+  hsnCode: null,
+  gstRate: null,
   isActive: false,
   position: 0,
 };
@@ -40,6 +42,8 @@ const details = {
   manufacturerName: 'Herbal Works Pvt Ltd',
   manufacturerAddress: '12, Industrial Area, Mysuru 570016',
   ingredients: 'Each capsule contains: Ashwagandha root extract 500 mg',
+  hsnCode: '3004',
+  gstRate: 5,
 };
 
 // A product as the query returns it.
@@ -63,6 +67,7 @@ function setup(products: object[] = []) {
       update: jest.fn().mockResolvedValue(stored({ name: 'Renamed' })),
       delete: jest.fn().mockResolvedValue({ id: ID }),
     },
+    productVariant: { findMany: jest.fn().mockResolvedValue([]) },
   };
   const prisma = {
     product: {
@@ -356,9 +361,13 @@ describe('ProductsService.update', () => {
 });
 
 describe('ProductsService.remove', () => {
-  it('locks the product, deletes it, and records what it was in the same transaction', async () => {
+  it('locks the product, deletes it, and records what it was, pack sizes included, in the same transaction', async () => {
     const { service, tx, audit, logger } = setup();
     tx.product.findUniqueOrThrow.mockResolvedValue(stored({ ...details, isActive: true }));
+    const packs = [
+      { sku: 'ASH-CAP-60', quantity: 60, unit: 'CAPSULES', mrpRupees: 500, priceRupees: 450, isActive: true },
+    ];
+    tx.productVariant.findMany.mockResolvedValue(packs);
 
     await expect(service.remove(ID, context)).resolves.toBeUndefined();
 
@@ -371,12 +380,28 @@ describe('ProductsService.remove', () => {
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
       tx.product.delete.mock.invocationCallOrder[0],
     );
+    // The pack sizes are read before the delete takes them with it.
+    expect(tx.productVariant.findMany).toHaveBeenCalledWith({
+      where: { productId: ID },
+      orderBy: [{ position: 'asc' }, { quantity: 'asc' }, { id: 'asc' }],
+      select: {
+        sku: true,
+        quantity: true,
+        unit: true,
+        mrpRupees: true,
+        priceRupees: true,
+        isActive: true,
+      },
+    });
+    expect(tx.productVariant.findMany.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.product.delete.mock.invocationCallOrder[0],
+    );
     expect(audit.record).toHaveBeenCalledWith(tx, {
       ...context,
       action: 'product.deleted',
       targetType: 'product',
       targetId: ID,
-      before: { ...draftFields, ...details, isActive: true },
+      before: { ...draftFields, ...details, isActive: true, variants: packs },
     });
     expect(logger.info).toHaveBeenCalledWith(
       { productId: ID, actorId: context.actorId },
@@ -398,14 +423,27 @@ describe('ProductsService.remove', () => {
 });
 
 describe('ProductsService.listForShop', () => {
-  const card = (slug: string) => ({ name: slug, slug, summary: null });
+  // A product as the query returns it, with its cheapest pack on sale, if any.
+  const row = (slug: string, priceRupees?: number) => ({
+    name: slug,
+    slug,
+    summary: null,
+    variants: priceRupees ? [{ priceRupees }] : [],
+  });
+  // The same product as a customer sees its card.
+  const card = (slug: string, fromPriceRupees: number | null = null) => ({
+    name: slug,
+    slug,
+    summary: null,
+    fromPriceRupees,
+  });
 
-  it("shows an active category and one page of its active products, only a card's fields", async () => {
-    const { service, prisma } = setup([card('a'), card('b')]);
+  it("shows an active category and one page of its active products: a card's fields and the lowest price", async () => {
+    const { service, prisma } = setup([row('a', 450), row('b')]);
 
     await expect(service.listForShop('herbal-supplements', { limit: 20 })).resolves.toEqual({
       category: shopCategory,
-      products: [card('a'), card('b')],
+      products: [card('a', 450), card('b')],
       nextAfter: null,
     });
     expect(prisma.category.findFirst).toHaveBeenCalledWith({
@@ -419,12 +457,23 @@ describe('ProductsService.listForShop', () => {
       },
       orderBy: [{ position: 'asc' }, { name: 'asc' }, { id: 'asc' }],
       take: 21,
-      select: { name: true, slug: true, summary: true },
+      select: {
+        name: true,
+        slug: true,
+        summary: true,
+        // Only the cheapest pack on sale.
+        variants: {
+          where: { isActive: true },
+          orderBy: { priceRupees: 'asc' },
+          take: 1,
+          select: { priceRupees: true },
+        },
+      },
     });
   });
 
   it('continues after the slug of the last product shown', async () => {
-    const { service, prisma } = setup([card('b'), card('c'), card('d')]);
+    const { service, prisma } = setup([row('b'), row('c'), row('d')]);
 
     await expect(
       service.listForShop('herbal-supplements', { limit: 2, after: 'a' }),
@@ -474,8 +523,21 @@ describe('ProductsService.findForShop', () => {
       'summary',
       'type',
       'usage',
+      'variants',
     ]);
     expect(query.select.category).toEqual({ select: { name: true, slug: true } });
+    // Only the packs on sale, each by its SKU: no IDs in the shop.
+    expect(query.select.variants).toEqual({
+      where: { isActive: true },
+      orderBy: [{ position: 'asc' }, { quantity: 'asc' }, { id: 'asc' }],
+      select: {
+        sku: true,
+        quantity: true,
+        unit: true,
+        mrpRupees: true,
+        priceRupees: true,
+      },
+    });
   });
 
   it('answers 404 for a hidden or unknown product', async () => {
