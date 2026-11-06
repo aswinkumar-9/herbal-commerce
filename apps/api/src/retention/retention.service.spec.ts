@@ -15,7 +15,9 @@ function setup() {
     passwordResetToken: { deleteMany: deleted(2) },
     staffInvitation: { deleteMany: deleted(4) },
     user: { deleteMany: deleted(1) },
+    cart: { deleteMany: deleted(6) },
   };
+
   const logger = { info: jest.fn() };
   const service = new RetentionService(
     prisma as unknown as PrismaService,
@@ -82,6 +84,15 @@ describe('RetentionService.purge', () => {
     });
   });
 
+  it('deletes carts nobody changed for 90 days, which takes their lines too', async () => {
+    const { service, prisma } = setup();
+    await service.purge(NOW);
+
+    expect(prisma.cart.deleteMany).toHaveBeenCalledWith({
+      where: { updatedAt: { lt: daysBefore(90) } },
+    });
+  });
+
   it('reports and logs how many rows it deleted, and nothing else', async () => {
     const { service, logger } = setup();
 
@@ -92,6 +103,7 @@ describe('RetentionService.purge', () => {
       resetTokens: 2,
       staffInvitations: 4,
       unverifiedAccounts: 1,
+      idleCarts: 6,
     };
     await expect(service.purge(NOW)).resolves.toEqual(counts);
     expect(logger.info).toHaveBeenCalledWith(counts, 'Retention cleanup finished');
