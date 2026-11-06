@@ -836,6 +836,7 @@ async function main() {
     'a customer access token cannot see or change stock',
     stockAnswers.every((status) => status === 401),
   );
+
   // The cart (part 6): each customer's own, found by the token alone.
   const cartPath = '/v1/me/cart';
   const freshCart = await call('GET', cartPath, { token: strangerToken });

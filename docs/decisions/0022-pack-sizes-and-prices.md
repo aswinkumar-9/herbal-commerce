@@ -4,6 +4,7 @@
 - Date: 2026-11-05
 - Updated: 2026-11-06 (part 4D: a deleted product's audit entry keeps its images too, and images are done, see ADR 0023)
 - Updated: 2026-11-06 (part 5: each pack on a product's page says whether it is in stock, and a pack that still holds stock cannot be deleted, see ADR 0024)
+- Updated: 2026-11-06 (part 6: a customer's cart names a pack by its SKU, and always shows today's price, see ADR 0025)
 
 ## Context
 
@@ -104,7 +105,7 @@ A price change therefore always leaves its old and new price, with who changed i
 | `GET /v1/categories/:slug/products` | Each product's card also has `fromPriceRupees`: the lowest price among its packs on sale, or `null` while none is on sale |
 | `GET /v1/products/:slug` | The product's page also has `variants`: its packs on sale, each with `sku`, `quantity`, `unit`, `mrpRupees` and `priceRupees` |
 
-- **A pack is known by its SKU.** The shop still shows no IDs.
+- **A pack is known by its SKU.** The shop still shows no IDs. Since part 6, a customer's cart names a pack by its SKU too (ADR 0025).
 - **A pack taken off sale disappears from the shop** at once, and from the card's lowest price.
 - **A live product without a pack on sale stays visible,** with an empty `variants` list and `fromPriceRupees: null`. The website can show it as unavailable.
 

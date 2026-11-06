@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. The cart holds no stock: stock will be held when an order is placed. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -83,10 +83,11 @@ It first clears the local rate-limit counters, so it can run again at once. Then
   - every pack on a product page shows only its SKU, size, prices and whether it is in stock, never a price above its MRP, and each card's lowest price matches its product page;
   - every product page shows at least one image, each with only its addresses, size and description, and each card's image is the small file of its product's main photo;
   - every image file, large and small, is served as WebP for any site to show, and the image folders are never listed;
+- the cart: it needs a customer token and starts empty, refuses an unknown pack size and more than 4 packs, puts a pack in stock into one customer's cart only (with today's price and no IDs), and answers `204` when a pack is removed or the cart emptied;
 - that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, cannot list, create, change or delete categories, products, pack sizes or images, and cannot see or change stock;
 - that a made-up invitation link is refused.
 
-The staff login, a real invitation and managing categories, products, pack sizes, images and stock need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products", "Manage pack sizes and prices", "Manage product images" and "Manage stock". With an empty shop, the page, price, image and stock checks have nothing to look at. They are most useful while a product with packs, images and stock is live.
+The staff login, a real invitation and managing categories, products, pack sizes, images and stock need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products", "Manage pack sizes and prices", "Manage product images" and "Manage stock". With an empty shop, the page, price, image and stock checks, and the cart's check with a pack in stock, have nothing to look at. They are most useful while a product with packs, images and stock is live. A customer's cart can be tried by hand too: see "Use the cart".
 
 Every line should say `PASS`, followed by `All checks passed.`
 
@@ -574,6 +575,68 @@ Dates are written like `2028-09-30` (year, month, day), and "today" is India's d
 - **A pack size or product that still holds stock cannot be deleted.** Write its batches off to 0 first, then delete it.
 - Every change is in the audit log: `batch.received`, `batch.updated` (with only what changed) and `stock.changed` (with the quantity before and after). Read a batch's story with `?targetId=$batchId` (see "Read the audit log").
 
+## Use the cart
+
+A signed-in customer keeps a cart on the server (ADR 0025). It holds pack sizes and how many packs of each: **at most 4 packs of one product, all its pack sizes together,** and at most 50 pack sizes. It keeps no prices: it always shows today's. It holds no stock either: stock will be held when an order is placed. Only customers have carts: a staff token gets `401`. There are no apps yet, so the cart is tried by hand, with a throwaway customer.
+
+A pack size is named by its SKU, exactly as the shop shows it, such as `ASH-CAP-60`. The shop needs a live product with a pack in stock (see "Manage stock").
+
+1. **Set the variables, and sign up a throwaway customer.** The password is random and never shown:
+   ```powershell
+   $api = 'http://localhost:3000/v1'
+   $json = 'application/json; charset=utf-8'
+   $customerEmail = "cart.$(Get-Date -Format 'MMddHHmmss')@example.com"
+   $customerPassword = [guid]::NewGuid().ToString()
+   Invoke-RestMethod -Method Post -Uri "$api/auth/register" -ContentType $json -Body (@{ email = $customerEmail; password = $customerPassword; fullName = 'Cart Tester' } | ConvertTo-Json)
+   ```
+2. **Verify the email with the link's token from Mailpit,** without printing it:
+   ```powershell
+   $query = [uri]::EscapeDataString('to:' + $customerEmail + ' subject:"Verify your email address"')
+   $found = Invoke-RestMethod "http://localhost:8025/api/v1/search?query=$query"
+   $message = Invoke-RestMethod "http://localhost:8025/api/v1/message/$($found.messages[0].ID)"
+   $verifyToken = [regex]::Match($message.Text, 'token=([A-Za-z0-9_-]+)').Groups[1].Value
+   Invoke-RestMethod -Method Post -Uri "$api/auth/verify-email" -ContentType $json -Body (@{ token = $verifyToken } | ConvertTo-Json)
+   Remove-Variable query, found, message, verifyToken
+   ```
+   It says `Email address verified.`
+3. **Sign in.** Run these lines again when the access token has expired (after 15 minutes):
+   ```powershell
+   $customer = Invoke-RestMethod -Method Post -Uri "$api/auth/login" -ContentType $json -Body (@{ email = $customerEmail; password = $customerPassword } | ConvertTo-Json)
+   $me = @{ Authorization = "Bearer $($customer.accessToken)" }
+   $cart = "$api/me/cart"
+   ```
+4. **Set how many packs of a pack size the cart holds,** 1 to 4. The answer is the whole cart:
+   ```powershell
+   $view = Invoke-RestMethod -Method Put -Uri "$cart/items/ASH-CAP-60" -Headers $me -ContentType $json -Body '{"packs":2}'
+   $view.items | Format-Table sku, packs, priceRupees, lineTotalRupees, status
+   "$($view.packs) packs: Rs $($view.subtotalRupees), MRP Rs $($view.mrpTotalRupees)"
+   ```
+   Sending the same number again changes nothing. To change it, send the new number.
+5. **See the cart:**
+   ```powershell
+   $view = Invoke-RestMethod -Uri $cart -Headers $me
+   $view.items | Format-Table sku, packs, priceRupees, lineTotalRupees, status
+   ```
+6. **Run only the line you need:**
+   ```powershell
+   # Take one pack size out of the cart.
+   Invoke-RestMethod -Method Delete -Uri "$cart/items/ASH-CAP-60" -Headers $me
+   # Empty the whole cart.
+   Invoke-RestMethod -Method Delete -Uri $cart -Headers $me
+   ```
+7. **Sign out and clean up:**
+   ```powershell
+   Invoke-RestMethod -Method Post -Uri "$api/auth/logout" -ContentType $json -Body (@{ refreshToken = $customer.refreshToken } | ConvertTo-Json)
+   Remove-Variable api, json, customerEmail, customerPassword, customer, me, cart, view -ErrorAction SilentlyContinue
+   ```
+
+- **The limit counts the product, not the line.** With 3 packs of `ASH-CAP-60`, only 1 pack of `ASH-CAP-120` fits. Moving packs between sizes is fine while the total stays at 4.
+- **Each line has a status:** `AVAILABLE` (on sale and in stock), `OUT_OF_STOCK`, or `OFF_SALE` (taken off sale, or its product or category hidden). Only `AVAILABLE` lines count in `packs`, `subtotalRupees` and `mrpTotalRupees`. The others stay in the cart until the customer removes them.
+- **Fewer packs are always fine.** A pack out of stock can't be added, and its packs can't go up, but they can go down. A pack off sale can only be removed.
+- **Prices are always today's.** When staff change a price, the cart shows the new one at once. The price is fixed when the order is placed.
+- **A cart nobody changes for 90 days is deleted** by the hourly cleanup, with its lines. Every change to the cart counts, removing a pack size too.
+- A customer's own cart is not in the audit log: it records staff actions only.
+
 ## Repository structure
 
 ```
@@ -587,6 +650,7 @@ Dates are written like `2028-09-30` (year, month, day), and "today" is India's d
 │           ├── addresses/      customers' delivery addresses
 │           ├── audit/          the append-only audit log, a request's audit context, and reading the log page by page
 │           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset and change, access and roles guards, /v1/me
+│           ├── cart/           signed-in customers' carts: the rules (4 packs of one product, 50 pack sizes, totals) and the routes
 │           ├── catalog/        categories, products, pack sizes and images: their rules (slug, going live, prices, image checks), the staff routes and the public shop
 │           ├── inventory/      stock per batch: the rules (dates, 6-month shelf life), the staff routes, and "in stock" for the shop
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
@@ -707,6 +771,14 @@ Dates are written like `2028-09-30` (year, month, day), and "today" is India's d
 - **Deleting a pack size or product answers `409` "still has stock":** write its batches off to 0 first (`EXPIRED`, `DAMAGED` or a `CORRECTION` with a note), then delete it. Its stock history stays.
 - **A pack shows `inStock` `False` in the shop, but there is stock on the shelf:** its batches have less than 6 months left, so they are not sold. Compare `quantity` and `sellableQuantity` in step 3 of "Manage stock". A pack taken off sale is not in the shop at all.
 - **A stock route answers `404`:** `Batch not found` means the batch ID is wrong: list the batches again (step 3 of "Manage stock"). `Pack size not found` means the pack size was deleted, or its ID is wrong.
+- **Adding to the cart answers `409 At most 4 packs of one product, all its pack sizes together.`:** the cart already has packs of that product in its other sizes, as the message says. Lower those first, or send fewer packs.
+- **Adding to the cart answers `409 This pack size is out of stock.`:** it can't be added, and its packs can't go up. Lowering or removing it is fine.
+- **Adding to the cart answers `409 A cart holds at most 50 pack sizes. Remove one first.`:** remove a pack size, or empty the cart.
+- **The cart answers `404 Pack size not found`:** the SKU is not one the shop sells now. Write it exactly as the shop shows it, in capitals (`ASH-CAP-60`, not `ash-cap-60`). A pack taken off sale, or whose product or category is hidden, answers `404` too: it can only be removed.
+- **The cart answers `400` for `packs`:** send a whole number from 1 to 4, as a number (`2`, not `"2"`). To take a pack size out, delete it instead of sending 0.
+- **The cart answers `401`:** the customer's access token has expired (sign in again, step 3 of "Use the cart"), or it is a staff token. Carts are for customers only.
+- **A cart line shows `OUT_OF_STOCK` or `OFF_SALE`:** the pack sold out, or staff took it off sale, after it went into the cart. The line stays, but doesn't count in the totals. Remove it, or wait for new stock.
+- **A cart is empty after months away:** a cart nobody changes for 90 days is deleted by the hourly cleanup.
 - **A pasted block runs two commands as one,** for example `ConvertTo-Json$id = …`: the line break between them was lost in the paste. Press `Ctrl+C`, paste the multi-line block on its own, press Enter until the prompt is back, then paste the next line.
 - **Right after `pnpm api:smoke`, a logout answers `429`:** the smoke test uses up the logout limit (120 per minute per IP) on purpose. Wait a minute, or run `pnpm api:limits:clear`.
 - **`prisma migrate dev` says a migration was modified after it was applied, and asks to reset the database:** answer **no**, because a reset deletes all data. An applied migration file was changed, maybe by a search and replace. Put it back exactly as it was applied:

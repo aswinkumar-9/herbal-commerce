@@ -5,6 +5,7 @@
 - Updated: 2026-10-30 (part 3B-4: expired Admin invitations are deleted too, ADR 0015)
 - Updated: 2026-10-31 (part 3B-5: a Super User removes or invites again a pending Admin, ADR 0016)
 - Updated: 2026-11-01 (part 3C-2: a deleted sign-up takes its delivery addresses with it, ADR 0019)
+- Updated: 2026-11-06 (part 6: carts nobody changed for 90 days are deleted too, ADR 0025)
 
 ## Context
 
@@ -29,12 +30,13 @@ Unverified sign-ups are also the last piece of pre-account takeover (ADR 0007, g
 | Email verification and password reset links | once expired | An expired link is useless. |
 | Admin invitations (since part 3B-4) | once expired, used or not | An expired link is useless. Only the invitation goes: the Admin account stays, and a Super User removes the Admin or invites them again (ADR 0015, ADR 0016). |
 | Unverified customer accounts, with their tokens (and, since part 3C-2, their addresses) | 7 days after sign-up | Data minimisation, and it frees the address for its real owner. Staff accounts are never deleted by the job. |
+| Carts, with their lines (since part 6) | 90 days after their last change | The owner's choice: long enough for a customer who comes back next month, without keeping the data for ever. Every change marks the cart; looking at it doesn't (ADR 0025). |
 
 All periods are in one place: `RETENTION` in `apps/api/src/retention/retention.service.ts`.
 
 ### How it runs
 
-- **`RetentionService.purge()`** runs the deletes, one per row of the table (six since part 3B-4). Each is a plain conditional `deleteMany`, so a run can be repeated, interrupted, or run by several API instances at once without harm. Deleting a session or a user deletes its dependent rows through the foreign keys (`ON DELETE CASCADE`).
+- **`RetentionService.purge()`** runs the deletes, one per row of the table (six since part 3B-4, seven since part 6). Each is a plain conditional `deleteMany`, so a run can be repeated, interrupted, or run by several API instances at once without harm. Deleting a session or a user deletes its dependent rows through the foreign keys (`ON DELETE CASCADE`).
 - **`RetentionScheduler`** runs it inside the API: 1 minute after startup, then every hour.
   - Two runs never overlap.
   - A failed run is logged (error name and code only), and the next run tries again.

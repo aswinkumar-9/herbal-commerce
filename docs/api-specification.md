@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.16.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.17.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -523,7 +523,7 @@ Response `200`:
 
   An image has no ID in the shop: it is known by the addresses of its files.
 - `variants`: the packs on sale, in the order staff chose (ADR 0022). Each has exactly these six fields:
-  - `sku`: the pack's code, which identifies it (the shop shows no IDs);
+  - `sku`: the pack's code, which identifies it (the shop shows no IDs). A customer's cart names a pack by it (see "Cart");
   - `quantity` and `unit`: the net quantity, such as 60 `CAPSULES` or 100 `G`. Units: `G`, `KG`, `ML`, `L`, `CAPSULES`, `TABLETS`, `PIECES`;
   - `mrpRupees`: the MRP printed on the pack;
   - `priceRupees`: the shop's price, never more than the MRP;
@@ -549,6 +549,122 @@ Errors: `404 Product not found` (no live product with this slug: unknown, a draf
 - `Cross-Origin-Resource-Policy: cross-origin`: other sites, such as the shop's website, may show the files.
 - Files only. A folder, a hidden file, a path that leads out of the folder, or a file that does not exist answers `404`. Like every address outside `/v1`, that `404` is a plain HTML page, not JSON.
 - No rate limit on a laptop: these files are served before the API's guards. A CDN takes this job before production.
+
+## Cart
+
+The signed-in customer's own cart (ADR 0025). These endpoints need a **customer** access token. The customer always comes from the token, so a customer only ever sees and changes their own cart. A staff token gets `401`.
+
+- **A pack size is named by its SKU** in the path, exactly as a product's page shows it, such as `ASH-CAP-60`: the shop shows no IDs. The SKU is taken as it is, so `ash-cap-60` is not the same pack size.
+- **At most 4 packs of one product, all its pack sizes together,** and at most 50 pack sizes in a cart.
+- **The cart keeps no prices.** It always shows today's, so a price change shows at once. The price will be fixed when an order is placed.
+- **The cart holds no stock.** It only shows whether each line can be bought now.
+- A cart is made when its first pack goes in. **A cart nobody changes for 90 days is deleted,** with its lines (ADR 0011).
+
+The cart, as `GET` and `PUT` return it:
+```json
+{
+  "items": [
+    {
+      "product": {
+        "name": "Ashwagandha Capsules",
+        "slug": "ashwagandha-capsules",
+        "imageUrl": "http://127.0.0.1:3000/media/products/32d470e1-c036-42a5-95c3-1b17c172e8e5-small.webp"
+      },
+      "sku": "ASH-CAP-60",
+      "quantity": 60,
+      "unit": "CAPSULES",
+      "mrpRupees": 500,
+      "priceRupees": 449,
+      "packs": 3,
+      "lineTotalRupees": 1347,
+      "status": "AVAILABLE"
+    },
+    {
+      "product": {
+        "name": "Ashwagandha Capsules",
+        "slug": "ashwagandha-capsules",
+        "imageUrl": "http://127.0.0.1:3000/media/products/32d470e1-c036-42a5-95c3-1b17c172e8e5-small.webp"
+      },
+      "sku": "ASH-CAP-120",
+      "quantity": 120,
+      "unit": "CAPSULES",
+      "mrpRupees": 900,
+      "priceRupees": 799,
+      "packs": 1,
+      "lineTotalRupees": 799,
+      "status": "OUT_OF_STOCK"
+    }
+  ],
+  "packs": 3,
+  "subtotalRupees": 1347,
+  "mrpTotalRupees": 1500
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `items` | The lines, the first added first. Each shows its product's name, slug and main photo (`imageUrl`, `null` without a photo), and its pack size as on the product's page. |
+| `packs` | How many packs of this pack size the line holds, 1 to 4 |
+| `lineTotalRupees` | `packs` times today's `priceRupees` |
+| `status` | `AVAILABLE`: on sale and in stock. `OUT_OF_STOCK`: on sale, but nothing sellable in stock (ADR 0024). `OFF_SALE`: taken off sale, or its product or category hidden. |
+| `packs`, `subtotalRupees`, `mrpTotalRupees` (at the top) | What the `AVAILABLE` lines come to: how many packs, at today's prices, and at their MRPs. The other lines stay in the cart but count for nothing. |
+
+The difference between `mrpTotalRupees` and `subtotalRupees` is what the customer saves against the MRP. Delivery and taxes are not part of the cart: prices include GST (ADR 0022), and delivery charges come with checkout.
+
+### GET `/v1/me/cart`
+
+Response `200`: the cart. A customer without a cart gets an empty one: `{ "items": [], "packs": 0, "subtotalRupees": 0, "mrpTotalRupees": 0 }`.
+
+Errors: `401`; `429` (the 600 per minute limit).
+
+### PUT `/v1/me/cart/items/:sku`
+
+Sets how many packs of this pack size the cart holds: it adds the pack size, or changes its packs. Sending the same number again changes nothing, so a repeated request is harmless.
+
+Request:
+```json
+{ "packs": 2 }
+```
+
+| Field | Rules |
+|---|---|
+| `packs` | A whole number from 1 to 4. To take a pack size out, delete it instead. |
+
+- **Adding needs stock and room:** the pack size is in stock, the product's packs in all its sizes stay at 4 or fewer, and a new pack size fits within 50.
+- **Fewer packs are always fine,** even for a pack out of stock.
+- **Only a pack size sold now:** on sale, in a live product of an active category. Any other answers `404`, like an unknown SKU, and can only be removed.
+
+Response `200`: the whole cart, as it is now.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | `packs` is missing, not a whole number, below 1 (`At least 1 pack. To take it out of the cart, delete it.`) or above 4 (`At most 4 packs of one product`) |
+| `401` | see "Authentication errors on protected endpoints" | No valid customer access token, or a staff token |
+| `404` | `Pack size not found` | No pack size has this SKU, or it is not sold now |
+| `409` | `This pack size is out of stock.` | More packs of a pack size that is out of stock |
+| `409` | `At most 4 packs of one product, all its pack sizes together. The cart already has 3 in other sizes.` | The product's packs in all its sizes would go above 4 |
+| `409` | `A cart holds at most 50 pack sizes. Remove one first.` | A 51st pack size |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+Two changes to one cart at the same moment are handled one after the other, and the limits count both.
+
+### DELETE `/v1/me/cart/items/:sku`
+
+Takes a pack size out of the cart, sold now or not. A pack size that isn't in the cart, or no longer exists, needs nothing done: the answer is the same.
+
+Response `204 No Content`.
+
+Errors: `401`; `429` (the 600 per minute limit).
+
+### DELETE `/v1/me/cart`
+
+Empties the cart: the cart goes, with its lines.
+
+Response `204 No Content`, also for a customer without a cart.
+
+Errors: `401`; `429` (the 600 per minute limit).
 
 ## Staff authentication
 
@@ -1429,4 +1545,4 @@ Rules for clients:
 
 ## Not yet implemented
 
-Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: search. Of stock: reservations for carts and orders, and a list of batches near their expiry. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0024 and `docs/security.md`.
+Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: search. Checkout and orders, with their delivery charges, GST invoices and payments. Of stock: reservations, which come with orders (a cart holds no stock, ADR 0025), and a list of batches near their expiry. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0025 and `docs/security.md`.
