@@ -1,6 +1,7 @@
 import {
   batchSchema,
   batchUpdateSchema,
+  movementListQuerySchema,
   movementSchema,
 } from './stock.schemas';
 
@@ -136,5 +137,17 @@ describe('movementSchema', () => {
     expect(refusals(movementSchema, { change: -1, reason: 'SOLD' })).toEqual([
       'reason: Choose RECEIVED, DAMAGED, EXPIRED or CORRECTION',
     ]);
+  });
+});
+
+describe('movementListQuerySchema', () => {
+  it('pages by 50 by default, at most 100, and continues before a movement', () => {
+    expect(movementListQuerySchema.parse({})).toEqual({ limit: 50 });
+    expect(
+      movementListQuerySchema.parse({ limit: '100', before: '6c5b4a39-2817-4f06-b5e4-d3c2b1a09f8e', other: 'x' }),
+    ).toEqual({ limit: 100, before: '6c5b4a39-2817-4f06-b5e4-d3c2b1a09f8e' });
+    for (const query of [{ limit: '0' }, { limit: '101' }, { limit: 'many' }, { before: 'last' }]) {
+      expect([query, movementListQuerySchema.safeParse(query).success]).toEqual([query, false]);
+    }
   });
 });

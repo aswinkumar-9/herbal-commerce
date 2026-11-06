@@ -5,6 +5,7 @@ import { StaffCategoriesController } from '../catalog/staff-categories.controlle
 import { StaffImagesController } from '../catalog/staff-images.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffVariantsController } from '../catalog/staff-variants.controller';
+import { StaffStockController } from '../inventory/staff-stock.controller';
 import { StaffAdminsController } from './staff-admins.controller';
 import { StaffAuditLogController } from './staff-audit-log.controller';
 import { StaffAuthController } from './staff-auth.controller';
@@ -23,6 +24,7 @@ describe('staff routes', () => {
       StaffProductsController,
       StaffVariantsController,
       StaffImagesController,
+      StaffStockController,
     ]) {
       expect([controller.name, reflector.get(STAFF_ONLY, controller)]).toEqual([
         controller.name,
@@ -40,7 +42,8 @@ describe('staff routes', () => {
       ]).toEqual([controller.name, true]);
     }
     // Admins manage categories (Part 4A), products (Part 4B), their pack
-    // sizes and prices (Part 4C), and their images (Part 4D) too.
+    // sizes and prices (Part 4C), their images (Part 4D), and stock
+    // (Part 5) too.
     for (const controller of [
       StaffAuthController,
       StaffMeController,
@@ -48,6 +51,7 @@ describe('staff routes', () => {
       StaffProductsController,
       StaffVariantsController,
       StaffImagesController,
+      StaffStockController
     ]) {
       expect([
         controller.name,

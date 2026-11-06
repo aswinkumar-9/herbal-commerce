@@ -11,6 +11,7 @@ import { RolesGuard } from './auth/roles.guard';
 import { AllExceptionsFilter } from './common/all-exceptions.filter';
 import { Env, validateEnv } from './config/env';
 import { HealthModule } from './health/health.module';
+import { InventoryModule } from './inventory/inventory.module';
 import { buildLoggerParams } from './logging/logger.config';
 import { MediaModule } from './media/media.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -44,6 +45,7 @@ import { ValkeyModule } from './valkey/valkey.module';
     AddressesModule,
     MediaModule,
     CatalogModule,
+    InventoryModule,
     HealthModule,
     RetentionModule,
   ],

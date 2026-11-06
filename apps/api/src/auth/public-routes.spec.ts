@@ -5,6 +5,7 @@ import { CategoriesController } from '../catalog/categories.controller';
 import { ProductsController } from '../catalog/products.controller';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
 import { StaffImagesController } from '../catalog/staff-images.controller';
+import { StaffStockController } from '../inventory/staff-stock.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffVariantsController } from '../catalog/staff-variants.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
@@ -55,6 +56,7 @@ describe('public routes', () => {
     expect(publicHandlers(StaffProductsController)).toEqual([]);
     expect(publicHandlers(StaffVariantsController)).toEqual([]);
     expect(publicHandlers(StaffImagesController)).toEqual([]);
+    expect(publicHandlers(StaffStockController)).toEqual([]);
     // Parts 4A and 4B: customers browse the shop before they sign in.
     expect(publicHandlers(CategoriesController)).toEqual([
       'list',

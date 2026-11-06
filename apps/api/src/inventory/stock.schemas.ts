@@ -101,3 +101,11 @@ export const movementSchema = z
     },
   );
 export type MovementInput = z.infer<typeof movementSchema>;
+
+// What staff may ask of a batch's movements: a page size, and where to
+// continue, by the ID of the last movement shown. Newest first.
+export const movementListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  before: z.uuid().optional(),
+});
+export type MovementListQuery = z.infer<typeof movementListQuerySchema>;

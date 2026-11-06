@@ -4,6 +4,7 @@ import { CategoriesController } from '../catalog/categories.controller';
 import { ProductsController } from '../catalog/products.controller';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
 import { StaffImagesController } from '../catalog/staff-images.controller';
+import { StaffStockController } from '../inventory/staff-stock.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffVariantsController } from '../catalog/staff-variants.controller';
 import { RATE_LIMIT } from '../rate-limit/rate-limit.decorator';
@@ -106,6 +107,14 @@ describe('rate-limited routes', () => {
       create: ['imageUploads'],
       update: undefined,
       remove: undefined,
+    });
+    // Stock: small writes, each one movement.
+    expect(routeLimits(StaffStockController)).toStrictEqual({
+      listBatches: undefined,
+      receive: undefined,
+      updateBatch: undefined,
+      listMovements: undefined,
+      addMovement: undefined,
     });
   });
 });
