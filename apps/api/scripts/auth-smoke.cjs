@@ -814,6 +814,7 @@ async function main() {
     'a customer access token cannot list, upload, change or delete images',
     imageAnswers.every((status) => status === 401),
   );
+
   // Stock (part 5) is for staff only too: customers see only "in stock".
   const stockRoutes = [
     ['GET', `/v1/staff/variants/${anyId}/batches`],
