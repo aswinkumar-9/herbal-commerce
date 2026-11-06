@@ -17,7 +17,6 @@ function setup() {
     user: { deleteMany: deleted(1) },
     cart: { deleteMany: deleted(6) },
   };
-
   const logger = { info: jest.fn() };
   const service = new RetentionService(
     prisma as unknown as PrismaService,

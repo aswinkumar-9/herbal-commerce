@@ -18,7 +18,6 @@ export const RETENTION = {
   idleCartDays: 90,
 };
 
-
 // How many rows of each kind one run deleted.
 export interface PurgeResult {
   sessions: number;
