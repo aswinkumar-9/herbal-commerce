@@ -105,6 +105,7 @@ describe('rate-limited routes', () => {
       list: undefined,
       create: ['imageUploads'],
       update: undefined,
+      remove: undefined,
     });
   });
 });

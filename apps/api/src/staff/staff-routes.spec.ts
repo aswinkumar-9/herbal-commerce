@@ -78,4 +78,20 @@ describe('staff routes', () => {
       ]);
     }
   });
+
+  // Part 4D: the one exception. Replacing a photo is everyday work, so
+  // Admins delete images too (ADR 0023).
+  it('let Admins delete images too', () => {
+    const handlers = StaffImagesController.prototype as unknown as Record<
+      string,
+      () => unknown
+    >;
+    expect(Object.getOwnPropertyNames(handlers)).toContain('remove');
+    for (const name of Object.getOwnPropertyNames(handlers)) {
+      expect([name, reflector.get(SUPER_USER_ONLY, handlers[name])]).toEqual([
+        name,
+        undefined,
+      ]);
+    }
+  });
 });

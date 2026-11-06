@@ -14,6 +14,7 @@ import { detectImageType } from './image-processing';
 import {
   IMAGE_NOT_FOUND,
   ImagesService,
+  LAST_IMAGE_OF_LIVE_PRODUCT,
   TOO_MANY_IMAGES,
 } from './images.service';
 
@@ -64,6 +65,11 @@ function setup() {
       ),
       findUniqueOrThrow: jest.fn().mockResolvedValue(stored()),
       update: jest.fn().mockResolvedValue(stored({ altText: 'Back label' })),
+      findUnique: jest.fn().mockResolvedValue({ productId: PRODUCT }),
+      delete: jest.fn().mockResolvedValue({ id: ID }),
+    },
+    product: {
+      findUniqueOrThrow: jest.fn().mockResolvedValue({ isActive: false }),
     },
   };
   const prisma = {
@@ -289,6 +295,132 @@ describe('ImagesService.create', () => {
     ).rejects.toThrow(new ConflictException(TOO_MANY_IMAGES));
     expect(logger.warn).toHaveBeenCalledWith(
       { err: new Error('Disk unavailable'), fileKey: savedKey(media) },
+      'Image files not deleted',
+    );
+  });
+});
+
+describe('ImagesService.remove', () => {
+  it('locks the product, then the image, deletes it, records what it was, then deletes its files', async () => {
+    const { service, tx, audit, media, logger } = setup();
+    tx.productImage.count.mockResolvedValue(2);
+
+    await expect(service.remove(ID, context)).resolves.toBeUndefined();
+
+    expect(tx.productImage.findUnique).toHaveBeenCalledWith({
+      where: { id: ID },
+      select: { productId: true },
+    });
+    const sql = tx.$queryRaw.mock.calls.map(
+      ([parts]) => (parts as string[]).join('?'),
+    );
+    expect(sql[0]).toMatch(/FROM products WHERE id = \?::uuid FOR UPDATE/);
+    expect(sql[1]).toMatch(/FROM product_images WHERE id = \?::uuid FOR UPDATE/);
+    expect(tx.$queryRaw.mock.calls.map(([, id]) => id as string)).toEqual([
+      PRODUCT,
+      ID,
+    ]);
+    expect(tx.productImage.count).toHaveBeenCalledWith({
+      where: { productId: PRODUCT },
+    });
+    expect(tx.productImage.delete).toHaveBeenCalledWith({
+      where: { id: ID },
+      select: { id: true },
+    });
+    expect(tx.$queryRaw.mock.invocationCallOrder[1]).toBeLessThan(
+      tx.productImage.delete.mock.invocationCallOrder[0],
+    );
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...context,
+      action: 'image.deleted',
+      targetType: 'image',
+      targetId: ID,
+      before: {
+        productId: PRODUCT,
+        fileKey: KEY,
+        width: 800,
+        height: 600,
+        altText: null,
+        position: 0,
+      },
+    });
+    expect(media.remove.mock.calls).toEqual([
+      [`products/${KEY}-large.webp`],
+      [`products/${KEY}-small.webp`],
+    ]);
+    expect(audit.record.mock.invocationCallOrder[0]).toBeLessThan(
+      media.remove.mock.invocationCallOrder[0],
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      { imageId: ID, productId: PRODUCT, actorId: context.actorId },
+      'Image deleted',
+    );
+  });
+
+  it("lets a draft lose its last image, but refuses a live product's last one with 409", async () => {
+    const { service, tx, audit, media } = setup();
+    tx.productImage.count.mockResolvedValue(1);
+
+    await service.remove(ID, context);
+    expect(tx.productImage.delete).toHaveBeenCalledTimes(1);
+
+    tx.product.findUniqueOrThrow.mockResolvedValue({ isActive: true });
+    tx.productImage.delete.mockClear();
+    audit.record.mockClear();
+    media.remove.mockClear();
+
+    await expect(service.remove(ID, context)).rejects.toThrow(
+      new ConflictException(LAST_IMAGE_OF_LIVE_PRODUCT),
+    );
+    expect(tx.product.findUniqueOrThrow).toHaveBeenLastCalledWith({
+      where: { id: PRODUCT },
+      select: { isActive: true },
+    });
+    expect(tx.productImage.delete).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(media.remove).not.toHaveBeenCalled();
+
+    // With a second image, the live product may lose one.
+    tx.productImage.count.mockResolvedValue(2);
+    await service.remove(ID, context);
+    expect(tx.productImage.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it('answers 404 for an unknown image, and deletes nothing', async () => {
+    const { service, tx, media } = setup();
+    tx.productImage.findUnique.mockResolvedValue(null);
+
+    await expect(service.remove(ID, context)).rejects.toThrow(
+      new NotFoundException(IMAGE_NOT_FOUND),
+    );
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+
+    // Or one deleted at the same moment, found gone once locked.
+    tx.productImage.findUnique.mockResolvedValue({ productId: PRODUCT });
+    tx.$queryRaw
+      .mockResolvedValueOnce([{ id: PRODUCT }])
+      .mockResolvedValueOnce([]);
+    await expect(service.remove(ID, context)).rejects.toThrow(
+      new NotFoundException(IMAGE_NOT_FOUND),
+    );
+    expect(tx.productImage.delete).not.toHaveBeenCalled();
+    expect(media.remove).not.toHaveBeenCalled();
+  });
+
+  it('keeps the files when the deletion fails, and still deletes the image when a file cannot be', async () => {
+    const { service, tx, media, logger } = setup();
+    tx.productImage.delete.mockRejectedValue(new Error('Database unavailable'));
+
+    await expect(service.remove(ID, context)).rejects.toThrow(
+      'Database unavailable',
+    );
+    expect(media.remove).not.toHaveBeenCalled();
+
+    tx.productImage.delete.mockResolvedValue({ id: ID });
+    media.remove.mockRejectedValue(new Error('Disk unavailable'));
+    await expect(service.remove(ID, context)).resolves.toBeUndefined();
+    expect(logger.warn).toHaveBeenCalledWith(
+      { err: new Error('Disk unavailable'), fileKey: KEY },
       'Image files not deleted',
     );
   });

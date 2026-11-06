@@ -7,6 +7,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { AuditContext } from '../audit/audit-context';
 import { AuditService } from '../audit/audit.service';
 import type { Prisma } from '../generated/prisma/client';
+import { MediaStorage } from '../media/media-storage';
 import {
   isForeignKeyViolation,
   isUniqueViolation,
@@ -14,6 +15,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CATEGORY_NOT_FOUND } from './categories.service';
 import { changedFields, pick } from './changes';
+import { IMAGE_ORDER, imageFileNames, removeImageFiles } from './image-files';
 import { productIssues } from './product-rules';
 import type { ProductIssue } from './product-rules';
 import type {
@@ -84,7 +86,7 @@ const PRODUCT_ORDER = [
 ] satisfies Prisma.ProductOrderByWithRelationInput[];
 
 // What a category's page shows of each product, with the price of its
-// cheapest pack on sale, if any (ADR 0022).
+// cheapest pack on sale, if any (ADR 0022), and its main photo (ADR 0023).
 const SHOP_LIST_FIELDS = {
   name: true,
   slug: true,
@@ -95,11 +97,13 @@ const SHOP_LIST_FIELDS = {
     take: 1,
     select: { priceRupees: true },
   },
+  images: { orderBy: IMAGE_ORDER, take: 1, select: { fileKey: true } },
 } satisfies Prisma.ProductSelect;
 
 // What a product's own page shows. The licence and maker details must be
-// on it (ADR 0021), and its packs on sale with their prices (ADR 0022). A
-// pack is known by its SKU: the shop shows no IDs.
+// on it (ADR 0021), its packs on sale with their prices (ADR 0022), and its
+// images (ADR 0023). A pack is known by its SKU, and an image by the
+// address of its files: the shop shows no IDs.
 const SHOP_PAGE_FIELDS = {
   name: true,
   slug: true,
@@ -124,6 +128,10 @@ const SHOP_PAGE_FIELDS = {
       priceRupees: true,
     },
   },
+  images: {
+    orderBy: IMAGE_ORDER,
+    select: { fileKey: true, width: true, height: true, altText: true },
+  },
 } satisfies Prisma.ProductSelect;
 
 // What the audit log keeps of a deleted product's pack sizes.
@@ -135,6 +143,15 @@ const DELETED_VARIANT_FIELDS = {
   priceRupees: true,
   isActive: true,
 } satisfies Prisma.ProductVariantSelect;
+
+// What the audit log keeps of a deleted product's images.
+const DELETED_IMAGE_FIELDS = {
+  fileKey: true,
+  width: true,
+  height: true,
+  altText: true,
+  position: true,
+} satisfies Prisma.ProductImageSelect;
 
 type Product = Prisma.ProductGetPayload<{ select: typeof PRODUCT_FIELDS }>;
 
@@ -153,6 +170,7 @@ export class ProductsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly media: MediaStorage,
     @InjectPinoLogger(ProductsService.name)
     private readonly logger: PinoLogger,
   ) {}
@@ -254,16 +272,22 @@ export class ProductsService {
     return product;
   }
 
-  // Deletes a product for good, with its pack sizes. Only Super Users may:
-  // the route is @SuperUserOnly(). The audit entry keeps what the product
-  // was, its pack sizes and their prices included.
+  // Deletes a product for good, with its pack sizes and its images. Only
+  // Super Users may: the route is @SuperUserOnly(). The audit entry keeps
+  // what the product was, its pack sizes, prices and images included. The
+  // image files are deleted once the deletion is saved.
   async remove(id: string, context: AuditContext): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    const images = await this.prisma.$transaction(async (tx) => {
       const current = await this.lockedProduct(tx, id);
       const variants = await tx.productVariant.findMany({
         where: { productId: id },
         orderBy: VARIANT_ORDER,
         select: DELETED_VARIANT_FIELDS,
+      });
+      const productImages = await tx.productImage.findMany({
+        where: { productId: id },
+        orderBy: IMAGE_ORDER,
+        select: DELETED_IMAGE_FIELDS,
       });
       await tx.product.delete({ where: { id }, select: { id: true } });
       await this.audit.record(tx, {
@@ -271,9 +295,17 @@ export class ProductsService {
         action: 'product.deleted',
         targetType: 'product',
         targetId: id,
-        before: { ...pick(current, STAFF_FIELDS), variants },
+        before: {
+          ...pick(current, STAFF_FIELDS),
+          variants,
+          images: productImages,
+        },
       });
+      return productImages;
     });
+    for (const { fileKey } of images) {
+      await removeImageFiles(this.media, this.logger, fileKey);
+    }
     this.logger.info(
       { productId: id, actorId: context.actorId },
       'Product deleted',
@@ -282,9 +314,10 @@ export class ProductsService {
 
   // A category's page in the shop: the category and its active products,
   // one page at a time, each with the lowest price of its packs on sale
-  // (fromPriceRupees, null while none is on sale). A hidden category answers
-  // 404, like an unknown one. Pages continue after a product's slug:
-  // customers never see product IDs.
+  // (fromPriceRupees, null while none is on sale) and the small file of its
+  // main photo (imageUrl). A hidden category answers 404, like an unknown
+  // one. Pages continue after a product's slug: customers never see product
+  // IDs.
   async listForShop(categorySlug: string, query: ShopProductListQuery) {
     const category = await this.prisma.category.findFirst({
       where: { slug: categorySlug, isActive: true },
@@ -305,9 +338,13 @@ export class ProductsService {
     });
     const products = rows
       .slice(0, query.limit)
-      .map(({ variants, ...card }) => ({
+      .map(({ variants, images, ...card }) => ({
         ...card,
         fromPriceRupees: variants[0]?.priceRupees ?? null,
+        // A live product always has an image; null only guards the type.
+        imageUrl: images[0]
+          ? this.media.url(imageFileNames(images[0].fileKey).small)
+          : null,
       }));
     return {
       category,
@@ -318,7 +355,9 @@ export class ProductsService {
   }
 
   // A product's own page in the shop. Only an active product in an active
-  // category: any other answers 404, like an unknown one.
+  // category: any other answers 404, like an unknown one. Each image has the
+  // addresses of its two files, its size, and a description: the product's
+  // name when staff gave none.
   async findForShop(slug: string) {
     const product = await this.prisma.product.findFirst({
       where: { slug, isActive: true, category: { isActive: true } },
@@ -327,7 +366,19 @@ export class ProductsService {
     if (!product) {
       throw new NotFoundException(PRODUCT_NOT_FOUND);
     }
-    return product;
+    return {
+      ...product,
+      images: product.images.map(({ fileKey, width, height, altText }) => {
+        const names = imageFileNames(fileKey);
+        return {
+          url: this.media.url(names.large),
+          thumbnailUrl: this.media.url(names.small),
+          altText: altText ?? product.name,
+          width,
+          height,
+        };
+      }),
+    };
   }
 
   // Locks the product until the transaction ends, then reads it, or answers

@@ -15,6 +15,7 @@ function setup() {
     listForProduct: jest.fn().mockResolvedValue({ images: [] }),
     create: jest.fn().mockResolvedValue({ id: ID }),
     update: jest.fn().mockResolvedValue({ id: ID }),
+    remove: jest.fn().mockResolvedValue(undefined),
   };
   const controller = new StaffImagesController(
     images as unknown as ImagesService,
@@ -65,5 +66,12 @@ describe('StaffImagesController', () => {
       { altText: 'Back label' },
       context,
     );
+  });
+
+  it('deletes an image by its ID, recording who did it', async () => {
+    const { controller, images } = setup();
+
+    await expect(controller.remove(ID, context)).resolves.toBeUndefined();
+    expect(images.remove).toHaveBeenCalledWith(ID, context);
   });
 });

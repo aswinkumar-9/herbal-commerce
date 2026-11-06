@@ -12,7 +12,7 @@ import type { Prisma } from '../generated/prisma/client';
 import { MediaStorage } from '../media/media-storage';
 import { PrismaService } from '../prisma/prisma.service';
 import { changedFields, pick } from './changes';
-import { IMAGE_ORDER, imageFileNames } from './image-files';
+import { IMAGE_ORDER, imageFileNames, removeImageFiles } from './image-files';
 import { processImage } from './image-processing';
 import type { ImageType } from './image-processing';
 import type { ImageUpdateInput } from './images.schemas';
@@ -23,6 +23,8 @@ import { PRODUCT_NOT_FOUND } from './products.service';
 export const MAX_IMAGES_PER_PRODUCT = 6;
 export const IMAGE_NOT_FOUND = 'Image not found';
 export const TOO_MANY_IMAGES = `A product has at most ${MAX_IMAGES_PER_PRODUCT} images. Delete one first.`;
+export const LAST_IMAGE_OF_LIVE_PRODUCT =
+  'A live product needs at least one image. Add another first, or take the product offline.';
 
 // Everything about an image that staff set or the upload decided: what the
 // audit log keeps of it.
@@ -56,9 +58,9 @@ export type StaffImage = Omit<ImageRow, 'fileKey'> & {
   thumbnailUrl: string;
 };
 
-// The images of products (ADR 0023). Admins and Super Users add and change
-// them, and every change is written to the audit log in the same
-// transaction.
+// The images of products (ADR 0023). Admins and Super Users add, change
+// and delete them, and every change is written to the audit log in the
+// same transaction.
 @Injectable()
 export class ImagesService {
   // Checking and re-encoding an image is the heaviest work the API does:
@@ -134,7 +136,7 @@ export class ImagesService {
       );
       return this.staffView(image);
     } catch (error) {
-      await this.removeFiles(fileKey);
+      await removeImageFiles(this.media, this.logger, fileKey);
       throw error;
     }
   }
@@ -179,6 +181,52 @@ export class ImagesService {
     return this.staffView(image);
   }
 
+  // Deletes an image for good. Admins may too: replacing a photo is
+  // everyday work (ADR 0023). A live product keeps at least one image. The
+  // audit entry keeps what the image was; its files are deleted once the
+  // deletion is saved, so a failed deletion never leaves an image without
+  // its files.
+  async remove(id: string, context: AuditContext): Promise<void> {
+    const deleted = await this.prisma.$transaction(async (tx) => {
+      // An image never moves to another product, so its product can be
+      // read before anything is locked.
+      const image = await tx.productImage.findUnique({
+        where: { id },
+        select: { productId: true },
+      });
+      if (!image) {
+        throw new NotFoundException(IMAGE_NOT_FOUND);
+      }
+      // The product first, as uploads and going live lock it too.
+      await this.lockProduct(tx, image.productId);
+      const current = await this.lockedImage(tx, id);
+      const product = await tx.product.findUniqueOrThrow({
+        where: { id: current.productId },
+        select: { isActive: true },
+      });
+      const count = await tx.productImage.count({
+        where: { productId: current.productId },
+      });
+      if (product.isActive && count <= 1) {
+        throw new ConflictException(LAST_IMAGE_OF_LIVE_PRODUCT);
+      }
+      await tx.productImage.delete({ where: { id }, select: { id: true } });
+      await this.audit.record(tx, {
+        ...context,
+        action: 'image.deleted',
+        targetType: 'image',
+        targetId: id,
+        before: pick(current, STAFF_FIELDS),
+      });
+      return current;
+    });
+    await removeImageFiles(this.media, this.logger, deleted.fileKey);
+    this.logger.info(
+      { imageId: id, productId: deleted.productId, actorId: context.actorId },
+      'Image deleted',
+    );
+  }
+
   // Locks the product until the transaction ends, or answers 404. Uploads,
   // deletions and going live take turns for each product, so its images
   // are counted right. The ID is sent as a parameter, never pasted into
@@ -210,18 +258,6 @@ export class ImagesService {
       where: { id },
       select: IMAGE_FIELDS,
     });
-  }
-
-  // Deletes an image's two files. A failure is logged, never thrown: a file
-  // left behind only takes space, and the error that led here matters more.
-  private async removeFiles(fileKey: string): Promise<void> {
-    const names = imageFileNames(fileKey);
-    try {
-      await this.media.remove(names.large);
-      await this.media.remove(names.small);
-    } catch (error) {
-      this.logger.warn({ err: error, fileKey }, 'Image files not deleted');
-    }
   }
 
   private staffView({ fileKey, ...image }: ImageRow): StaffImage {

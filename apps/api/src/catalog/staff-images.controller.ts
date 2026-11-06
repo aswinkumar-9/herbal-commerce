@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Headers,
   HttpCode,
@@ -20,8 +21,10 @@ import { imageUpdateSchema } from './images.schemas';
 import type { ImageUpdateInput } from './images.schemas';
 import { ImagesService } from './images.service';
 
-// Product images, for staff (ADR 0023). Admins and Super Users may add and
-// change them. Every change is written to the audit log.
+// Product images, for staff (ADR 0023). Admins and Super Users may add,
+// change and delete them: unlike other deletions in the catalog, deleting
+// an image is not for Super Users only. Every change is written to the
+// audit log.
 @StaffOnly()
 @Controller('staff')
 export class StaffImagesController {
@@ -57,5 +60,16 @@ export class StaffImagesController {
     @CurrentAuditContext() context: AuditContext,
   ) {
     return this.images.update(id, body, context);
+  }
+
+  // Deletes an image for good, with its files. A live product keeps at
+  // least one image: deleting its last one answers 409.
+  @Delete('images/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  remove(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.images.remove(id, context);
   }
 }
