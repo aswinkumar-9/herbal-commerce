@@ -13,6 +13,7 @@ import { ImageUploadParser } from './image-upload';
 import { ImagesService } from './images.service';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
+import { ShopPacksService } from './shop-packs.service';
 import { StaffCategoriesController } from './staff-categories.controller';
 import { StaffImagesController } from './staff-images.controller';
 import { StaffProductsController } from './staff-products.controller';
@@ -21,7 +22,8 @@ import { VariantsService } from './variants.service';
 
 // The product catalog: categories (ADR 0020), products (ADR 0021), their
 // pack sizes with prices (ADR 0022), and their images (ADR 0023). The shop
-// asks the inventory which packs are in stock (ADR 0024).
+// asks the inventory which packs are in stock (ADR 0024). Other modules,
+// such as the cart (ADR 0025), ask the catalog about pack sizes.
 @Module({
   imports: [AuthModule, MediaModule, InventoryModule],
   controllers: [
@@ -38,7 +40,9 @@ import { VariantsService } from './variants.service';
     VariantsService,
     ImagesService,
     ImageUploadParser,
+    ShopPacksService,
   ],
+  exports: [ShopPacksService],
 })
 export class CatalogModule implements NestModule {
   // Only the image upload route reads an image body (ADR 0023).

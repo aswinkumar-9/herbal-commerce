@@ -1,6 +1,7 @@
 import { Reflector } from '@nestjs/core';
 import { HealthController } from '../health/health.controller';
 import { AddressesController } from '../addresses/addresses.controller';
+import { CartController } from '../cart/cart.controller';
 import { CategoriesController } from '../catalog/categories.controller';
 import { ProductsController } from '../catalog/products.controller';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
@@ -57,6 +58,8 @@ describe('public routes', () => {
     expect(publicHandlers(StaffVariantsController)).toEqual([]);
     expect(publicHandlers(StaffImagesController)).toEqual([]);
     expect(publicHandlers(StaffStockController)).toEqual([]);
+    // Part 6: a cart belongs to a signed-in customer.
+    expect(publicHandlers(CartController)).toEqual([]);
     // Parts 4A and 4B: customers browse the shop before they sign in.
     expect(publicHandlers(CategoriesController)).toEqual([
       'list',

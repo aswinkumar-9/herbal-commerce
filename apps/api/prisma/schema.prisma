@@ -42,6 +42,7 @@ model User {
   sessions                Session[]
   staffInvitations        StaffInvitation[]
   addresses               Address[]
+  cart                    Cart?
 
   @@index([role])
   @@map("users")
@@ -267,8 +268,9 @@ model ProductVariant {
   updatedAt   DateTime @updatedAt
 
   // The pack sizes go with their product when it is deleted.
-  product Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
-  batches StockBatch[]
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  batches   StockBatch[]
+  cartItems CartItem[]
 
   // A product has each pack size once.
   @@unique([productId, quantity, unit])
@@ -357,4 +359,44 @@ model StockMovement {
 
   @@index([batchId, createdAt])
   @@map("stock_movements")
+}
+
+// A signed-in customer's cart (ADR 0025): one per customer, made when the
+// first pack is added. It holds no prices: it always shows today's. A cart
+// not changed for 90 days is deleted.
+model Cart {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @db.Uuid
+  createdAt DateTime @default(now())
+  // The last change to the cart or to its lines.
+  updatedAt DateTime @updatedAt
+
+  // The cart goes with its customer.
+  user  User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  items CartItem[]
+
+  @@index([updatedAt])
+  @@map("carts")
+}
+
+// One pack size in a cart, and how many packs of it. A cart holds at most
+// 4 packs of one product, all its pack sizes together, and at most 50 pack
+// sizes: a trigger in the migration enforces both.
+model CartItem {
+  id        String   @id @default(uuid()) @db.Uuid
+  cartId    String   @db.Uuid
+  variantId String   @db.Uuid
+  // How many packs: 1 to 4.
+  packs     Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The lines go with their cart, and with their pack size.
+  cart    Cart           @relation(fields: [cartId], references: [id], onDelete: Cascade)
+  variant ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+
+  // Each pack size once per cart.
+  @@unique([cartId, variantId])
+  @@index([variantId])
+  @@map("cart_items")
 }

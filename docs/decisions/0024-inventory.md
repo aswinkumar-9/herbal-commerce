@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 5)
 - Date: 2026-11-06
+- Updated: 2026-11-06 (part 6: the cart asks the inventory which pack sizes are in stock, and holds no stock, see ADR 0025)
 
 ## Context
 
@@ -86,7 +87,7 @@ As for a category with products (ADR 0021), the API doesn't count first, so noth
 ### The shop
 
 - **A product's page shows `inStock` for each pack size:** `true` while a sellable batch holds stock. It never shows a count.
-- **The catalog asks the inventory** through `StockService.inStock()` (`src/inventory`), instead of reading its tables (ADR 0001).
+- **The catalog asks the inventory** through `StockService.inStock()` (`src/inventory`), instead of reading its tables (ADR 0001). Since part 6, the cart asks it the same way (ADR 0025).
 - **The category page is unchanged:** its from-price still covers every pack on sale.
 
 ### Who may do what
@@ -148,7 +149,7 @@ The target is the batch, so `?targetId=<a batch's ID>` gives a batch's whole sto
   - **Read the library before trusting a guess.** Prisma's own code shows that a trigger's `restrict_violation` becomes `P2003`.
   - **Part 4D's lesson held.** The migration's SQL test was written as a file that stops unless its transaction has begun, and it ran cleanly the first time.
 - **Still open:**
-  - reservations for carts and orders, with sales and returns as new reasons, and picking the batch that expires first;
+  - reservations for orders, with sales and returns as new reasons, and picking the batch that expires first. A cart holds no stock, by the owner's choice (ADR 0025);
   - a list of batches near their expiry, and low-stock alerts;
   - recalls by batch number;
   - who packs (the second half of open decision 3);

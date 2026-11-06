@@ -1,6 +1,6 @@
 // End-to-end check of customer sign-up, sign-in, the customer's own account and
-// the public shop (categories, products, prices, images and stock) against the running API,
-// and that customers can never use the staff routes.
+// cart, and the public shop (categories, products, prices, images and stock)
+// against the running API, and that customers can never use the staff routes.
 // Needs the API (pnpm api:dev) and Mailpit (docker compose) to be running.
 // Each run creates two throwaway customer accounts in the local database.
 // `pnpm api:smoke` clears the local rate limits first, so it can run again at once.
@@ -835,6 +835,75 @@ async function main() {
   check(
     'a customer access token cannot see or change stock',
     stockAnswers.every((status) => status === 401),
+  );
+
+  // The cart (part 6): each customer's own, found by the token alone.
+  const cartPath = '/v1/me/cart';
+  const freshCart = await call('GET', cartPath, { token: strangerToken });
+  check(
+    'a cart needs a customer token, and a new customer has an empty one',
+    (await call('GET', cartPath)).status === 401 &&
+      freshCart.status === 200 &&
+      Object.keys(freshCart.body).sort().join() ===
+        'items,mrpTotalRupees,packs,subtotalRupees' &&
+      freshCart.body.items.length === 0 &&
+      freshCart.body.subtotalRupees === 0,
+  );
+  const missingPackPath = `${cartPath}/items/SMOKE-NO-SUCH-PACK`;
+  const missingPack = await call('PUT', missingPackPath, {
+    json: { packs: 1 },
+    token: strangerToken,
+  });
+  const fivePacks = await call('PUT', missingPackPath, {
+    json: { packs: 5 },
+    token: strangerToken,
+  });
+  check(
+    'the cart refuses an unknown pack size (404) and more than 4 packs (400)',
+    missingPack.status === 404 && fivePacks.status === 400,
+  );
+  // A pack in stock in the shop goes into one customer's cart, and only
+  // there. With nothing in stock there is nothing to add: the manual test
+  // fills the shop.
+  const packInStock = productPages
+    .flatMap(({ page }) => page.body?.variants ?? [])
+    .find((pack) => pack.inStock);
+  let added;
+  let otherCart;
+  let removed;
+  let afterRemove;
+  if (packInStock) {
+    const itemPath = `${cartPath}/items/${encodeURIComponent(packInStock.sku)}`;
+    added = await call('PUT', itemPath, {
+      json: { packs: 1 },
+      token: strangerToken,
+    });
+    otherCart = await call('GET', cartPath, { token: ownerToken });
+    removed = await call('DELETE', itemPath, { token: strangerToken });
+    afterRemove = await call('GET', cartPath, { token: strangerToken });
+  }
+  const line = added?.body?.items?.[0];
+  check(
+    "a pack in stock goes into the cart: its line shows the product, the pack's SKU, size, today's price and status, and no IDs",
+    !packInStock ||
+      (added.status === 200 &&
+        added.body.items.length === 1 &&
+        Object.keys(line).sort().join() ===
+          'lineTotalRupees,mrpRupees,packs,priceRupees,product,quantity,sku,status,unit' &&
+        Object.keys(line.product).sort().join() === 'imageUrl,name,slug' &&
+        line.sku === packInStock.sku &&
+        line.priceRupees === packInStock.priceRupees &&
+        line.status === 'AVAILABLE' &&
+        added.body.subtotalRupees === packInStock.priceRupees),
+  );
+  const emptied = await call('DELETE', cartPath, { token: strangerToken });
+  check(
+    "another customer's cart stays empty, and removing a pack or emptying the cart answers 204",
+    emptied.status === 204 &&
+      (!packInStock ||
+        (otherCart.body?.items?.length === 0 &&
+          removed.status === 204 &&
+          afterRemove.body?.items?.length === 0)),
   );
   console.log(
     failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`,

@@ -14,6 +14,8 @@ export const RETENTION = {
   // Unverified sign-ups go away, which also frees the address for its real
   // owner if someone else registered it.
   unverifiedAccountDays: 7,
+  // A cart nobody changed for 90 days goes, with its lines (ADR 0025).
+  idleCartDays: 90,
 };
 
 // How many rows of each kind one run deleted.
@@ -24,6 +26,7 @@ export interface PurgeResult {
   resetTokens: number;
   staffInvitations: number;
   unverifiedAccounts: number;
+  idleCarts: number;
 }
 
 @Injectable()
@@ -71,6 +74,12 @@ export class RetentionService {
         createdAt: { lt: daysAgo(RETENTION.unverifiedAccountDays) },
       },
     });
+    // Every change to a cart marks it, so a cart in use never goes. One
+    // changed at this very moment is kept: the database checks the time
+    // again once the change is saved.
+    const idleCarts = await this.prisma.cart.deleteMany({
+      where: { updatedAt: { lt: daysAgo(RETENTION.idleCartDays) } },
+    });
 
     const result: PurgeResult = {
       sessions: sessions.count,
@@ -79,6 +88,7 @@ export class RetentionService {
       resetTokens: resetTokens.count,
       staffInvitations: staffInvitations.count,
       unverifiedAccounts: unverifiedAccounts.count,
+      idleCarts: idleCarts.count,
     };
     // Counts only: nothing personal goes into the log.
     this.logger.info(result, 'Retention cleanup finished');
