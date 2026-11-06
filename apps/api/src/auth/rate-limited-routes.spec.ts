@@ -1,5 +1,6 @@
 import { Reflector } from '@nestjs/core';
 import { AddressesController } from '../addresses/addresses.controller';
+import { CartController } from '../cart/cart.controller';
 import { CategoriesController } from '../catalog/categories.controller';
 import { ProductsController } from '../catalog/products.controller';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
@@ -115,6 +116,13 @@ describe('rate-limited routes', () => {
       updateBatch: undefined,
       listMovements: undefined,
       addMovement: undefined,
+    });
+    // The cart: small reads and writes, at most 50 lines each.
+    expect(routeLimits(CartController)).toStrictEqual({
+      view: undefined,
+      setPacks: undefined,
+      remove: undefined,
+      empty: undefined,
     });
   });
 });
