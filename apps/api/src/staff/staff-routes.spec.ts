@@ -51,7 +51,7 @@ describe('staff routes', () => {
       StaffProductsController,
       StaffVariantsController,
       StaffImagesController,
-      StaffStockController
+      StaffStockController,
     ]) {
       expect([
         controller.name,

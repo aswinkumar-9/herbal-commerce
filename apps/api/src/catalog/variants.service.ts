@@ -23,6 +23,8 @@ export const VARIANT_NOT_FOUND = 'Pack size not found';
 export const SKU_TAKEN =
   'Another pack size already has this SKU. Choose a different one.';
 export const SIZE_TAKEN = 'This product already has a pack of this size.';
+export const VARIANT_HAS_STOCK =
+  'This pack size still has stock. Write it off first, then delete it.';
 
 // Everything staff set, and the product it belongs to: what the audit log
 // keeps of a pack size.
@@ -157,18 +159,29 @@ export class VariantsService {
 
   // Deletes a pack size for good. Only Super Users may: the route is
   // @SuperUserOnly(). The audit entry keeps what it was, prices included.
+  // A pack size that still holds stock is refused (ADR 0024).
   async remove(id: string, context: AuditContext): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      const current = await this.lockedVariant(tx, id);
-      await tx.productVariant.delete({ where: { id }, select: { id: true } });
-      await this.audit.record(tx, {
-        ...context,
-        action: 'variant.deleted',
-        targetType: 'variant',
-        targetId: id,
-        before: pick(current, STAFF_FIELDS),
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        const current = await this.lockedVariant(tx, id);
+        await tx.productVariant.delete({ where: { id }, select: { id: true } });
+        await this.audit.record(tx, {
+          ...context,
+          action: 'variant.deleted',
+          targetType: 'variant',
+          targetId: id,
+          before: pick(current, STAFF_FIELDS),
+        });
       });
-    });
+    } catch (error) {
+      // A batch that still holds stock is never deleted, and its pack size
+      // with it: the database refuses, and Prisma reports P2003. Nothing
+      // else refers to a pack size today.
+      if (isForeignKeyViolation(error)) {
+        throw new ConflictException(VARIANT_HAS_STOCK);
+      }
+      throw error;
+    }
     this.logger.info(
       { variantId: id, actorId: context.actorId },
       'Pack size deleted',

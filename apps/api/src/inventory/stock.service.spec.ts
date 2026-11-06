@@ -71,7 +71,10 @@ function setup() {
   };
   const prisma = {
     productVariant: { findUnique: jest.fn() },
-    stockBatch: { findUnique: jest.fn().mockResolvedValue({ id: BATCH }) },
+    stockBatch: {
+      findUnique: jest.fn().mockResolvedValue({ id: BATCH }),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     stockMovement: { findMany: jest.fn().mockResolvedValue([]) },
     $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)),
   };
@@ -135,6 +138,34 @@ describe('StockService.listBatches', () => {
     await expect(service.listBatches(VARIANT)).rejects.toThrow(
       new NotFoundException(PACK_NOT_FOUND),
     );
+  });
+});
+
+describe('StockService.inStock', () => {
+  it('names the pack sizes with a sellable batch that holds stock, once each', async () => {
+    const { service, prisma } = setup();
+    prisma.stockBatch.findMany.mockResolvedValue([{ variantId: 'v-1' }, { variantId: 'v-3' }]);
+
+    await expect(service.inStock(['v-1', 'v-2', 'v-3'])).resolves.toEqual(
+      new Set(['v-1', 'v-3']),
+    );
+    expect(prisma.stockBatch.findMany).toHaveBeenCalledWith({
+      where: {
+        variantId: { in: ['v-1', 'v-2', 'v-3'] },
+        quantity: { gt: 0 },
+        // 6 months from 6 November 2026, in India.
+        expiresOn: { gte: day('2027-05-06') },
+      },
+      distinct: ['variantId'],
+      select: { variantId: true },
+    });
+  });
+
+  it('asks nothing for no pack sizes', async () => {
+    const { service, prisma } = setup();
+
+    await expect(service.inStock([])).resolves.toEqual(new Set());
+    expect(prisma.stockBatch.findMany).not.toHaveBeenCalled();
   });
 });
 

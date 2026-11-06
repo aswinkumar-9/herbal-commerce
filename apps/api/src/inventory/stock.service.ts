@@ -13,7 +13,12 @@ import {
   isUniqueViolation,
 } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
-import { batchDateIssues, expiredIssues, isSellable } from './stock-rules';
+import {
+  batchDateIssues,
+  expiredIssues,
+  isSellable,
+  sellableFrom,
+} from './stock-rules';
 import type {
   BatchInput,
   BatchUpdateInput,
@@ -107,6 +112,25 @@ export class StockService {
       quantity: total(batches),
       sellableQuantity: total(batches.filter((batch) => batch.sellable)),
     };
+  }
+
+  // Which of these pack sizes can be bought today: those with a batch that
+  // holds stock and has at least 6 months left. The shop shows only this,
+  // never a count (ADR 0024).
+  async inStock(variantIds: string[]): Promise<Set<string>> {
+    if (variantIds.length === 0) {
+      return new Set();
+    }
+    const batches = await this.prisma.stockBatch.findMany({
+      where: {
+        variantId: { in: variantIds },
+        quantity: { gt: 0 },
+        expiresOn: { gte: sellableFrom(new Date()) },
+      },
+      distinct: ['variantId'],
+      select: { variantId: true },
+    });
+    return new Set(batches.map((batch) => batch.variantId));
   }
 
   // Receives a delivery: a new batch and its first movement, in one

@@ -318,6 +318,24 @@ describe('VariantsService.remove', () => {
     );
   });
 
+  it('answers 409 when the pack size still holds stock, which the database refuses to delete', async () => {
+    const { service, tx, logger } = setup();
+    tx.productVariant.delete.mockRejectedValue(
+      Object.assign(new Error('Prisma error'), { code: 'P2003' }),
+    );
+
+    await expect(service.remove(ID, context)).rejects.toThrow(
+      new ConflictException(
+        'This pack size still has stock. Write it off first, then delete it.',
+      ),
+    );
+    expect(logger.info).not.toHaveBeenCalled();
+
+    const broken = new Error('Database unavailable');
+    tx.productVariant.delete.mockRejectedValue(broken);
+    await expect(service.remove(ID, context)).rejects.toBe(broken);
+  });
+
   it('answers 404 for an unknown ID, and deletes nothing', async () => {
     const { service, tx, audit, logger } = setup();
     tx.$queryRaw.mockResolvedValue([]);
