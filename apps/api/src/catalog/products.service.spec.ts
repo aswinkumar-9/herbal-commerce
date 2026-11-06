@@ -591,7 +591,6 @@ describe('ProductsService.listForShop', () => {
     ).resolves.toMatchObject({ products: [{ ...card('a'), imageUrl: null }] });
   });
 
-
   it('continues after the slug of the last product shown', async () => {
     const { service, prisma } = setup([row('b'), row('c'), row('d')]);
 
