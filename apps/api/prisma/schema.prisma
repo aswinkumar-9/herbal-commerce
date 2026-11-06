@@ -268,8 +268,8 @@ model ProductVariant {
   updatedAt   DateTime @updatedAt
 
   // The pack sizes go with their product when it is deleted.
-  product Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
-  batches StockBatch[]
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  batches   StockBatch[]
   cartItems CartItem[]
 
   // A product has each pack size once.
