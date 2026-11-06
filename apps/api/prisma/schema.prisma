@@ -227,6 +227,7 @@ model Product {
   // A category that still has products cannot be deleted.
   category Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   variants ProductVariant[]
+  images   ProductImage[]
 
   @@index([categoryId])
   @@map("products")
@@ -271,4 +272,30 @@ model ProductVariant {
   // A product has each pack size once.
   @@unique([productId, quantity, unit])
   @@map("product_variants")
+}
+
+// A photo of a product, stored as two WebP files, a large one and a small
+// one for list pages (ADR 0023). A product has at most 6, and a live product
+// at least 1: triggers in the migration enforce both too.
+model ProductImage {
+  id        String   @id @default(uuid()) @db.Uuid
+  productId String   @db.Uuid
+  // The random name of its files. The shop shows this, never the ID.
+  fileKey   String   @unique @db.Uuid
+  // The large file's size in pixels, so a page can keep room for it.
+  width     Int
+  height    Int
+  // Describes the photo for people who cannot see it. Without one, the
+  // shop uses the product's name.
+  altText   String?
+  // The order on the product's page. The first is the main photo.
+  position  Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The images go with their product when it is deleted.
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_images")
 }

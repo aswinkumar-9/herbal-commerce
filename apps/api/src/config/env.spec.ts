@@ -99,6 +99,7 @@ describe('validateEnv', () => {
       ...valid,
       NODE_ENV: 'production',
       WEB_BASE_URL: 'https://shop.example.com',
+      MEDIA_BASE_URL: 'https://media.example.com',
     };
     expect(() => validateEnv(production)).not.toThrow();
     expect(() =>
@@ -110,6 +111,28 @@ describe('validateEnv', () => {
     expect(() =>
       validateEnv({ ...production, WEB_BASE_URL: 'http://shop.example.com' }),
     ).toThrow('WEB_BASE_URL');
+    expect(() =>
+      validateEnv({ ...production, MEDIA_BASE_URL: 'http://media.example.com' }),
+    ).toThrow('MEDIA_BASE_URL');
+  });
+
+  it('keeps images in storage/media and links them from the API by default', () => {
+    const env = validateEnv(valid);
+    expect(env.MEDIA_DIR).toBe('storage/media');
+    expect(env.MEDIA_BASE_URL).toBe('http://127.0.0.1:3000/media');
+  });
+
+  it('drops a final "/" from the image address, and wants an http or https one', () => {
+    expect(
+      validateEnv({ ...valid, MEDIA_BASE_URL: 'https://media.example.com/' })
+        .MEDIA_BASE_URL,
+    ).toBe('https://media.example.com');
+    for (const value of ['media.example.com', 'ftp://media.example.com', 'https://', '']) {
+      expect(() => validateEnv({ ...valid, MEDIA_BASE_URL: value })).toThrow(
+        'MEDIA_BASE_URL',
+      );
+    }
+    expect(() => validateEnv({ ...valid, MEDIA_DIR: '' })).toThrow('MEDIA_DIR');
   });
 
   it('allows the local placeholders in development', () => {

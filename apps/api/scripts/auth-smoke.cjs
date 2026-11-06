@@ -1,5 +1,5 @@
 // End-to-end check of customer sign-up, sign-in, the customer's own account and
-// the public shop (categories, products and prices) against the running API,
+// the public shop (categories, products, prices and images) against the running API,
 // and that customers can never use the staff routes.
 // Needs the API (pnpm api:dev) and Mailpit (docker compose) to be running.
 // Each run creates two throwaway customer accounts in the local database.
@@ -634,7 +634,7 @@ async function main() {
     );
   }
   check(
-    "each active category's page shows the category, and only the name, slug, summary and from-price of its products",
+    "each active category's page shows the category, and only the name, slug, summary, from-price and image of its products",
     categoryPages.every(
       (page) =>
         page.status === 200 &&
@@ -644,7 +644,7 @@ async function main() {
         page.body.products.every(
           (product) =>
             Object.keys(product).sort().join() ===
-            'fromPriceRupees,name,slug,summary',
+            'fromPriceRupees,imageUrl,name,slug,summary',
         ),
     ),
   );
@@ -662,6 +662,7 @@ async function main() {
     'category',
     'countryOfOrigin',
     'description',
+    'images',
     'ingredients',
     'licenceNumber',
     'manufacturerAddress',
@@ -701,6 +702,64 @@ async function main() {
       return card.fromPriceRupees === lowest;
     }),
   );
+  // Images (part 4D): a live product has at least one, each shown by the
+  // addresses of its two files, never by an ID or a file key.
+  check(
+    "each product's page shows at least one image, each with only its addresses, size and description",
+    productPages.every(({ page }) => {
+      const images = page.body?.images ?? [];
+      return (
+        images.length > 0 &&
+        images.every(
+          (image) =>
+            Object.keys(image).sort().join() ===
+              'altText,height,thumbnailUrl,url,width' &&
+            typeof image.altText === 'string' &&
+            image.altText.length > 0 &&
+            /^https?:\/\/.+\.webp$/.test(image.url) &&
+            /^https?:\/\/.+\.webp$/.test(image.thumbnailUrl),
+        )
+      );
+    }),
+  );
+  check(
+    "each card's image is the small file of the main photo on its product's page",
+    productPages.every(
+      ({ card, page }) => card.imageUrl === page.body?.images?.[0]?.thumbnailUrl,
+    ),
+  );
+  // Every image file in the shop, large and small, as a browser would ask.
+  const imageFiles = [];
+  for (const { page } of productPages) {
+    for (const image of page.body?.images ?? []) {
+      for (const url of [image.url, image.thumbnailUrl]) {
+        const response = await fetch(url);
+        await response.arrayBuffer();
+        imageFiles.push(response);
+      }
+    }
+  }
+  check(
+    'every image file is served as WebP, and other sites may show it',
+    imageFiles.every(
+      (response) =>
+        response.status === 200 &&
+        response.headers.get('content-type') === 'image/webp' &&
+        response.headers.get('cross-origin-resource-policy') === 'cross-origin',
+    ),
+  );
+  // The folders are never listed. Like any address outside /v1, one that
+  // does not exist answers a plain 404 page, not JSON.
+  const mediaFolders = [];
+  for (const folder of ['/media/', '/media/products/']) {
+    const response = await fetch(API + folder);
+    await response.arrayBuffer();
+    mediaFolders.push(response.status);
+  }
+  check(
+    'the image folders are never listed',
+    mediaFolders.every((status) => status === 404),
+  );
   const productRoutes = [
     ['GET', '/v1/staff/products'],
     ['POST', '/v1/staff/products', { categoryId: anyId, name: 'Smoke Product' }],
@@ -736,6 +795,22 @@ async function main() {
   check(
     'a customer access token cannot list, add, change or delete pack sizes',
     packAnswers.every((status) => status === 401),
+  );
+  // Images (part 4D) are for staff only too.
+  const imageRoutes = [
+    ['GET', `/v1/staff/products/${anyId}/images`],
+    ['POST', `/v1/staff/products/${anyId}/images`, { altText: 'Smoke' }],
+    ['PATCH', `/v1/staff/images/${anyId}`, { altText: 'Smoke' }],
+    ['DELETE', `/v1/staff/images/${anyId}`],
+  ];
+  const imageAnswers = [];
+  for (const [method, path, json] of imageRoutes) {
+    const answer = await call(method, path, { json, token: ownerToken });
+    imageAnswers.push(answer.status);
+  }
+  check(
+    'a customer access token cannot list, upload, change or delete images',
+    imageAnswers.every((status) => status === 401),
   );
   console.log(
     failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`,

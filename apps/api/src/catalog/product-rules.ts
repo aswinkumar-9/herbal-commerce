@@ -14,7 +14,8 @@ export const HSN_CODE = /^(\d{4}|\d{6}|\d{8})$/;
 // What a product needs before it may go live: what its page must show
 // (ADR 0021), and what its invoices need (ADR 0022). The database's check
 // constraint products_live_needs_details_chk holds the same list, as the
-// last line of defence.
+// last line of defence. A live product also needs an image (ADR 0023),
+// which triggers in the database check too.
 export const NEEDED_TO_GO_LIVE = [
   'type',
   'licenceNumber',
@@ -35,6 +36,8 @@ export interface ProductState {
   ingredients: string | null;
   hsnCode: string | null;
   gstRate: number | null;
+  // How many images it has.
+  imageCount: number;
 }
 
 export interface ProductIssue {
@@ -65,6 +68,13 @@ export function productIssues(product: ProductState): ProductIssue[] {
       if ((product[field] ?? null) === null) {
         issues.push({ field, message: 'Needed before the product can go live' });
       }
+    }
+    // And at least one image. A missing count is never taken as one.
+    if (!(product.imageCount > 0)) {
+      issues.push({
+        field: 'images',
+        message: 'Needed before the product can go live',
+      });
     }
   }
   return issues;

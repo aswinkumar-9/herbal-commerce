@@ -5,11 +5,15 @@ import {
 } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
 import { AuditService } from '../audit/audit.service';
+import { MediaStorage } from '../media/media-storage';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductsService } from './products.service';
 
 const ID = '3f2b8c1d-5e6a-4b7c-8d9e-0f1a2b3c4d5e';
 const CATEGORY = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+const BASE = 'http://127.0.0.1:3000/media';
+const KEY = 'b1c2d3e4-5f60-4a7b-8c9d-0e1f2a3b4c5d';
+const OTHER_KEY = 'c2d3e4f5-6071-4b8c-9d0e-1f2a3b4c5d6e';
 const createdAt = new Date('2026-11-04T09:15:00.000Z');
 const context = {
   actorId: '5d1e8c2a-7b3f-4e9a-a1c6-2f8d0b4e7a93',
@@ -68,6 +72,10 @@ function setup(products: object[] = []) {
       delete: jest.fn().mockResolvedValue({ id: ID }),
     },
     productVariant: { findMany: jest.fn().mockResolvedValue([]) },
+    productImage: {
+      count: jest.fn().mockResolvedValue(1),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
   };
   const prisma = {
     product: {
@@ -78,13 +86,18 @@ function setup(products: object[] = []) {
     $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)),
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
-  const logger = { info: jest.fn() };
+  const media = {
+    url: jest.fn((name: string) => `${BASE}/${name}`),
+    remove: jest.fn().mockResolvedValue(undefined),
+  };
+  const logger = { info: jest.fn(), warn: jest.fn() };
   const service = new ProductsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
+    media as unknown as MediaStorage,
     logger as unknown as PinoLogger,
   );
-  return { service, prisma, tx, audit, logger };
+  return { service, prisma, tx, audit, media, logger };
 }
 
 // The errors a refused change answers with, field by field.
@@ -288,6 +301,33 @@ describe('ProductsService.update', () => {
     );
   });
 
+  it('refuses to activate a product without an image, counted while it is locked', async () => {
+    const { service, tx, audit } = setup();
+    tx.product.findUniqueOrThrow.mockResolvedValue(stored(details));
+    tx.productImage.count.mockResolvedValue(0);
+
+    await expect(
+      refusal(service.update(ID, { isActive: true }, context)),
+    ).resolves.toEqual({
+      message: 'Validation failed',
+      errors: [
+        { field: 'images', message: 'Needed before the product can go live' },
+      ],
+    });
+    expect(tx.productImage.count).toHaveBeenCalledWith({
+      where: { productId: ID },
+    });
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.productImage.count.mock.invocationCallOrder[0],
+    );
+    expect(tx.product.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+
+    // A draft may still change without an image.
+    await service.update(ID, { name: 'Renamed' }, context);
+    expect(tx.product.update).toHaveBeenCalledTimes(1);
+  });
+
   it('refuses to remove a detail from a live product', async () => {
     const { service, tx } = setup();
     tx.product.findUniqueOrThrow.mockResolvedValue(stored({ ...details, isActive: true }));
@@ -361,13 +401,18 @@ describe('ProductsService.update', () => {
 });
 
 describe('ProductsService.remove', () => {
-  it('locks the product, deletes it, and records what it was, pack sizes included, in the same transaction', async () => {
-    const { service, tx, audit, logger } = setup();
+  it('locks the product, deletes it, and records what it was, pack sizes and images included, in the same transaction', async () => {
+    const { service, tx, audit, media, logger } = setup();
     tx.product.findUniqueOrThrow.mockResolvedValue(stored({ ...details, isActive: true }));
     const packs = [
       { sku: 'ASH-CAP-60', quantity: 60, unit: 'CAPSULES', mrpRupees: 500, priceRupees: 450, isActive: true },
     ];
     tx.productVariant.findMany.mockResolvedValue(packs);
+    const images = [
+      { fileKey: KEY, width: 800, height: 600, altText: null, position: 0 },
+      { fileKey: OTHER_KEY, width: 600, height: 800, altText: 'Back label', position: 1 },
+    ];
+    tx.productImage.findMany.mockResolvedValue(images);
 
     await expect(service.remove(ID, context)).resolves.toBeUndefined();
 
@@ -396,13 +441,38 @@ describe('ProductsService.remove', () => {
     expect(tx.productVariant.findMany.mock.invocationCallOrder[0]).toBeLessThan(
       tx.product.delete.mock.invocationCallOrder[0],
     );
+    // The images too, main photo first.
+    expect(tx.productImage.findMany).toHaveBeenCalledWith({
+      where: { productId: ID },
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        fileKey: true,
+        width: true,
+        height: true,
+        altText: true,
+        position: true,
+      },
+    });
+    expect(tx.productImage.findMany.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.product.delete.mock.invocationCallOrder[0],
+    );
     expect(audit.record).toHaveBeenCalledWith(tx, {
       ...context,
       action: 'product.deleted',
       targetType: 'product',
       targetId: ID,
-      before: { ...draftFields, ...details, isActive: true, variants: packs },
+      before: { ...draftFields, ...details, isActive: true, variants: packs, images },
     });
+    // Their files go once the deletion is saved.
+    expect(media.remove.mock.calls).toEqual([
+      [`products/${KEY}-large.webp`],
+      [`products/${KEY}-small.webp`],
+      [`products/${OTHER_KEY}-large.webp`],
+      [`products/${OTHER_KEY}-small.webp`],
+    ]);
+    expect(audit.record.mock.invocationCallOrder[0]).toBeLessThan(
+      media.remove.mock.invocationCallOrder[0],
+    );
     expect(logger.info).toHaveBeenCalledWith(
       { productId: ID, actorId: context.actorId },
       'Product deleted',
@@ -410,7 +480,7 @@ describe('ProductsService.remove', () => {
   });
 
   it('answers 404 for an unknown ID, and deletes nothing', async () => {
-    const { service, tx, audit, logger } = setup();
+    const { service, tx, audit, media, logger } = setup();
     tx.$queryRaw.mockResolvedValue([]);
 
     await expect(service.remove(ID, context)).rejects.toThrow(
@@ -418,17 +488,51 @@ describe('ProductsService.remove', () => {
     );
     expect(tx.product.delete).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
+    expect(media.remove).not.toHaveBeenCalled();
     expect(logger.info).not.toHaveBeenCalled();
+  });
+
+  it('keeps the files when the deletion fails', async () => {
+    const { service, tx, media } = setup();
+    tx.productImage.findMany.mockResolvedValue([
+      { fileKey: KEY, width: 800, height: 600, altText: null, position: 0 },
+    ]);
+    tx.product.delete.mockRejectedValue(new Error('Database unavailable'));
+
+    await expect(service.remove(ID, context)).rejects.toThrow(
+      'Database unavailable',
+    );
+    expect(media.remove).not.toHaveBeenCalled();
+  });
+
+  it('still deletes the product when a file cannot be deleted, and logs it', async () => {
+    const { service, tx, media, logger } = setup();
+    tx.productImage.findMany.mockResolvedValue([
+      { fileKey: KEY, width: 800, height: 600, altText: null, position: 0 },
+    ]);
+    media.remove.mockRejectedValue(new Error('Disk unavailable'));
+
+    await expect(service.remove(ID, context)).resolves.toBeUndefined();
+    expect(logger.warn).toHaveBeenCalledWith(
+      { err: new Error('Disk unavailable'), fileKey: KEY },
+      'Image files not deleted',
+    );
+    expect(logger.info).toHaveBeenCalledWith(
+      { productId: ID, actorId: context.actorId },
+      'Product deleted',
+    );
   });
 });
 
 describe('ProductsService.listForShop', () => {
-  // A product as the query returns it, with its cheapest pack on sale, if any.
+  // A product as the query returns it, with its cheapest pack on sale, if
+  // any, and its main photo.
   const row = (slug: string, priceRupees?: number) => ({
     name: slug,
     slug,
     summary: null,
     variants: priceRupees ? [{ priceRupees }] : [],
+    images: [{ fileKey: KEY }],
   });
   // The same product as a customer sees its card.
   const card = (slug: string, fromPriceRupees: number | null = null) => ({
@@ -436,6 +540,7 @@ describe('ProductsService.listForShop', () => {
     slug,
     summary: null,
     fromPriceRupees,
+    imageUrl: `${BASE}/products/${KEY}-small.webp`,
   });
 
   it("shows an active category and one page of its active products: a card's fields and the lowest price", async () => {
@@ -468,8 +573,22 @@ describe('ProductsService.listForShop', () => {
           take: 1,
           select: { priceRupees: true },
         },
+        // Only the main photo.
+        images: {
+          orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+          take: 1,
+          select: { fileKey: true },
+        },
       },
     });
+  });
+
+  it('shows no image address for a product without images', async () => {
+    const { service } = setup([{ ...row('a'), images: [] }]);
+
+    await expect(
+      service.listForShop('herbal-supplements', { limit: 20 }),
+    ).resolves.toMatchObject({ products: [{ ...card('a'), imageUrl: null }] });
   });
 
   it('continues after the slug of the last product shown', async () => {
@@ -497,10 +616,16 @@ describe('ProductsService.listForShop', () => {
 describe('ProductsService.findForShop', () => {
   it("shows an active product of an active category, with its licence and maker details", async () => {
     const { service, prisma } = setup();
-    const page = { name: 'Ashwagandha Capsules', slug: 'ashwagandha-capsules' };
+    const page = {
+      name: 'Ashwagandha Capsules',
+      slug: 'ashwagandha-capsules',
+      images: [],
+    };
     prisma.product.findFirst.mockResolvedValue(page);
 
-    await expect(service.findForShop('ashwagandha-capsules')).resolves.toBe(page);
+    await expect(service.findForShop('ashwagandha-capsules')).resolves.toEqual(
+      page,
+    );
 
     const [query] = prisma.product.findFirst.mock.calls[0] as [
       { where: object; select: Record<string, unknown> },
@@ -514,6 +639,7 @@ describe('ProductsService.findForShop', () => {
       'category',
       'countryOfOrigin',
       'description',
+      'images',
       'ingredients',
       'licenceNumber',
       'manufacturerAddress',
@@ -537,6 +663,48 @@ describe('ProductsService.findForShop', () => {
         mrpRupees: true,
         priceRupees: true,
       },
+    });
+  });
+
+  it('shows its images, main photo first, by the addresses of their files, with a description', async () => {
+    const { service, prisma } = setup();
+    prisma.product.findFirst.mockResolvedValue({
+      name: 'Ashwagandha Capsules',
+      slug: 'ashwagandha-capsules',
+      images: [
+        { fileKey: KEY, width: 800, height: 600, altText: null },
+        { fileKey: OTHER_KEY, width: 600, height: 800, altText: 'Back label' },
+      ],
+    });
+
+    await expect(service.findForShop('ashwagandha-capsules')).resolves.toEqual({
+      name: 'Ashwagandha Capsules',
+      slug: 'ashwagandha-capsules',
+      images: [
+        {
+          url: `${BASE}/products/${KEY}-large.webp`,
+          thumbnailUrl: `${BASE}/products/${KEY}-small.webp`,
+          // No description from staff: the product's name.
+          altText: 'Ashwagandha Capsules',
+          width: 800,
+          height: 600,
+        },
+        {
+          url: `${BASE}/products/${OTHER_KEY}-large.webp`,
+          thumbnailUrl: `${BASE}/products/${OTHER_KEY}-small.webp`,
+          altText: 'Back label',
+          width: 600,
+          height: 800,
+        },
+      ],
+    });
+    const [query] = prisma.product.findFirst.mock.calls[0] as [
+      { select: Record<string, unknown> },
+    ];
+    // The key is read, but never shown on its own: no IDs in the shop.
+    expect(query.select.images).toEqual({
+      orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
+      select: { fileKey: true, width: true, height: true, altText: true },
     });
   });
 

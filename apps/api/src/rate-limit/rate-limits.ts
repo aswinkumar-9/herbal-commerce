@@ -34,6 +34,9 @@ export const RATE_LIMITS = {
   // Each invitation creates an account and sends an email.
   staffInvites: { points: 20, duration: HOUR },
   acceptInvite: { points: 20, duration: HOUR },
+  // Each upload is an image to check and re-encode, the heaviest work the
+  // API does (ADR 0023).
+  imageUploads: { points: 120, duration: HOUR },
   // Failed logins only. A successful login clears the first one.
   loginFailuresByEmailAndIp: {
     points: 5,

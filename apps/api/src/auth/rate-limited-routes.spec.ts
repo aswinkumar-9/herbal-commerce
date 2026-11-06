@@ -3,6 +3,7 @@ import { AddressesController } from '../addresses/addresses.controller';
 import { CategoriesController } from '../catalog/categories.controller';
 import { ProductsController } from '../catalog/products.controller';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
+import { StaffImagesController } from '../catalog/staff-images.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffVariantsController } from '../catalog/staff-variants.controller';
 import { RATE_LIMIT } from '../rate-limit/rate-limit.decorator';
@@ -96,6 +97,13 @@ describe('rate-limited routes', () => {
     expect(routeLimits(StaffVariantsController)).toStrictEqual({
       list: undefined,
       create: undefined,
+      update: undefined,
+      remove: undefined,
+    });
+    // An upload is an image to check and re-encode: it has its own limit.
+    expect(routeLimits(StaffImagesController)).toStrictEqual({
+      list: undefined,
+      create: ['imageUploads'],
       update: undefined,
       remove: undefined,
     });

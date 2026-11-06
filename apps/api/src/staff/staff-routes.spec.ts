@@ -2,6 +2,7 @@ import { Reflector } from '@nestjs/core';
 import { STAFF_ONLY } from '../auth/staff-only.decorator';
 import { SUPER_USER_ONLY } from '../auth/super-user-only.decorator';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
+import { StaffImagesController } from '../catalog/staff-images.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffVariantsController } from '../catalog/staff-variants.controller';
 import { StaffAdminsController } from './staff-admins.controller';
@@ -21,6 +22,7 @@ describe('staff routes', () => {
       StaffCategoriesController,
       StaffProductsController,
       StaffVariantsController,
+      StaffImagesController,
     ]) {
       expect([controller.name, reflector.get(STAFF_ONLY, controller)]).toEqual([
         controller.name,
@@ -37,14 +39,15 @@ describe('staff routes', () => {
         reflector.get(SUPER_USER_ONLY, controller),
       ]).toEqual([controller.name, true]);
     }
-    // Admins manage categories (Part 4A), products (Part 4B) and their pack
-    // sizes and prices (Part 4C) too.
+    // Admins manage categories (Part 4A), products (Part 4B), their pack
+    // sizes and prices (Part 4C), and their images (Part 4D) too.
     for (const controller of [
       StaffAuthController,
       StaffMeController,
       StaffCategoriesController,
       StaffProductsController,
       StaffVariantsController,
+      StaffImagesController,
     ]) {
       expect([
         controller.name,
@@ -72,6 +75,22 @@ describe('staff routes', () => {
       expect([controller.name, superUserOnly]).toEqual([
         controller.name,
         ['remove'],
+      ]);
+    }
+  });
+
+  // Part 4D: the one exception. Replacing a photo is everyday work, so
+  // Admins delete images too (ADR 0023).
+  it('let Admins delete images too', () => {
+    const handlers = StaffImagesController.prototype as unknown as Record<
+      string,
+      () => unknown
+    >;
+    expect(Object.getOwnPropertyNames(handlers)).toContain('remove');
+    for (const name of Object.getOwnPropertyNames(handlers)) {
+      expect([name, reflector.get(SUPER_USER_ONLY, handlers[name])]).toEqual([
+        name,
+        undefined,
       ]);
     }
   });

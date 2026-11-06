@@ -10,6 +10,7 @@ const draft: ProductState = {
   ingredients: null,
   hsnCode: null,
   gstRate: null,
+  imageCount: 0,
 };
 const complete: ProductState = {
   isActive: true,
@@ -20,6 +21,7 @@ const complete: ProductState = {
   ingredients: 'Each capsule contains: Ashwagandha root extract 500 mg',
   hsnCode: '3004',
   gstRate: 5,
+  imageCount: 1,
 };
 
 describe('productIssues', () => {
@@ -27,7 +29,7 @@ describe('productIssues', () => {
     expect(productIssues(draft)).toEqual([]);
   });
 
-  it('names each detail a live product still needs', () => {
+  it('names each detail a live product still needs, and an image', () => {
     expect(productIssues({ ...draft, isActive: true })).toEqual(
       [
         'type',
@@ -37,6 +39,7 @@ describe('productIssues', () => {
         'ingredients',
         'hsnCode',
         'gstRate',
+        'images',
       ].map((field) => ({
         field,
         message: 'Needed before the product can go live',
@@ -53,15 +56,26 @@ describe('productIssues', () => {
     expect(productIssues(complete)).toEqual([]);
   });
 
-  it('treats a detail that is missing altogether like an empty one', () => {
-    const { hsnCode, licenceNumber, ...rest } = complete;
-    expect([hsnCode, licenceNumber]).toEqual(['3004', '25D/123/2015']);
+  it('treats a detail or an image count that is missing altogether like an empty one', () => {
+    const { hsnCode, licenceNumber, imageCount, ...rest } = complete;
+    expect([hsnCode, licenceNumber, imageCount]).toEqual(['3004', '25D/123/2015', 1]);
     expect(
       productIssues({ ...rest, type: 'FOOD_OR_SUPPLEMENT' } as ProductState),
     ).toEqual([
       { field: 'licenceNumber', message: 'Needed before the product can go live' },
       { field: 'hsnCode', message: 'Needed before the product can go live' },
+      { field: 'images', message: 'Needed before the product can go live' },
     ]);
+  });
+
+  it('wants at least one image before a product goes live, but not in a draft', () => {
+    expect(productIssues({ ...complete, imageCount: 0 })).toEqual([
+      { field: 'images', message: 'Needed before the product can go live' },
+    ]);
+    expect(productIssues({ ...complete, imageCount: 6 })).toEqual([]);
+    expect(
+      productIssues({ ...complete, isActive: false, imageCount: 0 }),
+    ).toEqual([]);
   });
 
   it('wants exactly 14 digits for an FSSAI licence, even in a draft', () => {

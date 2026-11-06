@@ -21,3 +21,7 @@ apps/api/src/generated/
 
 #apps/api/tsconfig.build.tsbuildinfo, which is a generated cache and shouldn’t be in Git.
 *.tsbuildinfo
+
+# Uploaded images on a laptop (ADR 0023)
+storage/
+

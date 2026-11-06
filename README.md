@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, and its HSN code and GST rate. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price, and each product's page with its packs on sale. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale and its images. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -78,13 +78,15 @@ It first clears the local rate-limit counters, so it can run again at once. Then
 - product categories: the public list shows only the name, slug and description of each active category, the same with or without a customer's token;
 - the shop:
   - unknown pages answer `404`, and a category page refuses more than 50 products at once;
-  - every live category page shows only the name, slug, summary and lowest price of its products;
+  - every live category page shows only the name, slug, summary, lowest price and image of its products;
   - every product page shows its licence and maker details, and no IDs or staff fields;
   - every pack on a product page shows only its SKU, size and prices, never a price above its MRP, and each card's lowest price matches its product page;
-- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, and cannot list, create, change or delete categories, products or pack sizes;
+  - every product page shows at least one image, each with only its addresses, size and description, and each card's image is the small file of its product's main photo;
+  - every image file, large and small, is served as WebP for any site to show, and the image folders are never listed;
+- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, and cannot list, create, change or delete categories, products, pack sizes or images;
 - that a made-up invitation link is refused.
 
-The staff login, a real invitation and managing categories, products and pack sizes need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products" and "Manage pack sizes and prices". With an empty shop, the page and price checks have nothing to look at. They are most useful while a product with packs is live.
+The staff login, a real invitation and managing categories, products, pack sizes and images need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products", "Manage pack sizes and prices" and "Manage product images". With an empty shop, the page, price and image checks have nothing to look at. They are most useful while a product with packs and images is live.
 
 Every line should say `PASS`, followed by `All checks passed.`
 
@@ -275,9 +277,9 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
    - `?action=admin.removed`: one kind of entry;
    - `?actorId=<an account's ID>`: what that person did;
    - `?targetId=<an Admin's ID>`: that Admin's whole story, from invitation to removal;
-   - `?targetId=<a category's ID>`, `?targetId=<a product's ID>` or `?targetId=<a pack's ID>`: that category's, product's or pack's story, from creation to deletion. A pack's story is its price history.
+   - `?targetId=<a category's ID>`, `?targetId=<a product's ID>`, `?targetId=<a pack's ID>` or `?targetId=<an image's ID>`: that category's, product's, pack's or image's story, from creation to deletion. A pack's story is its price history.
 
-   The IDs come from the entries themselves, or from the lists in "Manage Admins", "Manage categories", "Manage products" and "Manage pack sizes and prices".
+   The IDs come from the entries themselves, or from the lists in "Manage Admins", "Manage categories", "Manage products", "Manage pack sizes and prices" and "Manage product images".
 5. **Sign out and clean up:**
    ```powershell
    Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/logout -ContentType 'application/json' -Body (@{ refreshToken = $login.refreshToken } | ConvertTo-Json)
@@ -337,7 +339,7 @@ Admins and Super Users create, change, activate and deactivate product categorie
 
 ## Manage products
 
-Admins and Super Users create, change, activate and deactivate products. Only a Super User deletes one (ADR 0021). A product starts as a draft. It goes live only with its type, licence number, maker's name and address, its ingredients, and its HSN code and GST rate (ADR 0022). Customers see it only while its category is active too. Its prices are on its pack sizes: see "Manage pack sizes and prices".
+Admins and Super Users create, change, activate and deactivate products. Only a Super User deletes one (ADR 0021). A product always starts as a draft. It goes live only with its type, licence number, maker's name and address, its ingredients, its HSN code and GST rate (ADR 0022), and at least one image (ADR 0023). Customers see it only while its category is active too. Its prices are on its pack sizes, and its photos are its images: see "Manage pack sizes and prices" and "Manage product images".
 
 1. **Sign in as staff**, as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`, and check that `$login.accessToken` is not empty. Then:
    ```powershell
@@ -363,7 +365,7 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
    "[$id]"
    ```
    **If the brackets are empty, stop:** the next commands would call the wrong URL.
-4. **Complete it and go live, in one request:**
+4. **Complete its details:**
    ```powershell
    $details = @{
      type = 'AYURVEDIC_MEDICINE'   # or FOOD_OR_SUPPLEMENT (FSSAI, 14 digits), or COSMETIC
@@ -374,11 +376,18 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
      usage = '1 capsule twice a day after meals'
      hsnCode = '3004 90'           # stored as 300490
      gstRate = 5                   # 0, 5, 18 or 40: ask your chartered accountant
-     isActive = $true
    } | ConvertTo-Json
+   ```
+   Paste that block on its own, and press Enter until the prompt is back. Then send it:
+   ```powershell
    Invoke-RestMethod -Method Patch -Uri "$api/staff/products/$id" -Headers $auth -ContentType $json -Body $details | Format-List name, isActive, licenceNumber, hsnCode, gstRate
    ```
-5. **Run only the line you need:**
+5. **Add at least one image,** as in "Manage product images", then **go live:**
+   ```powershell
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/products/$id" -Headers $auth -ContentType $json -Body '{"isActive":true}' | Format-List name, isActive
+   ```
+   Without an image, this answers `400` with `images` "Needed before the product can go live".
+6. **Run only the line you need:**
    ```powershell
    # Take it out of the shop. Use true to show it again.
    Invoke-RestMethod -Method Patch -Uri "$api/staff/products/$id" -Headers $auth -ContentType $json -Body '{"isActive":false}'
@@ -387,12 +396,12 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
    # Delete it for good: Super Users only. An Admin takes it out of the shop instead.
    Invoke-RestMethod -Method Delete -Uri "$api/staff/products/$id" -Headers $auth
    ```
-6. **What customers see,** without a token:
+7. **What customers see,** without a token:
    ```powershell
-   (Invoke-RestMethod "$api/categories/<a category slug>/products").products | Format-Table name, slug, summary, fromPriceRupees
+   (Invoke-RestMethod "$api/categories/<a category slug>/products").products | Format-Table name, slug, summary, fromPriceRupees, imageUrl
    Invoke-RestMethod "$api/products/ashwagandha-capsules" | Format-List
    ```
-7. **Sign out and clean up:**
+8. **Sign out and clean up:**
    ```powershell
    Invoke-RestMethod -Method Post -Uri "$api/staff/auth/logout" -ContentType 'application/json' -Body (@{ refreshToken = $login.refreshToken } | ConvertTo-Json)
    Remove-Variable login, auth, api, json, page, body, details, id -ErrorAction SilentlyContinue
@@ -401,9 +410,10 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
 - **A refused request prints a red error.** For a `400`, its body names each refused field. To see the body as JSON, wrap the request: `try { <the request> } catch { $_.ErrorDetails.Message }`. If that prints nothing, read the response itself: `(New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())).ReadToEnd()`.
 - **Licence numbers are stored in one form:** spaces dropped, letters made capitals. An FSSAI licence (`FOOD_OR_SUPPLEMENT`) is exactly 14 digits.
 - **Removing a detail from a live product is refused.** Take the product out of the shop first.
+- **A new product cannot be created live:** it has no image yet. Create it, add an image, then go live (steps 3 to 5).
 - Every change is in the audit log: `product.created`, `product.updated` (with only what changed) and `product.deleted`. Read a product's story with `?targetId=$id` (see "Read the audit log").
 - A category that still has products cannot be deleted (`409`).
-- Deleting a product deletes its pack sizes too. Its `product.deleted` entry keeps them.
+- Deleting a product deletes its pack sizes and its images too, image files included. Its `product.deleted` entry keeps the packs and images.
 
 ## Manage pack sizes and prices
 
@@ -455,6 +465,59 @@ Each product has its packs, such as 60 capsules or 100 g, each with an MRP and a
 - A pack off sale disappears from the shop at once, and from the product's lowest price on its category page.
 - Every change is in the audit log: `variant.created`, `variant.updated` (with only what changed, so a price change shows the old and new price) and `variant.deleted`. Read a pack's price history with `?targetId=$variantId` (see "Read the audit log").
 
+## Manage product images
+
+Each product has up to 6 photos, and a live product at least 1 (ADR 0023). Admins and Super Users upload, describe, move and delete them; unlike other deletions, **Admins delete images too**. An upload is a JPEG, PNG or WebP of at most 10 MB and at least 400 × 400 pixels. The API keeps only a new copy of its pixels: two WebP files, at most 1600 and 400 pixels on their longest side, upright, without the photo's hidden details such as its GPS location.
+
+On a laptop the files live in `apps/api/storage/media`, which Git ignores, and the API serves them at http://127.0.0.1:3000/media.
+
+1. **Sign in as staff, set the variables and pick the product,** as in "Manage pack sizes and prices", steps 1 and 2. Here the product's ID is `$id`:
+   ```powershell
+   $id = $productId
+   "[$id]"
+   ```
+   **If the brackets are empty, stop.**
+2. **Point to a photo on your computer:**
+   ```powershell
+   $photo = '<full path to the photo>.jpg'
+   Test-Path $photo
+   ```
+   Expected: `True`. For a PNG or WebP photo, use `image/png` or `image/webp` in the next step instead of `image/jpeg`.
+3. **Upload it:** the request body is the file itself.
+   ```powershell
+   $image = Invoke-RestMethod -Method Post -Uri "$api/staff/products/$id/images" -Headers $auth -ContentType 'image/jpeg' -InFile $photo
+   $image | Format-List id, width, height, altText, position, url, thumbnailUrl
+   Start-Process $image.url
+   ```
+   The browser shows the large file. The first image (the lowest position, then the oldest) is the main photo, shown on the category page.
+4. **List the product's images:**
+   ```powershell
+   (Invoke-RestMethod -Uri "$api/staff/products/$id/images" -Headers $auth).images | Format-Table position, altText, width, height, id
+   ```
+   To work on another image, take its ID from this list: `$image = @{ id = '<its id>' }`.
+5. **Run only the line you need:**
+   ```powershell
+   # Describe it, for people who cannot see it. Without a description, the shop uses the product's name.
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/images/$($image.id)" -Headers $auth -ContentType $json -Body '{"altText":"The back label, with the ingredients"}'
+   # Move it: a lower position comes first.
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/images/$($image.id)" -Headers $auth -ContentType $json -Body '{"position":1}'
+   # Delete it, with its files. Admins may too. A live product keeps at least one.
+   Invoke-RestMethod -Method Delete -Uri "$api/staff/images/$($image.id)" -Headers $auth
+   ```
+6. **What customers see,** without a token:
+   ```powershell
+   (Invoke-RestMethod "$api/products/ashwagandha-capsules").images | Format-Table altText, width, height, thumbnailUrl
+   ```
+7. **Sign out and clean up,** as in "Manage pack sizes and prices", step 7, then:
+   ```powershell
+   Remove-Variable id, photo, image -ErrorAction SilentlyContinue
+   ```
+
+- **To replace a photo,** upload the new one first, then delete the old one. A live product's last image cannot be deleted, and a 7th image is refused.
+- **A new photo always gets a new address.** The files are never changed, so browsers may keep them for a year.
+- Every change is in the audit log: `image.created`, `image.updated` (with only what changed) and `image.deleted`. Read an image's story with `?targetId=<its id>` (see "Read the audit log").
+- The access token lasts 15 minutes. With an expired token, a large upload may end in "The underlying connection was closed" instead of a `401`: the API does not read uploads it would refuse. Sign in again.
+
 ## Repository structure
 
 ```
@@ -463,17 +526,19 @@ Each product has its packs, such as 60 capsules or 100 g, each with an MRP and a
 │   └── api/                    NestJS backend (modular monolith)
 │       ├── prisma/             schema and migrations
 │       ├── scripts/            auth-smoke.cjs (smoke test), clear-rate-limits.cjs
+│       ├── storage/            uploaded image files on a laptop (ignored by Git)
 │       └── src/
 │           ├── addresses/      customers' delivery addresses
 │           ├── audit/          the append-only audit log, a request's audit context, and reading the log page by page
 │           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset and change, access and roles guards, /v1/me
-│           ├── catalog/        categories, products and pack sizes: their rules (slug, going live, prices), the staff routes and the public shop
+│           ├── catalog/        categories, products, pack sizes and images: their rules (slug, going live, prices, image checks), the staff routes and the public shop
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
 │           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
 │           ├── rate-limit/     limits, rate-limit guard, client IP
 │           ├── retention/      hourly cleanup of data past its retention period
 │           ├── valkey/         the shared Valkey connection
 │           ├── mail/           email sending (SMTP; Mailpit in development)
+│           ├── media/          storing uploaded files, and serving them at /media
 │           ├── config/         environment validation
 │           └── health/, logging/, prisma/, common/
 ├── docs/
@@ -553,7 +618,7 @@ Each product has its packs, such as 60 capsules or 100 g, each with an MRP and a
 - **Deleting a category answers `403 Only a Super User may do this.`:** you are signed in as an Admin. Hide it instead (`{"isActive":false}`), or ask a Super User.
 - **A category answers `404 Category not found`:** it was deleted, or the ID is wrong. List the categories and pick the ID again.
 - **Deleting a category answers `409 This category still has products.`:** move its products to another category (`{"categoryId":"..."}`) or delete them first. To hide it from the shop, deactivate it instead: that hides its products too.
-- **Activating a product answers `400` with "Needed before the product can go live":** the `errors` list names each missing detail (type, licence number, maker's name and address, ingredients, HSN code, GST rate). Send them in the same request as `"isActive":true`, or first.
+- **Activating a product answers `400` with "Needed before the product can go live":** the `errors` list names each missing detail (type, licence number, maker's name and address, ingredients, HSN code, GST rate). Send them in the same request as `"isActive":true`, or first. If it names `images`, upload a photo first (see "Manage product images"). That is also why creating a product with `"isActive":true` is always refused.
 - **A product answers `400` for `gstRate`:** the rate is one of `0`, `5`, `18` and `40`, sent as a number (`5`, not `"5"`). Other rates, such as 12, no longer exist since GST 2.0.
 - **A product answers `400` "An HSN code has 4, 6 or 8 digits":** send only the digits, such as `3004` or `300490`. Spaces are fine, other characters are not.
 - **A product answers `400` "An FSSAI licence number has exactly 14 digits":** the type is `FOOD_OR_SUPPLEMENT`, and the licence isn't 14 digits. Fix the number, or choose the right type.
@@ -565,6 +630,20 @@ Each product has its packs, such as 60 capsules or 100 g, each with an MRP and a
 - **Prices in the shop look 100 times too high:** they were typed in paise. Prices are whole rupees: change them, for example `{"mrpRupees":500,"priceRupees":449}`.
 - **Adding or changing a pack answers `409`:** read the message. Either another pack, maybe of another product, already has that SKU, or this product already has a pack of that quantity and unit. Change the existing pack instead.
 - **A pack answers `404`:** `Pack size not found` means it was deleted, maybe with its product, or the ID is wrong: list the packs again (step 3 of "Manage pack sizes and prices"). `Product not found` means the product ID is wrong.
+- **Uploading an image answers `400` "The file is not a JPEG image"** (or PNG, or WebP): the `-ContentType` does not match the file. A file's type is in its first bytes, not its name: a `.jpg` that is really a PNG needs `image/png`.
+- **Uploading answers `400` "The image needs at least 400 pixels on each side":** the photo is too small, maybe a thumbnail downloaded from a website. Use the original photo.
+- **Uploading answers `400` "The image may have at most 50 megapixels":** scale the photo down first, for example to 4000 pixels on its longest side.
+- **Uploading answers `400` "The image could not be read. It may be damaged.":** the file is damaged or incomplete, for example a download that stopped early. Copy it again.
+- **Uploading answers `415`:** read the message. Either the body was not an image (JSON, or a `-ContentType` such as `image/gif` or `image/jpg`), or it was compressed. Send the file with `-InFile` and `-ContentType 'image/jpeg'`, `'image/png'` or `'image/webp'`. GIF, SVG, HEIC and AVIF are not accepted: save the photo as a JPEG first.
+- **Uploading answers `413 Request body too large`:** the file is over 10 MB. Scale it down, or save it as a JPEG.
+- **Uploading answers `409 A product has at most 6 images.`:** delete one first.
+- **Deleting an image answers `409 A live product needs at least one image.`:** upload the new photo first, then delete the old one. Or take the product out of the shop first.
+- **An upload ends in "The underlying connection was closed" or "connection reset":** the access token has expired (after 15 minutes) or is not a staff token. The API refuses an upload without reading it, which can close the connection before PowerShell sees the `401`. Sign in again, and set `$auth` again.
+- **Uploading answers `503` with `code: "SERVER_BUSY"`:** many images are being checked at once. Wait the `Retry-After` seconds and try again.
+- **An image answers `404 Image not found`:** it was deleted, maybe with its product, or the ID is wrong. List the images again (step 4 of "Manage product images").
+- **An image address shows a plain page "Cannot GET /media/…":** the file does not exist, maybe because its image was deleted. Every address outside `/v1` answers a missing page this way, not with JSON.
+- **Image addresses point to port 3000, but the API runs on another port:** set `MEDIA_BASE_URL` in `.env`, for example `http://127.0.0.1:3001/media`, and restart the API.
+- **A pasted block runs two commands as one,** for example `ConvertTo-Json$id = …`: the line break between them was lost in the paste. Press `Ctrl+C`, paste the multi-line block on its own, press Enter until the prompt is back, then paste the next line.
 - **Right after `pnpm api:smoke`, a logout answers `429`:** the smoke test uses up the logout limit (120 per minute per IP) on purpose. Wait a minute, or run `pnpm api:limits:clear`.
 - **`prisma migrate dev` says a migration was modified after it was applied, and asks to reset the database:** answer **no**, because a reset deletes all data. An applied migration file was changed, maybe by a search and replace. Put it back exactly as it was applied:
   - `git diff`, or `git log -p -- <the migration's folder>` once committed, shows what changed;

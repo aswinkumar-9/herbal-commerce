@@ -5,6 +5,8 @@ import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 import { Env } from './config/env';
+import { MediaStorage } from './media/media-storage';
+import { serveMedia } from './media/serve-media';
 
 async function bootstrap() {
   // Nest's default parsers also accept HTML-form bodies; this API takes JSON only.
@@ -20,6 +22,8 @@ async function bootstrap() {
   app.set('trust proxy', trustedProxies.length > 0 ? trustedProxies : false);
   // Security headers, and no X-Powered-By.
   app.use(helmet());
+  // Uploaded images, at /media (ADR 0023).
+  serveMedia(app, app.get(MediaStorage).directory);
   // At most 100 kB, and compressed bodies are refused.
   app.useBodyParser('json', { limit: '100kb', inflate: false });
   app.setGlobalPrefix('v1', { exclude: ['health', 'health/ready'] });
