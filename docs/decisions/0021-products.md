@@ -4,6 +4,7 @@
 - Date: 2026-11-04
 - Updated: 2026-11-05 (part 4C: going live also needs the HSN code and GST rate, and the shop shows pack sizes and prices, see ADR 0022)
 - Updated: 2026-11-06 (part 4D: going live also needs an image, a deleted product takes its images along, and the shop shows them, see ADR 0023)
+- Updated: 2026-11-06 (part 5: a product that still holds stock cannot be deleted, and its page says which packs are in stock, see ADR 0024)
 
 ## Context
 
@@ -105,7 +106,7 @@ The foreign key's `RESTRICT` makes Postgres refuse it. The API turns that refusa
 | Endpoint | Shows |
 |---|---|
 | `GET /v1/categories/:slug/products` | The category (name, slug, description) and one page of its live products: name, slug and summary. Since part 4C also the lowest price on sale (ADR 0022), and since part 4D the small file of the main photo (ADR 0023). |
-| `GET /v1/products/:slug` | The product's own page: the texts, the type, the licence number, the maker's name and address, the country of origin, and its category's name and slug. Since part 4C also its packs on sale, with their prices (ADR 0022), and since part 4D its images (ADR 0023). |
+| `GET /v1/products/:slug` | The product's own page: the texts, the type, the licence number, the maker's name and address, the country of origin, and its category's name and slug. Since part 4C also its packs on sale, with their prices (ADR 0022), since part 4D its images (ADR 0023), and since part 5 whether each pack is in stock (ADR 0024). |
 
 - **Both are `@Public()`,** and answer `404` for anything hidden or unknown, so a draft cannot be told from a product that doesn't exist.
 - **The shop never shows IDs or staff fields.** Its pages continue after the **slug** of the last product shown (`?after=<slug>`). The staff list continues after an ID.
@@ -151,5 +152,5 @@ The foreign key's `RESTRICT` makes Postgres refuse it. The API turns that refusa
 - **Still open:**
   - legal review of the label fields;
   - the rules on curative claims, which are about the description text, so staff must review what they write;
-  - net quantity and MRP (part 4C), batch and expiry (part 5);
+  - net quantity and MRP (part 4C), batch and expiry (part 5, ADR 0024), both done since;
   - search (later).
