@@ -5,6 +5,7 @@ import {
   RequestMethod,
 } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
+import { InventoryModule } from '../inventory/inventory.module';
 import { MediaModule } from '../media/media.module';
 import { CategoriesController } from './categories.controller';
 import { CategoriesService } from './categories.service';
@@ -19,9 +20,10 @@ import { StaffVariantsController } from './staff-variants.controller';
 import { VariantsService } from './variants.service';
 
 // The product catalog: categories (ADR 0020), products (ADR 0021), their
-// pack sizes with prices (ADR 0022), and their images (ADR 0023).
+// pack sizes with prices (ADR 0022), and their images (ADR 0023). The shop
+// asks the inventory which packs are in stock (ADR 0024).
 @Module({
-  imports: [AuthModule, MediaModule],
+  imports: [AuthModule, MediaModule, InventoryModule],
   controllers: [
     CategoriesController,
     ProductsController,

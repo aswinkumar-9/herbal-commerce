@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.15.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.16.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -10,6 +10,7 @@ Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image
 - Every response carries an `X-Request-Id` header. A client may send its own `X-Request-Id` (8 to 64 characters of letters, digits, `_` or `-`); otherwise one is generated.
 - **IDs in paths** are UUIDs. Any other value gets `400` with `"message": "Validation failed (uuid is expected)"`, before any other work.
 - **Money** is a whole number, and its field name says the unit: `priceRupees: 449` is ₹449. Prices are whole rupees and include GST (ADR 0022).
+- **Dates without a time,** such as a batch's expiry, are written `2028-09-30`, in requests and answers, and count in India's time (ADR 0024). Moments, such as `createdAt`, are UTC timestamps like `2026-11-06T05:49:34.102Z`.
 - Every response carries the standard security headers (helmet), and no `X-Powered-By`.
 - **Authentication.** Every endpoint needs an access token unless it is marked **Public** below. Send it as `Authorization: Bearer <accessToken>`. There are two kinds: customer endpoints take customer access tokens, and staff endpoints (`/v1/staff/...`) take staff access tokens. Neither works on the other's endpoints. Some staff endpoints are for **Super Users only**, marked so below.
 - **Caching.** Token responses and every authenticated response carry `Cache-Control: no-store`. Clients and proxies must not store them.
@@ -492,8 +493,8 @@ Response `200`:
   "countryOfOrigin": "India",
   "category": { "name": "Herbal Supplements", "slug": "herbal-supplements" },
   "variants": [
-    { "sku": "ASH-CAP-60", "quantity": 60, "unit": "CAPSULES", "mrpRupees": 500, "priceRupees": 400 },
-    { "sku": "ASH-CAP-120", "quantity": 120, "unit": "CAPSULES", "mrpRupees": 900, "priceRupees": 800 }
+    { "sku": "ASH-CAP-60", "quantity": 60, "unit": "CAPSULES", "mrpRupees": 500, "priceRupees": 400, "inStock": true },
+    { "sku": "ASH-CAP-120", "quantity": 120, "unit": "CAPSULES", "mrpRupees": 900, "priceRupees": 800, "inStock": false }
   ],
   "images": [
     {
@@ -521,13 +522,14 @@ Response `200`:
   - `width` and `height`: the large file's size in pixels, so the page can keep room for it while it loads.
 
   An image has no ID in the shop: it is known by the addresses of its files.
-- `variants`: the packs on sale, in the order staff chose (ADR 0022). Each has exactly these five fields:
+- `variants`: the packs on sale, in the order staff chose (ADR 0022). Each has exactly these six fields:
   - `sku`: the pack's code, which identifies it (the shop shows no IDs);
   - `quantity` and `unit`: the net quantity, such as 60 `CAPSULES` or 100 `G`. Units: `G`, `KG`, `ML`, `L`, `CAPSULES`, `TABLETS`, `PIECES`;
   - `mrpRupees`: the MRP printed on the pack;
-  - `priceRupees`: the shop's price, never more than the MRP.
+  - `priceRupees`: the shop's price, never more than the MRP;
+  - `inStock`: whether it can be bought today: `true` while one of its batches holds stock and has at least 6 months left before it expires (ADR 0024). The shop never shows how many.
 
-  The list is empty while no pack is on sale.
+  The list is empty while no pack is on sale. A pack on sale may still be out of stock.
 - `type`:
   - `AYURVEDIC_MEDICINE`: the licence is an AYUSH licence;
   - `FOOD_OR_SUPPLEMENT`: an FSSAI licence, always 14 digits;
@@ -1015,11 +1017,11 @@ Errors:
 
 ### DELETE `/v1/staff/products/:id`
 
-Deletes a product for good, **with its pack sizes and its images. Super Users only.** An Admin deactivates it instead. The audit log keeps everything the product was, its pack sizes, their prices and its images included. The image files are deleted once the deletion is saved.
+Deletes a product for good, **with its pack sizes and its images. Super Users only.** An Admin deactivates it instead. The audit log keeps everything the product was, its pack sizes, their prices and its images included. The image files are deleted once the deletion is saved. **A product with a pack that still holds stock is never deleted:** write the stock off first (see "Managing stock").
 
 Response `204 No Content`.
 
-Errors: `400` (the ID is not a UUID); `401`; `403 Only a Super User may do this.` (called by an Admin); `404 Product not found`; `429` (the 600 per minute limit).
+Errors: `400` (the ID is not a UUID); `401`; `403 Only a Super User may do this.` (called by an Admin); `404 Product not found`; `409 This product still has stock. Write it off first, then delete it.`; `429` (the 600 per minute limit).
 
 ## Managing pack sizes and prices (staff)
 
@@ -1127,11 +1129,11 @@ Errors:
 
 ### DELETE `/v1/staff/variants/:id`
 
-Deletes a pack for good. **Super Users only.** An Admin takes it off sale instead. The audit log keeps everything the pack was.
+Deletes a pack for good. **Super Users only.** An Admin takes it off sale instead. The audit log keeps everything the pack was. **A pack that still holds stock is never deleted:** write the stock off first (see "Managing stock").
 
 Response `204 No Content`.
 
-Errors: `400` (the ID is not a UUID); `401`; `403 Only a Super User may do this.` (called by an Admin); `404 Pack size not found`; `429` (the 600 per minute limit).
+Errors: `400` (the ID is not a UUID); `401`; `403 Only a Super User may do this.` (called by an Admin); `404 Pack size not found`; `409 This pack size still has stock. Write it off first, then delete it.`; `429` (the 600 per minute limit).
 
 ## Managing product images (staff)
 
@@ -1243,6 +1245,135 @@ Response `204 No Content`.
 
 Errors: `400` (the ID is not a UUID); `401`; `404 Image not found`; `409 A live product needs at least one image. Add another first, or take the product offline.`; `429` (the 600 per minute limit).
 
+## Managing stock (staff)
+
+The stock of each pack size, batch by batch, in one warehouse (ADR 0024). These endpoints need a **staff** access token: an Admin's or a Super User's. **Nothing here is deleted:** every change is a movement, and a mistake is put right by another movement. Every change is written to the audit log, with the staff member, the client IP and the request ID.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/staff/variants/:variantId/batches` | List a pack size's batches, with its packs on hand and how many may be sold |
+| `POST /v1/staff/variants/:variantId/batches` | Receive a delivery: a new batch |
+| `PATCH /v1/staff/batches/:id` | Correct a batch's label details |
+| `GET /v1/staff/batches/:id/movements` | A batch's history, newest first |
+| `POST /v1/staff/batches/:id/movements` | Change a batch's stock |
+
+A batch, as these endpoints return it:
+```json
+{
+  "id": "b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1",
+  "variantId": "9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d",
+  "batchNumber": "AB2611",
+  "manufacturedOn": "2026-10-01",
+  "expiresOn": "2028-09-30",
+  "quantity": 118,
+  "createdAt": "2026-11-06T05:49:34.102Z",
+  "updatedAt": "2026-11-06T05:51:55.417Z",
+  "sellable": true
+}
+```
+
+| Field | Rules |
+|---|---|
+| `batchNumber` | As printed on the pack: 1 to 40 letters, digits, `/`, `.` and `-`. Spaces are dropped and letters made capitals: ` ab 2611 ` is stored as `AB2611`. Unique within its pack size. |
+| `manufacturedOn`, `expiresOn` | Dates as on the label, such as `2026-10-31`. Another form, or an impossible date, answers `Use a date like 2026-10-31`. The expiry is after the manufacturing date, and the manufacturing date is not in the future. "Today" is India's date. |
+| `quantity` | The packs on hand: changed only by movements, never below 0 |
+| `sellable` | Whether the batch may be sold today: it expires on or after today plus 6 months (on 6 November 2026, from 6 May 2027) |
+
+### GET `/v1/staff/variants/:variantId/batches`
+
+Every batch of the pack size, the first to expire first, which is the order in which orders will take them.
+
+Response `200`:
+```json
+{ "batches": [...], "quantity": 148, "sellableQuantity": 118 }
+```
+- `quantity`: every pack on hand, in all batches;
+- `sellableQuantity`: those in sellable batches. The shop shows the pack size as in stock while this is above 0.
+
+Errors: `400` (the ID is not a UUID); `401` (see "Authentication errors on protected endpoints"), also for a customer access token; `404 Pack size not found`; `429` (the 600 per minute limit).
+
+### POST `/v1/staff/variants/:variantId/batches`
+
+Receives a delivery. One transaction creates the batch, its first movement (`RECEIVED`) and the audit entry.
+
+Request:
+```json
+{ "batchNumber": "AB2611", "manufacturedOn": "2026-10-01", "expiresOn": "2028-09-30", "quantity": 120, "note": "First delivery" }
+```
+- `quantity`: from 1 to 1,000,000 packs. `note`: optional, up to 200 characters.
+- A batch that is too short-dated to sell may still be received. It shows `"sellable": false`.
+
+Response `201`: the batch.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | A missing or invalid field; `The manufacturing date cannot be in the future`; `This batch has already expired`; `The expiry date must be after the manufacturing date` |
+| `401` | see "Authentication errors on protected endpoints" | No staff access token, or a customer's |
+| `404` | `Pack size not found` | No pack size with this ID |
+| `409` | `This pack size already has a batch with this number.` | The batch number is taken in this pack size |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### PATCH `/v1/staff/batches/:id`
+
+Corrects a batch's label details: `batchNumber`, `manufacturedOn` or `expiresOn`. Its stock never changes here: `quantity` is ignored. The dates are checked on the batch as it will be: not made in the future, and expiring after it was made. A batch that has expired can still be corrected. Sending what the label already says changes nothing, answers `200` too, and writes no audit entry.
+
+Response `200`: the batch, as it is now.
+
+Errors: `400` (the ID is not a UUID, an invalid field, `Nothing to change`, or dates that no longer fit); `401`; `404 Batch not found`; `409 This pack size already has a batch with this number.`; `429` (the 600 per minute limit).
+
+### GET `/v1/staff/batches/:id/movements`
+
+The batch's movements, **newest first, one page at a time**.
+
+Query parameters, both optional:
+
+| Parameter | Rules | Meaning |
+|---|---|---|
+| `limit` | Whole number, 1 to 100, default 50 | Movements per page |
+| `before` | UUID | The `nextBefore` of the previous page: continue just after it |
+
+Response `200`:
+```json
+{
+  "movements": [
+    { "id": "…", "batchId": "…", "change": -2, "reason": "DAMAGED", "note": "Broken seal", "actorId": "…", "createdAt": "2026-11-06T05:51:55.417Z" },
+    { "id": "…", "batchId": "…", "change": 120, "reason": "RECEIVED", "note": "First delivery", "actorId": "…", "createdAt": "2026-11-06T05:49:34.102Z" }
+  ],
+  "nextBefore": null
+}
+```
+
+Errors: `400` (a bad ID or parameter); `401`; `404 Batch not found`; `429` (the 600 per minute limit).
+
+### POST `/v1/staff/batches/:id/movements`
+
+Changes the batch's stock. The batch is locked first, so the check sees its real quantity.
+
+Request:
+```json
+{ "change": -2, "reason": "DAMAGED", "note": "Broken seal" }
+```
+
+| Field | Rules |
+|---|---|
+| `change` | A whole number from -1,000,000 to 1,000,000, never 0 |
+| `reason` | `RECEIVED` (more of this batch arrived: `change` above 0), `DAMAGED` or `EXPIRED` (written off: `change` below 0), or `CORRECTION` (a count found a difference: either way) |
+| `note` | Up to 200 characters. **Required for a `CORRECTION`:** say why the count differs. |
+
+Response `201`: the batch, as it is now.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | An invalid field; a sign that doesn't fit the reason (`A delivery adds stock: use a positive number`, `A write-off removes stock: use a negative number`); `A change of 0 changes nothing`; a correction without a note (`Say why the count differs`); or `This batch has already expired` (more of an expired batch cannot be received; it can still be written off) |
+| `401` | see above | No staff access token, or a customer's |
+| `404` | `Batch not found` | No batch with this ID |
+| `409` | `Not enough stock: this batch holds 118.` | The change would take the batch below 0 |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
 ## Audit log (Super Users only)
 
 ### GET `/v1/staff/audit-log`
@@ -1257,7 +1388,7 @@ Query parameters, all optional:
 | `before` | UUID | The `nextBefore` of the previous page: continue just after it |
 | `action` | Like `thing.verb`, for example `admin.removed` | Only this action |
 | `actorId` | UUID | Only what this account did |
-| `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's, a category's, a product's, a pack's or an image's ID |
+| `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's, a category's, a product's, a pack's, an image's or a batch's ID |
 
 The filters combine. Any other parameter is ignored.
 
@@ -1284,11 +1415,11 @@ Response `200`:
 }
 ```
 - `actor`: the account that acted, or `null` for the developer commands or an account that no longer exists. `actorId` stays either way.
-- `target`: the account an entry is about, for user targets only. It is `null` for other targets, such as the session of a `staff.signed_in`, a category, a product, a pack or an image, and for removed accounts.
+- `target`: the account an entry is about, for user targets only. It is `null` for other targets, such as the session of a `staff.signed_in`, a category, a product, a pack, an image or a batch, and for removed accounts.
 - `before` and `after`: the relevant fields before and after the change, never a password, secret or token.
 - `nextBefore`: send it as `?before=` to get the next, older page. It is `null` on the last page.
 
-Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way, since part 4C `variant.created`, `variant.updated` and `variant.deleted` for pack sizes, and since part 4D `image.created`, `image.updated` and `image.deleted` for product images. A price change is a `variant.updated` with the old and new price. A `product.deleted` entry also keeps the product's packs and images, in `before.variants` and `before.images`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
+Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way, since part 4C `variant.created`, `variant.updated` and `variant.deleted` for pack sizes, since part 4D `image.created`, `image.updated` and `image.deleted` for product images, and since part 5 `batch.received`, `batch.updated` and `stock.changed` for stock (with the quantity before and after, the change, the reason and the note). A price change is a `variant.updated` with the old and new price. A `product.deleted` entry also keeps the product's packs and images, in `before.variants` and `before.images`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
 
 Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` and `403` (as for the Admin endpoints); `429` (the 600 per minute limit).
 
@@ -1298,4 +1429,4 @@ Rules for clients:
 
 ## Not yet implemented
 
-Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: stock with batch and expiry (part 5), and search. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0023 and `docs/security.md`.
+Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: search. Of stock: reservations for carts and orders, and a list of batches near their expiry. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0024 and `docs/security.md`.

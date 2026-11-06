@@ -7,6 +7,7 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { AuditContext } from '../audit/audit-context';
 import { AuditService } from '../audit/audit.service';
 import type { Prisma } from '../generated/prisma/client';
+import { StockService } from '../inventory/stock.service';
 import { MediaStorage } from '../media/media-storage';
 import {
   isForeignKeyViolation,
@@ -30,6 +31,8 @@ import { VARIANT_ORDER } from './variant-order';
 export const PRODUCT_NOT_FOUND = 'Product not found';
 export const PRODUCT_SLUG_TAKEN =
   'Another product already has this slug. Choose a different one.';
+export const PRODUCT_HAS_STOCK =
+  'This product still has stock. Write it off first, then delete it.';
 const NO_SUCH_CATEGORY: ProductIssue = {
   field: 'categoryId',
   message: 'No category with this ID',
@@ -103,7 +106,8 @@ const SHOP_LIST_FIELDS = {
 // What a product's own page shows. The licence and maker details must be
 // on it (ADR 0021), its packs on sale with their prices (ADR 0022), and its
 // images (ADR 0023). A pack is known by its SKU, and an image by the
-// address of its files: the shop shows no IDs.
+// address of its files: the shop shows no IDs. A pack's ID is read only to
+// ask the inventory whether it is in stock (ADR 0024).
 const SHOP_PAGE_FIELDS = {
   name: true,
   slug: true,
@@ -121,6 +125,7 @@ const SHOP_PAGE_FIELDS = {
     where: { isActive: true },
     orderBy: VARIANT_ORDER,
     select: {
+      id: true,
       sku: true,
       quantity: true,
       unit: true,
@@ -171,6 +176,7 @@ export class ProductsService {
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
     private readonly media: MediaStorage,
+    private readonly stock: StockService,
     @InjectPinoLogger(ProductsService.name)
     private readonly logger: PinoLogger,
   ) {}
@@ -275,34 +281,37 @@ export class ProductsService {
   // Deletes a product for good, with its pack sizes and its images. Only
   // Super Users may: the route is @SuperUserOnly(). The audit entry keeps
   // what the product was, its pack sizes, prices and images included. The
-  // image files are deleted once the deletion is saved.
+  // image files are deleted once the deletion is saved. A product with a
+  // pack that still holds stock is refused (ADR 0024).
   async remove(id: string, context: AuditContext): Promise<void> {
-    const images = await this.prisma.$transaction(async (tx) => {
-      const current = await this.lockedProduct(tx, id);
-      const variants = await tx.productVariant.findMany({
-        where: { productId: id },
-        orderBy: VARIANT_ORDER,
-        select: DELETED_VARIANT_FIELDS,
-      });
-      const productImages = await tx.productImage.findMany({
-        where: { productId: id },
-        orderBy: IMAGE_ORDER,
-        select: DELETED_IMAGE_FIELDS,
-      });
-      await tx.product.delete({ where: { id }, select: { id: true } });
-      await this.audit.record(tx, {
-        ...context,
-        action: 'product.deleted',
-        targetType: 'product',
-        targetId: id,
-        before: {
-          ...pick(current, STAFF_FIELDS),
-          variants,
-          images: productImages,
-        },
-      });
-      return productImages;
-    });
+    const images = await this.withoutStock(() =>
+      this.prisma.$transaction(async (tx) => {
+        const current = await this.lockedProduct(tx, id);
+        const variants = await tx.productVariant.findMany({
+          where: { productId: id },
+          orderBy: VARIANT_ORDER,
+          select: DELETED_VARIANT_FIELDS,
+        });
+        const productImages = await tx.productImage.findMany({
+          where: { productId: id },
+          orderBy: IMAGE_ORDER,
+          select: DELETED_IMAGE_FIELDS,
+        });
+        await tx.product.delete({ where: { id }, select: { id: true } });
+        await this.audit.record(tx, {
+          ...context,
+          action: 'product.deleted',
+          targetType: 'product',
+          targetId: id,
+          before: {
+            ...pick(current, STAFF_FIELDS),
+            variants,
+            images: productImages,
+          },
+        });
+        return productImages;
+      }),
+    );
     for (const { fileKey } of images) {
       await removeImageFiles(this.media, this.logger, fileKey);
     }
@@ -366,8 +375,16 @@ export class ProductsService {
     if (!product) {
       throw new NotFoundException(PRODUCT_NOT_FOUND);
     }
+    const inStock = await this.stock.inStock(
+      product.variants.map((variant) => variant.id),
+    );
     return {
       ...product,
+      // Each pack by its SKU, and only whether it can be bought.
+      variants: product.variants.map(({ id, ...pack }) => ({
+        ...pack,
+        inStock: inStock.has(id),
+      })),
       images: product.images.map(({ fileKey, width, height, altText }) => {
         const names = imageFileNames(fileKey);
         return {
@@ -399,6 +416,20 @@ export class ProductsService {
       where: { id },
       select: PRODUCT_FIELDS,
     });
+  }
+
+  // A batch that still holds stock is never deleted, and its product with
+  // it: the database refuses, and Prisma reports P2003. Nothing else
+  // refers to a product's pack sizes today.
+  private async withoutStock<T>(remove: () => Promise<T>): Promise<T> {
+    try {
+      return await remove();
+    } catch (error) {
+      if (isForeignKeyViolation(error)) {
+        throw new ConflictException(PRODUCT_HAS_STOCK);
+      }
+      throw error;
+    }
   }
 
   // The database decides what Prisma reports as an error: a slug another

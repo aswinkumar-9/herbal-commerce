@@ -267,7 +267,8 @@ model ProductVariant {
   updatedAt   DateTime @updatedAt
 
   // The pack sizes go with their product when it is deleted.
-  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  product Product      @relation(fields: [productId], references: [id], onDelete: Cascade)
+  batches StockBatch[]
 
   // A product has each pack size once.
   @@unique([productId, quantity, unit])
@@ -298,4 +299,62 @@ model ProductImage {
 
   @@index([productId])
   @@map("product_images")
+}
+
+// Why a batch's stock changed (ADR 0024). Orders will add their own reasons.
+enum StockReason {
+  // A delivery arrived: always more stock.
+  RECEIVED
+  // Broken, spoiled or lost: always less.
+  DAMAGED
+  // Written off near or past its expiry: always less.
+  EXPIRED
+  // A count found a difference: more or less.
+  CORRECTION
+}
+
+// One batch of a pack size, with what its label says: the batch number, the
+// manufacturing date and the expiry date (ADR 0024). Its quantity changes
+// only through stock movements, which a trigger in the migration applies.
+model StockBatch {
+  id             String   @id @default(uuid()) @db.Uuid
+  variantId      String   @db.Uuid
+  // As printed on the pack, such as "AB2611". Unique within the pack size.
+  batchNumber    String
+  manufacturedOn DateTime @db.Date
+  expiresOn      DateTime @db.Date
+  // On hand now: the sum of its movements, never below 0.
+  quantity       Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // The batches go with their pack size, but only once their stock is 0:
+  // a trigger in the migration refuses to delete a batch that holds stock.
+  variant   ProductVariant  @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  movements StockMovement[]
+
+  @@unique([variantId, batchNumber])
+  @@index([variantId, expiresOn])
+  @@map("stock_batches")
+}
+
+// One change to a batch's stock (ADR 0024). Never changed or deleted: a
+// mistake is put right by another movement.
+model StockMovement {
+  id        String      @id @default(uuid()) @db.Uuid
+  batchId   String      @db.Uuid
+  // More (positive) or less (negative), never 0.
+  change    Int
+  reason    StockReason
+  note      String?
+  // The staff member who made it. No foreign key, like the audit log, so
+  // the history outlives the account.
+  actorId   String?     @db.Uuid
+  createdAt DateTime    @default(now())
+
+  // The movements go with their batch.
+  batch StockBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+
+  @@index([batchId, createdAt])
+  @@map("stock_movements")
 }

@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale and its images. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links and unverified sign-ups are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -80,13 +80,13 @@ It first clears the local rate-limit counters, so it can run again at once. Then
   - unknown pages answer `404`, and a category page refuses more than 50 products at once;
   - every live category page shows only the name, slug, summary, lowest price and image of its products;
   - every product page shows its licence and maker details, and no IDs or staff fields;
-  - every pack on a product page shows only its SKU, size and prices, never a price above its MRP, and each card's lowest price matches its product page;
+  - every pack on a product page shows only its SKU, size, prices and whether it is in stock, never a price above its MRP, and each card's lowest price matches its product page;
   - every product page shows at least one image, each with only its addresses, size and description, and each card's image is the small file of its product's main photo;
   - every image file, large and small, is served as WebP for any site to show, and the image folders are never listed;
-- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, and cannot list, create, change or delete categories, products, pack sizes or images;
+- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, cannot list, create, change or delete categories, products, pack sizes or images, and cannot see or change stock;
 - that a made-up invitation link is refused.
 
-The staff login, a real invitation and managing categories, products, pack sizes and images need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products", "Manage pack sizes and prices" and "Manage product images". With an empty shop, the page, price and image checks have nothing to look at. They are most useful while a product with packs and images is live.
+The staff login, a real invitation and managing categories, products, pack sizes, images and stock need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products", "Manage pack sizes and prices", "Manage product images" and "Manage stock". With an empty shop, the page, price, image and stock checks have nothing to look at. They are most useful while a product with packs, images and stock is live.
 
 Every line should say `PASS`, followed by `All checks passed.`
 
@@ -277,9 +277,9 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
    - `?action=admin.removed`: one kind of entry;
    - `?actorId=<an account's ID>`: what that person did;
    - `?targetId=<an Admin's ID>`: that Admin's whole story, from invitation to removal;
-   - `?targetId=<a category's ID>`, `?targetId=<a product's ID>`, `?targetId=<a pack's ID>` or `?targetId=<an image's ID>`: that category's, product's, pack's or image's story, from creation to deletion. A pack's story is its price history.
+   - `?targetId=<a category's ID>`, `?targetId=<a product's ID>`, `?targetId=<a pack's ID>`, `?targetId=<an image's ID>` or `?targetId=<a batch's ID>`: that category's, product's, pack's, image's or batch's story, from creation to deletion. A pack's story is its price history, and a batch's its stock history.
 
-   The IDs come from the entries themselves, or from the lists in "Manage Admins", "Manage categories", "Manage products", "Manage pack sizes and prices" and "Manage product images".
+   The IDs come from the entries themselves, or from the lists in "Manage Admins", "Manage categories", "Manage products", "Manage pack sizes and prices", "Manage product images" and "Manage stock".
 5. **Sign out and clean up:**
    ```powershell
    Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/logout -ContentType 'application/json' -Body (@{ refreshToken = $login.refreshToken } | ConvertTo-Json)
@@ -413,7 +413,7 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
 - **A new product cannot be created live:** it has no image yet. Create it, add an image, then go live (steps 3 to 5).
 - Every change is in the audit log: `product.created`, `product.updated` (with only what changed) and `product.deleted`. Read a product's story with `?targetId=$id` (see "Read the audit log").
 - A category that still has products cannot be deleted (`409`).
-- Deleting a product deletes its pack sizes and its images too, image files included. Its `product.deleted` entry keeps the packs and images.
+- Deleting a product deletes its pack sizes and its images too, image files included. Its `product.deleted` entry keeps the packs and images. **A product with a pack that still holds stock cannot be deleted** (`409`): write the stock off first (see "Manage stock").
 
 ## Manage pack sizes and prices
 
@@ -463,6 +463,7 @@ Each product has its packs, such as 60 capsules or 100 g, each with an MRP and a
 
 - **The price is checked against the pack as it will be.** Lowering only the MRP below the current price is refused: send both together.
 - A pack off sale disappears from the shop at once, and from the product's lowest price on its category page.
+- A pack on sale shows "in stock" only while it has stock that may be sold (see "Manage stock"). **A pack that still holds stock cannot be deleted** (`409`): write the stock off first.
 - Every change is in the audit log: `variant.created`, `variant.updated` (with only what changed, so a price change shows the old and new price) and `variant.deleted`. Read a pack's price history with `?targetId=$variantId` (see "Read the audit log").
 
 ## Manage product images
@@ -518,6 +519,61 @@ On a laptop the files live in `apps/api/storage/media`, which Git ignores, and t
 - Every change is in the audit log: `image.created`, `image.updated` (with only what changed) and `image.deleted`. Read an image's story with `?targetId=<its id>` (see "Read the audit log").
 - The access token lasts 15 minutes. With an expired token, a large upload may end in "The underlying connection was closed" instead of a `401`: the API does not read uploads it would refuse. Sign in again.
 
+## Manage stock
+
+Each pack size's stock is kept in batches, in one warehouse (ADR 0024). A batch is one delivery, with the batch number, manufacturing date and expiry date from its label. **A batch sells only with at least 6 months left** before it expires. Customers see only whether a pack is in stock, never how many. Admins and Super Users receive batches, correct them and change their stock. Every change is a movement that is kept for good, and nothing in stock is ever deleted.
+
+Dates are written like `2028-09-30` (year, month, day), and "today" is India's date.
+
+1. **Sign in as staff, set the variables and pick the product,** as in "Manage pack sizes and prices", steps 1 and 2. Then pick the pack size from its list (step 3 there):
+   ```powershell
+   $variantId = '<the pack size id>'
+   ```
+2. **Receive a delivery:** a new batch.
+   ```powershell
+   $body = @{ batchNumber = 'AB2611'; manufacturedOn = '2026-10-01'; expiresOn = '2028-09-30'; quantity = 120; note = 'First delivery' } | ConvertTo-Json
+   $batchId = (Invoke-RestMethod -Method Post -Uri "$api/staff/variants/$variantId/batches" -Headers $auth -ContentType $json -Body $body).id
+   "[$batchId]"
+   ```
+   The batch number is stored without spaces and in capitals. A batch made in the future, or one already expired, is refused.
+3. **See the pack size's stock,** the first to expire first:
+   ```powershell
+   $stock = Invoke-RestMethod -Uri "$api/staff/variants/$variantId/batches" -Headers $auth
+   $stock.batches | Format-Table batchNumber, manufacturedOn, expiresOn, quantity, sellable, id
+   "$($stock.quantity) on hand, $($stock.sellableQuantity) sellable"
+   ```
+   To work on another batch, take its ID from this list: `$batchId = '<its id>'`.
+4. **Run only the line you need:**
+   ```powershell
+   # More of the same batch arrived.
+   Invoke-RestMethod -Method Post -Uri "$api/staff/batches/$batchId/movements" -Headers $auth -ContentType $json -Body '{"change":24,"reason":"RECEIVED"}'
+   # Damaged or lost: a negative number.
+   Invoke-RestMethod -Method Post -Uri "$api/staff/batches/$batchId/movements" -Headers $auth -ContentType $json -Body '{"change":-2,"reason":"DAMAGED","note":"Broken seal"}'
+   # Written off near or past its expiry.
+   Invoke-RestMethod -Method Post -Uri "$api/staff/batches/$batchId/movements" -Headers $auth -ContentType $json -Body '{"change":-10,"reason":"EXPIRED"}'
+   # A count found a difference: either way, and always with a note.
+   Invoke-RestMethod -Method Post -Uri "$api/staff/batches/$batchId/movements" -Headers $auth -ContentType $json -Body '{"change":-1,"reason":"CORRECTION","note":"Count on 6 Nov"}'
+   # Correct the label details, never the stock.
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/batches/$batchId" -Headers $auth -ContentType $json -Body '{"expiresOn":"2028-10-31"}'
+   ```
+5. **A batch's history,** newest first:
+   ```powershell
+   (Invoke-RestMethod -Uri "$api/staff/batches/$batchId/movements" -Headers $auth).movements | Format-Table createdAt, change, reason, note
+   ```
+6. **What customers see,** without a token:
+   ```powershell
+   (Invoke-RestMethod "$api/products/ashwagandha-capsules").variants | Format-Table sku, priceRupees, inStock
+   ```
+7. **Sign out and clean up,** as in "Manage pack sizes and prices", step 7, then:
+   ```powershell
+   Remove-Variable batchId, stock -ErrorAction SilentlyContinue
+   ```
+
+- **"In stock" needs 6 months of shelf life.** A pack with only short-dated batches shows `inStock` `False` in the shop, even with packs on the shelf. Staff see such a batch as `sellable` `False`, and write it off when it expires.
+- **Mistakes are put right by another movement,** never by deleting one: a correction with a note.
+- **A pack size or product that still holds stock cannot be deleted.** Write its batches off to 0 first, then delete it.
+- Every change is in the audit log: `batch.received`, `batch.updated` (with only what changed) and `stock.changed` (with the quantity before and after). Read a batch's story with `?targetId=$batchId` (see "Read the audit log").
+
 ## Repository structure
 
 ```
@@ -532,6 +588,7 @@ On a laptop the files live in `apps/api/storage/media`, which Git ignores, and t
 │           ├── audit/          the append-only audit log, a request's audit context, and reading the log page by page
 │           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset and change, access and roles guards, /v1/me
 │           ├── catalog/        categories, products, pack sizes and images: their rules (slug, going live, prices, image checks), the staff routes and the public shop
+│           ├── inventory/      stock per batch: the rules (dates, 6-month shelf life), the staff routes, and "in stock" for the shop
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
 │           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
 │           ├── rate-limit/     limits, rate-limit guard, client IP
@@ -643,6 +700,13 @@ On a laptop the files live in `apps/api/storage/media`, which Git ignores, and t
 - **An image answers `404 Image not found`:** it was deleted, maybe with its product, or the ID is wrong. List the images again (step 4 of "Manage product images").
 - **An image address shows a plain page "Cannot GET /media/…":** the file does not exist, maybe because its image was deleted. Every address outside `/v1` answers a missing page this way, not with JSON.
 - **Image addresses point to port 3000, but the API runs on another port:** set `MEDIA_BASE_URL` in `.env`, for example `http://127.0.0.1:3001/media`, and restart the API.
+- **Receiving a batch answers `400`:** the `errors` list names each field. `Use a date like 2026-10-31` means the date is in another form, such as `31/10/2026`. "The manufacturing date cannot be in the future", "The expiry date must be after the manufacturing date" and "This batch has already expired" compare the label's dates with India's date today: check the label again. Correcting a batch's dates (`PATCH`) checks the first two as well, but an expired batch's label can still be corrected.
+- **Receiving or correcting a batch answers `409 This pack size already has a batch with this number.`:** that batch is already in stock. Add the new packs to it with a `RECEIVED` change instead (step 4 of "Manage stock"), or fix a mistyped number.
+- **A stock change answers `400`:** read the message. "A delivery adds stock: use a positive number" and "A write-off removes stock: use a negative number" mean the sign of `change` does not fit the `reason`. "Say why the count differs" means a `CORRECTION` needs a `note`. "This batch has already expired" means an expired batch takes no more deliveries: receive a new batch.
+- **A stock change answers `409 Not enough stock: this batch holds N.`:** the change would take the batch below 0. List the batches again (step 3 of "Manage stock") and count again.
+- **Deleting a pack size or product answers `409` "still has stock":** write its batches off to 0 first (`EXPIRED`, `DAMAGED` or a `CORRECTION` with a note), then delete it. Its stock history stays.
+- **A pack shows `inStock` `False` in the shop, but there is stock on the shelf:** its batches have less than 6 months left, so they are not sold. Compare `quantity` and `sellableQuantity` in step 3 of "Manage stock". A pack taken off sale is not in the shop at all.
+- **A stock route answers `404`:** `Batch not found` means the batch ID is wrong: list the batches again (step 3 of "Manage stock"). `Pack size not found` means the pack size was deleted, or its ID is wrong.
 - **A pasted block runs two commands as one,** for example `ConvertTo-Json$id = …`: the line break between them was lost in the paste. Press `Ctrl+C`, paste the multi-line block on its own, press Enter until the prompt is back, then paste the next line.
 - **Right after `pnpm api:smoke`, a logout answers `429`:** the smoke test uses up the logout limit (120 per minute per IP) on purpose. Wait a minute, or run `pnpm api:limits:clear`.
 - **`prisma migrate dev` says a migration was modified after it was applied, and asks to reset the database:** answer **no**, because a reset deletes all data. An applied migration file was changed, maybe by a search and replace. Put it back exactly as it was applied:

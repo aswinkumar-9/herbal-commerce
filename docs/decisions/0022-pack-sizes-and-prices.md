@@ -3,6 +3,7 @@
 - Status: Accepted and implemented (part 4C)
 - Date: 2026-11-05
 - Updated: 2026-11-06 (part 4D: a deleted product's audit entry keeps its images too, and images are done, see ADR 0023)
+- Updated: 2026-11-06 (part 5: each pack on a product's page says whether it is in stock, and a pack that still holds stock cannot be deleted, see ADR 0024)
 
 ## Context
 
@@ -152,7 +153,7 @@ A price change therefore always leaves its old and new price, with who changed i
   - keep a project-wide search and replace away from applied migrations. One reached them in this part. The checksums showed it before the pull request, and the files were restored.
 - **Still open:**
   - legal review of the label and price rules;
-  - stock per pack, with batch and expiry (part 5);
+  - stock per pack, with batch and expiry (done in part 5, ADR 0024);
   - GST on invoices and order totals in paise (orders);
   - approval of large price changes (with the admin console).
 

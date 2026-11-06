@@ -1,5 +1,5 @@
 // End-to-end check of customer sign-up, sign-in, the customer's own account and
-// the public shop (categories, products, prices and images) against the running API,
+// the public shop (categories, products, prices, images and stock) against the running API,
 // and that customers can never use the staff routes.
 // Needs the API (pnpm api:dev) and Mailpit (docker compose) to be running.
 // Each run creates two throwaway customer accounts in the local database.
@@ -684,12 +684,13 @@ async function main() {
     ),
   );
   check(
-    "each pack on a product's page shows only its SKU, size and prices, and never a price above its MRP",
+    "each pack on a product's page shows only its SKU, size, prices and whether it is in stock, and never a price above its MRP",
     productPages.every(({ page }) =>
       (page.body?.variants ?? []).every(
         (pack) =>
           Object.keys(pack).sort().join() ===
-            'mrpRupees,priceRupees,quantity,sku,unit' &&
+            'inStock,mrpRupees,priceRupees,quantity,sku,unit' &&
+          typeof pack.inStock === 'boolean' &&
           pack.priceRupees <= pack.mrpRupees,
       ),
     ),
@@ -796,6 +797,7 @@ async function main() {
     'a customer access token cannot list, add, change or delete pack sizes',
     packAnswers.every((status) => status === 401),
   );
+
   // Images (part 4D) are for staff only too.
   const imageRoutes = [
     ['GET', `/v1/staff/products/${anyId}/images`],
@@ -811,6 +813,28 @@ async function main() {
   check(
     'a customer access token cannot list, upload, change or delete images',
     imageAnswers.every((status) => status === 401),
+  );
+
+  // Stock (part 5) is for staff only too: customers see only "in stock".
+  const stockRoutes = [
+    ['GET', `/v1/staff/variants/${anyId}/batches`],
+    [
+      'POST',
+      `/v1/staff/variants/${anyId}/batches`,
+      { batchNumber: 'SMOKE1', manufacturedOn: '2026-01-01', expiresOn: '2030-01-01', quantity: 1 },
+    ],
+    ['PATCH', `/v1/staff/batches/${anyId}`, { batchNumber: 'SMOKE2' }],
+    ['GET', `/v1/staff/batches/${anyId}/movements`],
+    ['POST', `/v1/staff/batches/${anyId}/movements`, { change: 1, reason: 'RECEIVED' }],
+  ];
+  const stockAnswers = [];
+  for (const [method, path, json] of stockRoutes) {
+    const answer = await call(method, path, { json, token: ownerToken });
+    stockAnswers.push(answer.status);
+  }
+  check(
+    'a customer access token cannot see or change stock',
+    stockAnswers.every((status) => status === 401),
   );
   console.log(
     failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`,

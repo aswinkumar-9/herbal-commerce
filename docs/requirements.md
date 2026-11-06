@@ -94,7 +94,7 @@ GST (HSN codes, invoices), FSSAI/AYUSH licence numbers on products, Legal Metrol
 
 1. Launch states or cities.
 2. Do you manufacture the products or buy from licensed makers?
-3. One warehouse or several; who packs?
+3. One warehouse or several; who packs? One warehouse for now, decided by the owner on 2026-11-06 (ADR 0024). Who packs is still open.
 4. Cash on delivery at launch?
 5. Region-wise pricing and visibility, or one national catalog for the MVP?
 6. API style: REST + OpenAPI (leaning) or GraphQL.

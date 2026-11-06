@@ -7,6 +7,7 @@
 - Updated: 2026-11-04 (part 4B: a hand-written check constraint, a third row lock, and never editing an applied migration, see ADR 0021)
 - Updated: 2026-11-05 (part 4C: renaming a column by hand, a guard in a migration, a fourth row lock, and keeping search and replace away from applied migrations, see ADR 0022)
 - Updated: 2026-11-06 (part 4D: triggers for rules across rows, a hash check before applying a migration, SQL tests as files, and the image row locks, see ADR 0023)
+- Updated: 2026-11-06 (part 5: a balance kept by triggers from a ledger, how Prisma reports a trigger's refusal, and the stock row lock, see ADR 0024)
 
 ## Context
 
@@ -22,6 +23,8 @@ The platform needs transactions, relational integrity and mature migrations. The
 - Migrations are SQL files committed to Git and are **forward-only**. Prisma Migrate has no automatic "down" migration.
 - **Every index lives in the schema,** so Prisma never drops one at a later migration. A partial index uses the preview feature `partialIndexes` (since part 3C-2, ADR 0019). Things Prisma does not manage at all are added by hand to a migration: triggers (ADR 0012, and since part 4D the image rules, ADR 0023) and check constraints (the lowercase email, since part 4B the rule for live products, ADR 0021, and since part 4C the price within the MRP, ADR 0022).
   - **A check constraint sees one row; a trigger can look at other rows.** A rule that counts the rows of another table, such as "at most 6 images" or "a live product has an image", needs a trigger. A trigger that counts locks the parent row first, so two changes at the same moment take turns (part 4D, ADR 0023).
+  - **A balance kept from a ledger:** a trigger applies each new row of the ledger (a stock movement) to its balance (a batch's quantity) in the same transaction, and a check constraint keeps the balance from going below 0. The update's row lock makes two changes take turns. A second trigger refuses any other change to the balance; `pg_trigger_depth()` tells the first trigger's update (depth 2) from a statement's (depth 1) (part 5, ADR 0024).
+  - **How Prisma reports a trigger's refusal:** it depends on the trigger's `ERRCODE`. `restrict_violation` and `foreign_key_violation` both become `P2003`, `unique_violation` becomes `P2002`, and a `check_violation` is not mapped to a code. Read Prisma's adapter (`@prisma/adapter-pg`) before relying on one (part 5).
   1. Create the migration with `migrate dev --create-only`.
   2. Add the SQL **after the last line**, keeping everything Prisma wrote.
   3. Then apply it.
@@ -48,5 +51,5 @@ At the time of writing, the `latest` tag of the `prisma` package on npm pointed 
 ## Consequences
 
 - Strong typing and a clear migration history.
-- Atomic stock updates and other hot paths may need explicit SQL, which Prisma supports. The first case is the row lock that keeps a customer's address changes in turn (ADR 0019), the second the lock that keeps changes to one category in turn (ADR 0020), the third the same for a product (ADR 0021), the fourth for a pack size (ADR 0022), and the fifth and sixth for a product's images: the product is locked before an image is added or deleted, and an image before it is changed (ADR 0023).
+- Atomic stock updates and other hot paths may need explicit SQL, which Prisma supports. The first case is the row lock that keeps a customer's address changes in turn (ADR 0019), the second the lock that keeps changes to one category in turn (ADR 0020), the third the same for a product (ADR 0021), the fourth for a pack size (ADR 0022), the fifth and sixth for a product's images: the product is locked before an image is added or deleted, and an image before it is changed (ADR 0023), and the seventh for a stock batch, before its stock or its label changes (ADR 0024).
 - The Prisma generator and driver setup differs between major versions, so upgrades are deliberate and tested.

@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { PinoLogger } from 'nestjs-pino';
 import { AuditService } from '../audit/audit.service';
+import { StockService } from '../inventory/stock.service';
 import { MediaStorage } from '../media/media-storage';
 import { PrismaService } from '../prisma/prisma.service';
 import { ProductsService } from './products.service';
@@ -90,14 +91,16 @@ function setup(products: object[] = []) {
     url: jest.fn((name: string) => `${BASE}/${name}`),
     remove: jest.fn().mockResolvedValue(undefined),
   };
+  const stock = { inStock: jest.fn().mockResolvedValue(new Set()) };
   const logger = { info: jest.fn(), warn: jest.fn() };
   const service = new ProductsService(
     prisma as unknown as PrismaService,
     audit as unknown as AuditService,
     media as unknown as MediaStorage,
+    stock as unknown as StockService,
     logger as unknown as PinoLogger,
   );
-  return { service, prisma, tx, audit, media, logger };
+  return { service, prisma, tx, audit, media, stock, logger };
 }
 
 // The errors a refused change answers with, field by field.
@@ -492,6 +495,24 @@ describe('ProductsService.remove', () => {
     expect(logger.info).not.toHaveBeenCalled();
   });
 
+  it('answers 409 when a pack size still holds stock, which the database refuses to delete', async () => {
+    const { service, tx, media, logger } = setup();
+    tx.productImage.findMany.mockResolvedValue([
+      { fileKey: KEY, width: 800, height: 600, altText: null, position: 0 },
+    ]);
+    tx.product.delete.mockRejectedValue(
+      Object.assign(new Error('Prisma error'), { code: 'P2003' }),
+    );
+
+    await expect(service.remove(ID, context)).rejects.toThrow(
+      new ConflictException(
+        'This product still has stock. Write it off first, then delete it.',
+      ),
+    );
+    expect(media.remove).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+  });
+
   it('keeps the files when the deletion fails', async () => {
     const { service, tx, media } = setup();
     tx.productImage.findMany.mockResolvedValue([
@@ -619,6 +640,7 @@ describe('ProductsService.findForShop', () => {
     const page = {
       name: 'Ashwagandha Capsules',
       slug: 'ashwagandha-capsules',
+      variants: [],
       images: [],
     };
     prisma.product.findFirst.mockResolvedValue(page);
@@ -652,11 +674,12 @@ describe('ProductsService.findForShop', () => {
       'variants',
     ]);
     expect(query.select.category).toEqual({ select: { name: true, slug: true } });
-    // Only the packs on sale, each by its SKU: no IDs in the shop.
+    // Only the packs on sale. The ID is read only to ask about stock.
     expect(query.select.variants).toEqual({
       where: { isActive: true },
       orderBy: [{ position: 'asc' }, { quantity: 'asc' }, { id: 'asc' }],
       select: {
+        id: true,
         sku: true,
         quantity: true,
         unit: true,
@@ -671,6 +694,7 @@ describe('ProductsService.findForShop', () => {
     prisma.product.findFirst.mockResolvedValue({
       name: 'Ashwagandha Capsules',
       slug: 'ashwagandha-capsules',
+      variants: [],
       images: [
         { fileKey: KEY, width: 800, height: 600, altText: null },
         { fileKey: OTHER_KEY, width: 600, height: 800, altText: 'Back label' },
@@ -680,6 +704,7 @@ describe('ProductsService.findForShop', () => {
     await expect(service.findForShop('ashwagandha-capsules')).resolves.toEqual({
       name: 'Ashwagandha Capsules',
       slug: 'ashwagandha-capsules',
+      variants: [],
       images: [
         {
           url: `${BASE}/products/${KEY}-large.webp`,
@@ -706,6 +731,27 @@ describe('ProductsService.findForShop', () => {
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }],
       select: { fileKey: true, width: true, height: true, altText: true },
     });
+  });
+
+  it('says for each pack on sale whether it is in stock, by its SKU, never by its ID', async () => {
+    const { service, prisma, stock } = setup();
+    const pack = (id: string, sku: string, quantity: number) => ({
+      id, sku, quantity, unit: 'CAPSULES', mrpRupees: 500, priceRupees: 450,
+    });
+    prisma.product.findFirst.mockResolvedValue({
+      name: 'Ashwagandha Capsules',
+      variants: [pack('v-60', 'ASH-CAP-60', 60), pack('v-120', 'ASH-CAP-120', 120)],
+      images: [],
+    });
+    stock.inStock.mockResolvedValue(new Set(['v-120']));
+
+    const page = await service.findForShop('ashwagandha-capsules');
+
+    expect(stock.inStock).toHaveBeenCalledWith(['v-60', 'v-120']);
+    expect(page.variants).toEqual([
+      { sku: 'ASH-CAP-60', quantity: 60, unit: 'CAPSULES', mrpRupees: 500, priceRupees: 450, inStock: false },
+      { sku: 'ASH-CAP-120', quantity: 120, unit: 'CAPSULES', mrpRupees: 500, priceRupees: 450, inStock: true },
+    ]);
   });
 
   it('answers 404 for a hidden or unknown product', async () => {
