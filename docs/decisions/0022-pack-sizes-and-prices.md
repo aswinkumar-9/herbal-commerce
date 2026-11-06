@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 4C)
 - Date: 2026-11-05
+- Updated: 2026-11-06 (part 4D: a deleted product's audit entry keeps its images too, and images are done, see ADR 0023)
 
 ## Context
 
@@ -153,5 +154,6 @@ A price change therefore always leaves its old and new price, with who changed i
   - legal review of the label and price rules;
   - stock per pack, with batch and expiry (part 5);
   - GST on invoices and order totals in paise (orders);
-  - approval of large price changes (with the admin console);
-  - images (part 4D).
+  - approval of large price changes (with the admin console).
+
+  Images were done in part 4D (ADR 0023).

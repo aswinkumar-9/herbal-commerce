@@ -1,12 +1,12 @@
 # API specification
 
-Status: **Draft v0.14.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.15.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
-Base path: `/v1` for business endpoints. Health endpoints are unversioned.
+Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
 ## Conventions
 
-- **JSON only.** Request bodies must be JSON (`Content-Type: application/json`), at most 100 kB and not compressed. A form body fails validation (`400`), a compressed body gets `415` and a larger body gets `413` (ADR 0008).
+- **JSON only.** Request bodies must be JSON (`Content-Type: application/json`), at most 100 kB and not compressed. A form body fails validation (`400`), a compressed body gets `415` and a larger body gets `413` (ADR 0008). The one exception is the image upload, whose body is the image itself (see "Managing product images").
 - Every response carries an `X-Request-Id` header. A client may send its own `X-Request-Id` (8 to 64 characters of letters, digits, `_` or `-`); otherwise one is generated.
 - **IDs in paths** are UUIDs. Any other value gets `400` with `"message": "Validation failed (uuid is expected)"`, before any other work.
 - **Money** is a whole number, and its field name says the unit: `priceRupees: 449` is ₹449. Prices are whole rupees and include GST (ADR 0022).
@@ -54,7 +54,7 @@ Two answers mean "try again later". Both carry a **`Retry-After`** header with t
 | Status | Body | Meaning |
 |---|---|---|
 | `429` | `{ "message": "Too many requests. Please try again later.", "code": "RATE_LIMITED" }` | You sent too much: a rate limit is used up, or a sign-in block is running |
-| `503` | `{ "message": "The server is busy. Please try again in a few seconds.", "code": "SERVER_BUSY" }` | The server is too busy checking passwords right now (`Retry-After: 5`) |
+| `503` | `{ "message": "The server is busy. Please try again in a few seconds.", "code": "SERVER_BUSY" }` | The server is too busy checking passwords, or checking uploaded images, right now (`Retry-After: 5`) |
 
 The per-IP limits are checked before anything else, so a `429` can arrive even for a request that would fail validation.
 
@@ -72,6 +72,7 @@ The per-IP limits are checked before anything else, so a `429` can arrive even f
 | `me/password` | client IP | 10 per hour |
 | `staff/admins` and `staff/admins/:id/invitation` together (inviting an Admin, and again) | client IP | 20 per hour |
 | `staff/auth/accept-invite` | client IP | 20 per hour |
+| Uploading an image (`POST staff/products/:productId/images`) | client IP | 120 per hour |
 | `login` and `staff/auth/login` together, failed attempts | email + client IP | 5 per hour, then blocked for 15 minutes |
 | `login` and `staff/auth/login` together, failed attempts | email | 50 per hour, then blocked for 1 hour |
 | `login` and `staff/auth/login` together, failed attempts | client IP | 200 per hour, then blocked for 1 hour |
@@ -444,14 +445,20 @@ Response `200`:
 {
   "category": { "name": "Herbal Supplements", "slug": "herbal-supplements", "description": null },
   "products": [
-    { "name": "Ashwagandha Capsules", "slug": "ashwagandha-capsules", "summary": "For calm and strength", "fromPriceRupees": 400 },
-    { "name": "Tulsi Tea", "slug": "tulsi-tea", "summary": null, "fromPriceRupees": null }
+    {
+      "name": "Ashwagandha Capsules",
+      "slug": "ashwagandha-capsules",
+      "summary": "For calm and strength",
+      "fromPriceRupees": 400,
+      "imageUrl": "http://127.0.0.1:3000/media/products/32d470e1-c036-42a5-95c3-1b17c172e8e5-small.webp"
+    }
   ],
   "nextAfter": null
 }
 ```
-- Each product has exactly these four fields. Its page has the rest (below).
+- Each product has exactly these five fields. Its page has the rest (below).
 - `fromPriceRupees`: the lowest price among the product's packs on sale, for "from ₹400". It is `null` while no pack is on sale (ADR 0022).
+- `imageUrl`: the small file of the product's main photo, at most 400 pixels on its longest side (ADR 0023). A live product always has an image.
 - `nextAfter`: send it as `?after=` for the next page. It is `null` on the last page.
 - The shop never shows IDs.
 
@@ -487,10 +494,33 @@ Response `200`:
   "variants": [
     { "sku": "ASH-CAP-60", "quantity": 60, "unit": "CAPSULES", "mrpRupees": 500, "priceRupees": 400 },
     { "sku": "ASH-CAP-120", "quantity": 120, "unit": "CAPSULES", "mrpRupees": 900, "priceRupees": 800 }
+  ],
+  "images": [
+    {
+      "url": "http://127.0.0.1:3000/media/products/32d470e1-c036-42a5-95c3-1b17c172e8e5-large.webp",
+      "thumbnailUrl": "http://127.0.0.1:3000/media/products/32d470e1-c036-42a5-95c3-1b17c172e8e5-small.webp",
+      "altText": "Ashwagandha Capsules",
+      "width": 1200,
+      "height": 1600
+    },
+    {
+      "url": "http://127.0.0.1:3000/media/products/e96e8316-3b89-4c89-8c11-989ad2d6cfd0-large.webp",
+      "thumbnailUrl": "http://127.0.0.1:3000/media/products/e96e8316-3b89-4c89-8c11-989ad2d6cfd0-small.webp",
+      "altText": "The back label, with the ingredients",
+      "width": 1600,
+      "height": 1200
+    }
   ]
 }
 ```
 - **The licence and maker details must be shown on the product's page:** Indian labelling rules want them.
+- `images`: the product's photos, the main one first, in the order staff chose (ADR 0023). There is always at least one. Each has exactly these five fields:
+  - `url`: the large file, WebP, at most 1600 pixels on its longest side;
+  - `thumbnailUrl`: the small file, at most 400 pixels;
+  - `altText`: describes the photo for people who cannot see it. Without a description from staff, it is the product's name;
+  - `width` and `height`: the large file's size in pixels, so the page can keep room for it while it loads.
+
+  An image has no ID in the shop: it is known by the addresses of its files.
 - `variants`: the packs on sale, in the order staff chose (ADR 0022). Each has exactly these five fields:
   - `sku`: the pack's code, which identifies it (the shop shows no IDs);
   - `quantity` and `unit`: the net quantity, such as 60 `CAPSULES` or 100 `G`. Units: `G`, `KG`, `ML`, `L`, `CAPSULES`, `TABLETS`, `PIECES`;
@@ -502,9 +532,21 @@ Response `200`:
   - `AYURVEDIC_MEDICINE`: the licence is an AYUSH licence;
   - `FOOD_OR_SUPPLEMENT`: an FSSAI licence, always 14 digits;
   - `COSMETIC`: a cosmetics licence.
-- `summary`, `description` and `usage` may be `null`. A live product always has its type, licence, maker's name and address, ingredients and country.
+- `summary`, `description` and `usage` may be `null`. A live product always has its type, licence, maker's name and address, ingredients, country and at least one image.
 
 Errors: `404 Product not found` (no live product with this slug: unknown, a draft, or in a hidden category, which all look the same); `429` (the 600 per minute limit).
+
+## Image files
+
+### GET `/media/products/<key>-large.webp` and `-small.webp`
+
+**Public.** The files behind every `url`, `thumbnailUrl` and `imageUrl` (ADR 0023). Use the addresses exactly as the API gives them: the part before `/products/` comes from the setting `MEDIA_BASE_URL`, and will be a CDN once the API is deployed.
+
+- Always `Content-Type: image/webp`.
+- `Cache-Control: public, max-age=31536000, immutable`. A file never changes: a new photo gets a new address. So a browser may keep a file for a year.
+- `Cross-Origin-Resource-Policy: cross-origin`: other sites, such as the shop's website, may show the files.
+- Files only. A folder, a hidden file, a path that leads out of the folder, or a file that does not exist answers `404`. Like every address outside `/v1`, that `404` is a plain HTML page, not JSON.
+- No rate limit on a laptop: these files are served before the API's guards. A CDN takes this job before production.
 
 ## Staff authentication
 
@@ -893,9 +935,10 @@ The rules for each field:
 
 An empty text, or `null` in a change, means none.
 
-**Going live:** `"isActive": true` needs `type`, `licenceNumber`, `manufacturerName`, `manufacturerAddress`, `ingredients`, `hsnCode` and `gstRate`. A pack on sale is not needed: without one, the shop shows the product with no price. The check looks at the product **as it will be saved**:
-- a create or a change can add the missing details and go live at once;
-- a change that removes one of them from a live product is refused;
+**Going live:** `"isActive": true` needs `type`, `licenceNumber`, `manufacturerName`, `manufacturerAddress`, `ingredients`, `hsnCode` and `gstRate`, and **at least one image** (`images` in `errors`, ADR 0023). A pack on sale is not needed: without one, the shop shows the product with no price. The check looks at the product **as it will be saved**:
+- a change can add the missing details and go live at once;
+- **a new product always starts as a draft:** it has no image yet. Add its images (see "Managing product images"), then go live with a change;
+- a change that removes one of the details from a live product is refused, and so is deleting its last image;
 - so is a change of `type` that the stored licence no longer fits.
 
 The answer then is `400 Validation failed`, with one entry in `errors` for each problem:
@@ -931,7 +974,7 @@ Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` (see
 
 ### POST `/v1/staff/products`
 
-Creates a product. Only `categoryId` and `name` are required. It is a draft unless `"isActive": true` is sent with all the details. Any other field, such as `id`, is ignored.
+Creates a product. Only `categoryId` and `name` are required. **It is always a draft:** going live needs an image, and a new product has none yet. Sending `"isActive": true` here answers `400`, naming `images` and any detail still missing. Any other field, such as `id`, is ignored.
 
 Request (a draft):
 ```json
@@ -944,7 +987,7 @@ Errors:
 
 | Status | Body | When |
 |---|---|---|
-| `400` | `Validation failed` | A missing or invalid field, a live product without its details, or a `categoryId` with no category behind it (`No category with this ID`) |
+| `400` | `Validation failed` | A missing or invalid field, `"isActive": true` (a new product has no image), or a `categoryId` with no category behind it (`No category with this ID`) |
 | `401` | see "Authentication errors on protected endpoints" | No staff access token, or a customer's |
 | `409` | `Another product already has this slug. Choose a different one.` | The slug, sent or made from the name, is taken |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
@@ -972,7 +1015,7 @@ Errors:
 
 ### DELETE `/v1/staff/products/:id`
 
-Deletes a product for good, **with its pack sizes. Super Users only.** An Admin deactivates it instead. The audit log keeps everything the product was, its pack sizes and their prices included.
+Deletes a product for good, **with its pack sizes and its images. Super Users only.** An Admin deactivates it instead. The audit log keeps everything the product was, its pack sizes, their prices and its images included. The image files are deleted once the deletion is saved.
 
 Response `204 No Content`.
 
@@ -1090,6 +1133,116 @@ Response `204 No Content`.
 
 Errors: `400` (the ID is not a UUID); `401`; `403 Only a Super User may do this.` (called by an Admin); `404 Pack size not found`; `429` (the 600 per minute limit).
 
+## Managing product images (staff)
+
+A product's photos (ADR 0023). These endpoints need a **staff** access token. **Admins may delete images too,** unlike categories, products and packs: replacing a photo is everyday work. Every change is written to the audit log, with the staff member, the client IP and the request ID.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/staff/products/:productId/images` | List every image of a product, main photo first |
+| `POST /v1/staff/products/:productId/images` | Upload one image |
+| `PATCH /v1/staff/images/:id` | Describe it, or move it |
+| `DELETE /v1/staff/images/:id` | Delete it, with its files |
+
+An image, as these endpoints return it:
+```json
+{
+  "id": "9e783ece-f6d7-4547-a609-bfd8b4b21829",
+  "productId": "48f2a064-5078-44bd-ab3e-63c563c65f13",
+  "width": 1200,
+  "height": 1600,
+  "altText": null,
+  "position": 0,
+  "createdAt": "2026-11-06T07:27:21.665Z",
+  "updatedAt": "2026-11-06T07:27:21.665Z",
+  "url": "http://127.0.0.1:3000/media/products/32d470e1-c036-42a5-95c3-1b17c172e8e5-large.webp",
+  "thumbnailUrl": "http://127.0.0.1:3000/media/products/32d470e1-c036-42a5-95c3-1b17c172e8e5-small.webp"
+}
+```
+
+| Field | Rules |
+|---|---|
+| `altText` | Optional, up to 150 characters, trimmed. It describes the photo for people who cannot see it, such as "The back label, with the ingredients". An empty text or `null` removes it, and the shop then uses the product's name. |
+| `position` | A whole number from 0 to 9999. Default `0`. Images are listed by position, then the oldest first. The first is the main photo. |
+
+The upload sets everything else: the two files, their addresses, and the large file's `width` and `height`.
+
+**Two rules,** checked after a lock on the product, and again by the database:
+- a product has **at most 6 images**;
+- a **live product keeps at least 1**.
+
+### GET `/v1/staff/products/:productId/images`
+
+Every image of the product, the main photo first. Not paged: a product has at most 6.
+
+Response `200`: `{ "images": [...] }`, each image in the form above.
+
+Errors: `400` (the ID is not a UUID); `401` (see "Authentication errors on protected endpoints"), also for a customer access token; `404 Product not found`; `429` (the 600 per minute limit).
+
+### POST `/v1/staff/products/:productId/images`
+
+Uploads one image. **The request body is the image itself,** not JSON and not a form:
+- its `Content-Type` is `image/jpeg`, `image/png` or `image/webp`, and must match the file;
+- at most 10 MB, not compressed;
+- one image per request.
+
+For example, in PowerShell:
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://localhost:3000/v1/staff/products/$id/images" -Headers $auth -ContentType 'image/jpeg' -InFile 'C:\photos\front.jpg'
+```
+
+The API checks the file and keeps only a new copy of its pixels (ADR 0023):
+- its first bytes must show the type its `Content-Type` claims;
+- at most 50 megapixels, and at least 400 pixels on each side, both read before anything is decoded;
+- two WebP files are made, at most 1600 and 400 pixels on their longest side, never enlarged and turned upright. The photo's hidden details, such as its GPS location, are not kept.
+
+The new image gets `position` `0`, so it comes after the images already at position 0. To make it the main photo, give the others a higher position.
+
+Response `201`: the image.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The product ID is not a UUID |
+| `400` | `Validation failed`, on `image` | `The file is not a JPEG image` (or PNG, or WebP); `The image could not be read. It may be damaged.`; `The image may have at most 50 megapixels`; `The image needs at least 400 pixels on each side` |
+| `401` | see "Authentication errors on protected endpoints" | No staff access token, or a customer's. **An upload without a valid staff token is never read:** for a large one, the client may see the connection closed instead of the `401`. |
+| `404` | `Product not found` | No product with this ID |
+| `409` | `A product has at most 6 images. Delete one first.` | The product has 6 already |
+| `413` | `Request body too large` | More than 10 MB |
+| `415` | `Send one JPEG, PNG or WebP image as the request body, with its Content-Type` | Any other body, JSON included |
+| `415` | `Invalid request` | A compressed body |
+| `429` | `code: "RATE_LIMITED"` | 120 uploads per hour from this IP, or the 600 per minute limit |
+| `503` | `code: "SERVER_BUSY"` | 2 images are being checked and 10 more are waiting. Wait the `Retry-After` seconds. |
+
+### PATCH `/v1/staff/images/:id`
+
+Changes an image's description or its place. The photo itself never changes: a new photo is a new upload. Send only what changes:
+- `{ "altText": "The back label, with the ingredients" }`;
+- `{ "position": 1 }`.
+
+Sending the values the image already has changes nothing, answers `200` too, and writes no audit entry.
+
+Response `200`: the image, as it is now.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `400` | `Validation failed` | An invalid field, or an empty change (`Nothing to change`) |
+| `401` | see above | No staff access token, or a customer's |
+| `404` | `Image not found` | No image with this ID |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### DELETE `/v1/staff/images/:id`
+
+Deletes an image for good, with its two files. **Admins and Super Users alike.** The audit log keeps what the image was.
+
+Response `204 No Content`.
+
+Errors: `400` (the ID is not a UUID); `401`; `404 Image not found`; `409 A live product needs at least one image. Add another first, or take the product offline.`; `429` (the 600 per minute limit).
+
 ## Audit log (Super Users only)
 
 ### GET `/v1/staff/audit-log`
@@ -1104,7 +1257,7 @@ Query parameters, all optional:
 | `before` | UUID | The `nextBefore` of the previous page: continue just after it |
 | `action` | Like `thing.verb`, for example `admin.removed` | Only this action |
 | `actorId` | UUID | Only what this account did |
-| `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's, a category's, a product's or a pack's ID |
+| `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's, a category's, a product's, a pack's or an image's ID |
 
 The filters combine. Any other parameter is ignored.
 
@@ -1131,11 +1284,11 @@ Response `200`:
 }
 ```
 - `actor`: the account that acted, or `null` for the developer commands or an account that no longer exists. `actorId` stays either way.
-- `target`: the account an entry is about, for user targets only. It is `null` for other targets, such as the session of a `staff.signed_in`, a category, a product or a pack, and for removed accounts.
+- `target`: the account an entry is about, for user targets only. It is `null` for other targets, such as the session of a `staff.signed_in`, a category, a product, a pack or an image, and for removed accounts.
 - `before` and `after`: the relevant fields before and after the change, never a password, secret or token.
 - `nextBefore`: send it as `?before=` to get the next, older page. It is `null` on the last page.
 
-Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way, and since part 4C `variant.created`, `variant.updated` and `variant.deleted` for pack sizes. A price change is a `variant.updated` with the old and new price. A `product.deleted` entry also keeps the product's packs, in `before.variants`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
+Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way, since part 4C `variant.created`, `variant.updated` and `variant.deleted` for pack sizes, and since part 4D `image.created`, `image.updated` and `image.deleted` for product images. A price change is a `variant.updated` with the old and new price. A `product.deleted` entry also keeps the product's packs and images, in `before.variants` and `before.images`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
 
 Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` and `403` (as for the Admin endpoints); `429` (the 600 per minute limit).
 
@@ -1145,4 +1298,4 @@ Rules for clients:
 
 ## Not yet implemented
 
-Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: product images (part 4D), stock with batch and expiry (part 5), and search. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0022 and `docs/security.md`.
+Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: stock with batch and expiry (part 5), and search. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0023 and `docs/security.md`.
