@@ -8,8 +8,12 @@ export const HOLD_MINUTES = 15;
 // Delivery is free from Rs 499; below that it costs Rs 49.
 export const FREE_DELIVERY_FROM_PAISE = 49_900;
 export const DELIVERY_CHARGE_PAISE = 4_900;
+// A customer has at most 3 orders waiting for payment at once, so nobody
+// can hold the shop's stock with many unpaid orders.
+export const MAX_OPEN_ORDERS = 3;
 
 export const CART_EMPTY = 'The cart is empty.';
+export const TOO_MANY_OPEN = `You have ${MAX_OPEN_ORDERS} orders waiting for payment. Pay for one or cancel it first.`;
 export const TOTAL_CHANGED =
   'The total has changed. Check the cart and try again.';
 export const notReady = (skus: string[]) =>

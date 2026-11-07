@@ -346,6 +346,21 @@ describe('CartService.lockedLines and clear, for an order', () => {
     );
   });
 
+  it('reads the lines for a look at checkout without marking the cart', async () => {
+    const { cart, prisma } = setup();
+    prisma.cartItem.findMany.mockResolvedValue([{ variantId: V60, packs: 1 }]);
+
+    await expect(cart.lines(USER)).resolves.toEqual([
+      { variantId: V60, packs: 1 },
+    ]);
+    expect(prisma.cartItem.findMany).toHaveBeenCalledWith({
+      where: { cart: { userId: USER } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { variantId: true, packs: true },
+    });
+    expect(prisma.cart.updateMany).not.toHaveBeenCalled();
+  });
+
   it("empties the customer's cart inside the order's transaction", async () => {
     const { cart, prisma } = setup();
     const tx = orderTx();

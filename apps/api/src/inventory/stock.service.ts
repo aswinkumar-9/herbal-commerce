@@ -32,6 +32,7 @@ export const BATCH_NUMBER_TAKEN =
   'This pack size already has a batch with this number.';
 export const notEnoughStock = (held: number) =>
   `Not enough stock: this batch holds ${held}.`;
+
 // An order wanted more of a pack size than its sellable batches hold
 // (ADR 0026). Orders turn it into an answer that names the pack.
 export class NotEnoughStockError extends Error {

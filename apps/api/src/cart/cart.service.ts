@@ -168,6 +168,12 @@ export class CartService {
     await this.prisma.cart.deleteMany({ where: { userId } });
   }
 
+  // The cart's lines, the first added first, for a look at checkout
+  // (ADR 0026). Looking changes nothing.
+  async lines(userId: string): Promise<{ variantId: string; packs: number }[]> {
+    return this.linesIn(this.prisma, userId);
+  }
+
   // For an order (ADR 0026): marks the customer's cart as changed, which
   // locks it until the order's transaction ends, so the cart cannot change
   // while the order is placed. Then its lines, the first added first. A
@@ -180,17 +186,25 @@ export class CartService {
       where: { userId },
       data: { updatedAt: new Date() },
     });
-    return tx.cartItem.findMany({
-      where: { cart: { userId } },
-      orderBy: LINE_ORDER,
-      select: { variantId: true, packs: true },
-    });
+    return this.linesIn(tx, userId);
   }
 
   // Empties the cart in an order's transaction: the order holds its packs
   // now.
   async clear(tx: Prisma.TransactionClient, userId: string): Promise<void> {
     await tx.cart.deleteMany({ where: { userId } });
+  }
+
+  // The customer's cart lines, read in or outside a transaction.
+  private linesIn(
+    client: Prisma.TransactionClient,
+    userId: string,
+  ): Promise<{ variantId: string; packs: number }[]> {
+    return client.cartItem.findMany({
+      where: { cart: { userId } },
+      orderBy: LINE_ORDER,
+      select: { variantId: true, packs: true },
+    });
   }
 
   // The customer's cart, made if it does not exist yet, marked as changed

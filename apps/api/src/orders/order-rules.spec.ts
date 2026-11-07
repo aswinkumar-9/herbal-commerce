@@ -7,12 +7,14 @@ import {
   HOLD_MINUTES,
   holdExpiresAt,
   lineAmounts,
+  MAX_OPEN_ORDERS,
   newOrderReference,
   notEnoughStock,
   notReady,
   orderTotals,
   REFERENCE_LENGTH,
   rupeesToPaise,
+  TOO_MANY_OPEN,
   TOTAL_CHANGED,
 } from './order-rules';
 
@@ -23,8 +25,15 @@ describe("the owner's numbers", () => {
     expect(DELIVERY_CHARGE_PAISE).toBe(4_900);
   });
 
+  it('let a customer have at most 3 orders waiting for payment', () => {
+    expect(MAX_OPEN_ORDERS).toBe(3);
+  });
+
   it('are explained in the messages', () => {
     expect(CART_EMPTY).toBe('The cart is empty.');
+    expect(TOO_MANY_OPEN).toBe(
+      'You have 3 orders waiting for payment. Pay for one or cancel it first.',
+    );
     expect(TOTAL_CHANGED).toBe(
       'The total has changed. Check the cart and try again.',
     );

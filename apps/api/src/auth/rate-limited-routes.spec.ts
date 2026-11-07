@@ -8,6 +8,7 @@ import { StaffImagesController } from '../catalog/staff-images.controller';
 import { StaffStockController } from '../inventory/staff-stock.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffVariantsController } from '../catalog/staff-variants.controller';
+import { OrdersController } from '../orders/orders.controller';
 import { RATE_LIMIT } from '../rate-limit/rate-limit.decorator';
 import { StaffAuthController } from '../staff/staff-auth.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
@@ -123,6 +124,12 @@ describe('rate-limited routes', () => {
       setPacks: undefined,
       remove: undefined,
       empty: undefined,
+    });
+    // Placing an order holds stock, so it has its own limit. The checkout
+    // only reads.
+    expect(routeLimits(OrdersController)).toStrictEqual({
+      quote: undefined,
+      place: ['placeOrder'],
     });
   });
 });
