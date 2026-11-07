@@ -395,6 +395,31 @@ export class StockService {
     await tx.stockMovement.createMany({ data: movements });
   }
 
+  // For an order that was cancelled or expired (ADR 0026): gives back to
+  // each batch what the order still holds of it, as RELEASED movements in
+  // the order's transaction, in the order of the batches' IDs, the same
+  // order in which take locks them. A batch deleted meanwhile took the
+  // order's movements along, and gets nothing back.
+  async release(tx: Prisma.TransactionClient, orderId: string): Promise<void> {
+    const held = await tx.stockMovement.groupBy({
+      by: ['batchId'],
+      where: { orderId },
+      _sum: { change: true },
+      orderBy: { batchId: 'asc' },
+    });
+    const movements: Prisma.StockMovementCreateManyInput[] = held
+      .filter((batch) => (batch._sum.change ?? 0) < 0)
+      .map((batch) => ({
+        batchId: batch.batchId,
+        change: -(batch._sum.change ?? 0),
+        reason: 'RELEASED',
+        orderId,
+      }));
+    if (movements.length > 0) {
+      await tx.stockMovement.createMany({ data: movements });
+    }
+  }
+
   // Locks one batch until the transaction ends, or answers false when
   // there is no such batch. The ID is sent as a parameter, never pasted
   // into the SQL.

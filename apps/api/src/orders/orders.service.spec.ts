@@ -7,12 +7,17 @@ import type { StockService } from '../inventory/stock.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import {
   CART_EMPTY,
+  NOT_CANCELLABLE,
   notEnoughStock,
   notReady,
   TOO_MANY_OPEN,
   TOTAL_CHANGED,
 } from './order-rules';
-import { ORDER_NOT_FOUND, OrdersService } from './orders.service';
+import {
+  EXPIRE_PER_RUN,
+  ORDER_NOT_FOUND,
+  OrdersService,
+} from './orders.service';
 
 const USER = '5d1e8c2a-7b3f-4e9a-a1c6-2f8d0b4e7a93';
 const ADDRESS = '6f2b9d1e-4c7a-4e3b-9a85-1d2c3e4f5a6b';
@@ -123,10 +128,15 @@ function setup() {
       findUnique: jest.fn().mockResolvedValue(null),
       count: jest.fn().mockResolvedValue(0),
       create: jest.fn().mockResolvedValue({ id: ORDER }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findFirst: jest.fn().mockResolvedValue({ id: ORDER }),
     },
   };
   const prisma = {
-    order: { findFirst: jest.fn().mockResolvedValue(orderRow) },
+    order: {
+      findFirst: jest.fn().mockResolvedValue(orderRow),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)),
   };
   const addresses = { deliveryAddress: jest.fn().mockResolvedValue(address) };
@@ -139,6 +149,7 @@ function setup() {
   const stock = {
     inStock: jest.fn().mockResolvedValue(new Set([V60, TEA])),
     take: jest.fn().mockResolvedValue(undefined),
+    release: jest.fn().mockResolvedValue(undefined),
   };
   const orders = new OrdersService(
     prisma as unknown as PrismaService,
@@ -381,5 +392,150 @@ describe('OrdersService.view', () => {
     await expect(orders.view(USER, ORDER)).rejects.toThrow(
       new NotFoundException(ORDER_NOT_FOUND),
     );
+  });
+});
+
+describe('OrdersService.list', () => {
+  const summary = (id: string) => ({
+    id,
+    reference: '7KQ2M9XDPA',
+    status: 'PENDING_PAYMENT',
+    totalPaise: 154_600,
+    holdExpiresAt: NOW,
+    createdAt: NOW,
+  });
+
+  it("lists the customer's own orders, the newest first, one page at a time", async () => {
+    const { orders, prisma } = setup();
+    prisma.order.findMany.mockResolvedValue([
+      summary('o-3'),
+      summary('o-2'),
+      summary('o-1'),
+    ]);
+
+    await expect(
+      orders.list(USER, { limit: 2, before: 'o-4' }),
+    ).resolves.toEqual({
+      orders: [summary('o-3'), summary('o-2')],
+      nextBefore: 'o-2',
+    });
+    expect(prisma.order.findMany).toHaveBeenCalledWith({
+      where: { userId: USER },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 3,
+      cursor: { id: 'o-4' },
+      skip: 1,
+      select: {
+        id: true,
+        reference: true,
+        status: true,
+        totalPaise: true,
+        holdExpiresAt: true,
+        createdAt: true,
+      },
+    });
+
+    prisma.order.findMany.mockResolvedValue([summary('o-1')]);
+    await expect(orders.list(USER, { limit: 20 })).resolves.toEqual({
+      orders: [summary('o-1')],
+      nextBefore: null,
+    });
+    expect(prisma.order.findMany.mock.calls[1][0]).not.toHaveProperty('cursor');
+  });
+});
+
+describe('OrdersService.cancel', () => {
+  it('cancels an order waiting for payment and gives its stock back, in one transaction', async () => {
+    const { orders, tx, stock } = setup();
+
+    await expect(orders.cancel(USER, ORDER)).resolves.toMatchObject({
+      id: ORDER,
+    });
+    expect(tx.order.updateMany).toHaveBeenCalledWith({
+      where: { id: ORDER, userId: USER, status: 'PENDING_PAYMENT' },
+      data: { status: 'CANCELLED' },
+    });
+    expect(stock.release).toHaveBeenCalledWith(tx, ORDER);
+  });
+
+  it('refuses an order no longer waiting for payment, and gives nothing back', async () => {
+    const { orders, tx, stock } = setup();
+    tx.order.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(orders.cancel(USER, ORDER)).rejects.toThrow(
+      new ConflictException(NOT_CANCELLABLE),
+    );
+    expect(tx.order.findFirst).toHaveBeenCalledWith({
+      where: { id: ORDER, userId: USER },
+      select: { id: true },
+    });
+    expect(stock.release).not.toHaveBeenCalled();
+  });
+
+  it("answers 404 for an unknown order or someone else's", async () => {
+    const { orders, tx, stock } = setup();
+    tx.order.updateMany.mockResolvedValue({ count: 0 });
+    tx.order.findFirst.mockResolvedValue(null);
+
+    await expect(orders.cancel(USER, ORDER)).rejects.toThrow(
+      new NotFoundException(ORDER_NOT_FOUND),
+    );
+    expect(stock.release).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrdersService.expireUnpaid', () => {
+  it('expires the orders whose hold has run out, each in its own transaction, and gives their stock back', async () => {
+    const { orders, prisma, tx, stock } = setup();
+    prisma.order.findMany.mockResolvedValue([{ id: 'o-1' }, { id: 'o-2' }]);
+
+    await expect(orders.expireUnpaid(NOW)).resolves.toEqual({
+      expired: 2,
+      failed: 0,
+    });
+    expect(EXPIRE_PER_RUN).toBe(100);
+    expect(prisma.order.findMany).toHaveBeenCalledWith({
+      where: { status: 'PENDING_PAYMENT', holdExpiresAt: { lte: NOW } },
+      orderBy: { holdExpiresAt: 'asc' },
+      take: 100,
+      select: { id: true },
+    });
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+    expect(tx.order.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'o-2',
+        status: 'PENDING_PAYMENT',
+        holdExpiresAt: { lte: NOW },
+      },
+      data: { status: 'EXPIRED' },
+    });
+    expect(stock.release.mock.calls).toEqual([
+      [tx, 'o-1'],
+      [tx, 'o-2'],
+    ]);
+  });
+
+  it('leaves alone an order paid or cancelled at the same moment', async () => {
+    const { orders, prisma, tx, stock } = setup();
+    prisma.order.findMany.mockResolvedValue([{ id: 'o-1' }]);
+    tx.order.updateMany.mockResolvedValue({ count: 0 });
+
+    await expect(orders.expireUnpaid(NOW)).resolves.toEqual({
+      expired: 0,
+      failed: 0,
+    });
+    expect(stock.release).not.toHaveBeenCalled();
+  });
+
+  it('counts an order that fails, and goes on with the others', async () => {
+    const { orders, prisma, stock } = setup();
+    prisma.order.findMany.mockResolvedValue([{ id: 'o-1' }, { id: 'o-2' }]);
+    stock.release.mockRejectedValueOnce(new Error('connection lost'));
+
+    await expect(orders.expireUnpaid(NOW)).resolves.toEqual({
+      expired: 1,
+      failed: 1,
+    });
+    expect(stock.release).toHaveBeenCalledTimes(2);
   });
 });

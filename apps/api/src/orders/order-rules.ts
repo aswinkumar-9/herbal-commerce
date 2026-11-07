@@ -13,6 +13,8 @@ export const DELIVERY_CHARGE_PAISE = 4_900;
 export const MAX_OPEN_ORDERS = 3;
 
 export const CART_EMPTY = 'The cart is empty.';
+export const NOT_CANCELLABLE =
+  'Only an order waiting for payment can be cancelled.';
 export const TOO_MANY_OPEN = `You have ${MAX_OPEN_ORDERS} orders waiting for payment. Pay for one or cancel it first.`;
 export const TOTAL_CHANGED =
   'The total has changed. Check the cart and try again.';

@@ -5,15 +5,22 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  Param,
+  ParseUUIDPipe,
   Post,
+  Query,
 } from '@nestjs/common';
 import type { AuthUser } from '../auth/auth-user';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { validationFailed } from '../catalog/validation-failed';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
-import { idempotencyKeySchema, placeOrderSchema } from './orders.schemas';
-import type { PlaceOrderInput } from './orders.schemas';
+import {
+  idempotencyKeySchema,
+  orderListQuerySchema,
+  placeOrderSchema,
+} from './orders.schemas';
+import type { OrderListQuery, PlaceOrderInput } from './orders.schemas';
 import { OrdersService } from './orders.service';
 
 // The signed-in customer's checkout and orders (ADR 0026). The customer
@@ -45,5 +52,34 @@ export class OrdersController {
       ]);
     }
     return this.orders.place(user.id, key.data, body);
+  }
+
+  // The caller's orders, the newest first, one page at a time.
+  @Get('orders')
+  list(
+    @CurrentUser() user: AuthUser,
+    @Query(new ZodValidationPipe(orderListQuerySchema)) query: OrderListQuery,
+  ) {
+    return this.orders.list(user.id, query);
+  }
+
+  // The ID only picks one of the caller's own orders: anyone else's gets
+  // 404.
+  @Get('orders/:id')
+  view(
+    @CurrentUser() user: AuthUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.orders.view(user.id, id);
+  }
+
+  // Cancels an order waiting for payment. Its stock goes back at once.
+  @Post('orders/:id/cancel')
+  @HttpCode(HttpStatus.OK)
+  cancel(
+    @CurrentUser() user: AuthUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.orders.cancel(user.id, id);
   }
 }

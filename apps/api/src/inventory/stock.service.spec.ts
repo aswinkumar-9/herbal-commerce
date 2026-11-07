@@ -72,6 +72,7 @@ function setup() {
     stockMovement: {
       create: jest.fn().mockResolvedValue({ id: 'm-1' }),
       createMany: jest.fn().mockResolvedValue({ count: 0 }),
+      groupBy: jest.fn().mockResolvedValue([]),
     },
   };
   const prisma = {
@@ -572,6 +573,47 @@ describe('StockService.take, for an order', () => {
       service.take(tx as never, ORDER, [{ variantId: VARIANT, packs: 1 }], NOW),
     ).rejects.toMatchObject({ variantId: VARIANT });
     expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.stockMovement.createMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('StockService.release, for an order cancelled or expired', () => {
+  const ORDER = '0d0d0d0d-0d0d-4d0d-8d0d-0d0d0d0d0d0d';
+
+  it('gives back to each batch what the order still holds of it, in the order of the batch IDs', async () => {
+    const { service, tx } = setup();
+    tx.stockMovement.groupBy.mockResolvedValue([
+      { batchId: 'b-1', _sum: { change: -2 } },
+      { batchId: 'b-2', _sum: { change: 0 } },
+      { batchId: 'b-3', _sum: { change: -1 } },
+    ]);
+
+    await service.release(tx as never, ORDER);
+
+    expect(tx.stockMovement.groupBy).toHaveBeenCalledWith({
+      by: ['batchId'],
+      where: { orderId: ORDER },
+      _sum: { change: true },
+      orderBy: { batchId: 'asc' },
+    });
+    // b-2 was given back already: nothing more for it.
+    expect(tx.stockMovement.createMany).toHaveBeenCalledWith({
+      data: [
+        { batchId: 'b-1', change: 2, reason: 'RELEASED', orderId: ORDER },
+        { batchId: 'b-3', change: 1, reason: 'RELEASED', orderId: ORDER },
+      ],
+    });
+  });
+
+  it('writes nothing when the order holds nothing, or its batches are gone', async () => {
+    const { service, tx } = setup();
+
+    await service.release(tx as never, ORDER);
+    tx.stockMovement.groupBy.mockResolvedValue([
+      { batchId: 'b-1', _sum: { change: 0 } },
+    ]);
+    await service.release(tx as never, ORDER);
+
     expect(tx.stockMovement.createMany).not.toHaveBeenCalled();
   });
 });

@@ -9,6 +9,7 @@ import {
   lineAmounts,
   MAX_OPEN_ORDERS,
   newOrderReference,
+  NOT_CANCELLABLE,
   notEnoughStock,
   notReady,
   orderTotals,
@@ -31,6 +32,9 @@ describe("the owner's numbers", () => {
 
   it('are explained in the messages', () => {
     expect(CART_EMPTY).toBe('The cart is empty.');
+    expect(NOT_CANCELLABLE).toBe(
+      'Only an order waiting for payment can be cancelled.',
+    );
     expect(TOO_MANY_OPEN).toBe(
       'You have 3 orders waiting for payment. Pay for one or cancel it first.',
     );

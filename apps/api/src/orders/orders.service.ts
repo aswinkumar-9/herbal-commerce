@@ -16,6 +16,7 @@ import {
   lineAmounts,
   MAX_OPEN_ORDERS,
   newOrderReference,
+  NOT_CANCELLABLE,
   notEnoughStock,
   notReady,
   orderTotals,
@@ -23,9 +24,12 @@ import {
   TOO_MANY_OPEN,
   TOTAL_CHANGED,
 } from './order-rules';
-import type { PlaceOrderInput } from './orders.schemas';
+import type { OrderListQuery, PlaceOrderInput } from './orders.schemas';
 
 export const ORDER_NOT_FOUND = 'Order not found';
+// The expiry job takes at most this many orders a run; the rest wait for
+// the next run, a minute later.
+export const EXPIRE_PER_RUN = 100;
 
 // A line of a checkout or an order as the customer sees it: the pack size
 // by its SKU, never by an ID. Money in whole paise.
@@ -69,6 +73,16 @@ export interface OrderView extends Quote {
   };
 }
 
+// An order in the customer's list of orders.
+export interface OrderSummary {
+  id: string;
+  reference: string;
+  status: OrderStatus;
+  totalPaise: number;
+  holdExpiresAt: Date;
+  createdAt: Date;
+}
+
 // A priced line with what only the order keeps: the pack size's ID, and
 // its HSN code for the invoice.
 interface PricedLine extends OrderLine {
@@ -110,6 +124,21 @@ const ORDER_FIELDS = {
 } satisfies Prisma.OrderSelect;
 
 type OrderRow = Prisma.OrderGetPayload<{ select: typeof ORDER_FIELDS }>;
+
+const SUMMARY_FIELDS = {
+  id: true,
+  reference: true,
+  status: true,
+  totalPaise: true,
+  holdExpiresAt: true,
+  createdAt: true,
+} satisfies Prisma.OrderSelect;
+
+// A customer's orders, the newest first.
+const NEWEST_FIRST = [
+  { createdAt: 'desc' },
+  { id: 'desc' },
+] satisfies Prisma.OrderOrderByWithRelationInput[];
 
 // Customers' orders (ADR 0026). An order is placed from the whole cart, at
 // today's prices, and keeps a copy of everything the customer agreed to.
@@ -214,6 +243,94 @@ export class OrdersService {
       throw new NotFoundException(ORDER_NOT_FOUND);
     }
     return customerOrder(order);
+  }
+
+  // The customer's orders, the newest first, one page at a time. Pages
+  // continue after the ID of the last order shown.
+  async list(
+    userId: string,
+    query: OrderListQuery,
+  ): Promise<{ orders: OrderSummary[]; nextBefore: string | null }> {
+    const rows = await this.prisma.order.findMany({
+      where: { userId },
+      orderBy: NEWEST_FIRST,
+      take: query.limit + 1,
+      ...(query.before ? { cursor: { id: query.before }, skip: 1 } : {}),
+      select: SUMMARY_FIELDS,
+    });
+    const orders = rows.slice(0, query.limit);
+    return {
+      orders,
+      nextBefore:
+        rows.length > query.limit ? orders[orders.length - 1].id : null,
+    };
+  }
+
+  // Cancels the customer's own order while it waits for payment, and gives
+  // its stock back, in one transaction. The status changes only if it is
+  // still waiting, so a cancel and an expiry at the same moment never both
+  // happen. Any other order answers 409; someone else's, 404.
+  async cancel(userId: string, id: string): Promise<OrderView> {
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.order.updateMany({
+        where: { id, userId, status: 'PENDING_PAYMENT' },
+        data: { status: 'CANCELLED' },
+      });
+      if (count === 0) {
+        const order = await tx.order.findFirst({
+          where: { id, userId },
+          select: { id: true },
+        });
+        if (!order) {
+          throw new NotFoundException(ORDER_NOT_FOUND);
+        }
+        throw new ConflictException(NOT_CANCELLABLE);
+      }
+      await this.stock.release(tx, id);
+    });
+    return this.view(userId, id);
+  }
+
+  // Expires the orders still waiting for payment after their hold, and
+  // gives their stock back: each in its own transaction, so one that fails
+  // keeps no other waiting. An order paid or cancelled at that same moment
+  // is left alone. Answers how many expired, and how many failed.
+  async expireUnpaid(
+    now = new Date(),
+  ): Promise<{ expired: number; failed: number }> {
+    const due = await this.prisma.order.findMany({
+      where: { status: 'PENDING_PAYMENT', holdExpiresAt: { lte: now } },
+      orderBy: { holdExpiresAt: 'asc' },
+      take: EXPIRE_PER_RUN,
+      select: { id: true },
+    });
+    let expired = 0;
+    let failed = 0;
+    for (const { id } of due) {
+      try {
+        const done = await this.prisma.$transaction(async (tx) => {
+          const { count } = await tx.order.updateMany({
+            where: {
+              id,
+              status: 'PENDING_PAYMENT',
+              holdExpiresAt: { lte: now },
+            },
+            data: { status: 'EXPIRED' },
+          });
+          if (count === 0) {
+            return false;
+          }
+          await this.stock.release(tx, id);
+          return true;
+        });
+        if (done) {
+          expired += 1;
+        }
+      } catch {
+        failed += 1;
+      }
+    }
+    return { expired, failed };
   }
 
   // The cart's lines at today's prices, with what they come to. An empty

@@ -17,6 +17,9 @@ function setup() {
   const orders = {
     quote: jest.fn().mockResolvedValue({ items: [] }),
     place: jest.fn().mockResolvedValue({ id: 'order-1' }),
+    list: jest.fn().mockResolvedValue({ orders: [], nextBefore: null }),
+    view: jest.fn().mockResolvedValue({ id: 'order-1' }),
+    cancel: jest.fn().mockResolvedValue({ id: 'order-1' }),
   };
   const controller = new OrdersController(orders as unknown as OrdersService);
   return { controller, orders };
@@ -62,5 +65,19 @@ describe('OrdersController', () => {
       });
     }
     expect(orders.place).not.toHaveBeenCalled();
+  });
+
+  it("lists, shows and cancels the caller's own orders, by the ID in the token", async () => {
+    const { controller, orders } = setup();
+
+    await expect(controller.list(USER, { limit: 20 })).resolves.toEqual({
+      orders: [],
+      nextBefore: null,
+    });
+    expect(orders.list).toHaveBeenCalledWith('user-1', { limit: 20 });
+    await controller.view(USER, 'order-1');
+    expect(orders.view).toHaveBeenCalledWith('user-1', 'order-1');
+    await controller.cancel(USER, 'order-1');
+    expect(orders.cancel).toHaveBeenCalledWith('user-1', 'order-1');
   });
 });

@@ -130,6 +130,9 @@ describe('rate-limited routes', () => {
     expect(routeLimits(OrdersController)).toStrictEqual({
       quote: undefined,
       place: ['placeOrder'],
+      list: undefined,
+      view: undefined,
+      cancel: undefined,
     });
   });
 });
