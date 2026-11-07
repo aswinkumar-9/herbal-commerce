@@ -43,6 +43,7 @@ model User {
   staffInvitations        StaffInvitation[]
   addresses               Address[]
   cart                    Cart?
+  orders                  Order[]
 
   @@index([role])
   @@map("users")
@@ -313,6 +314,10 @@ enum StockReason {
   EXPIRED
   // A count found a difference: more or less.
   CORRECTION
+  // An order took these packs: always less (ADR 0026).
+  ORDERED
+  // An order that was cancelled or expired gave them back: always more.
+  RELEASED
 }
 
 // One batch of a pack size, with what its label says: the batch number, the
@@ -352,12 +357,17 @@ model StockMovement {
   // The staff member who made it. No foreign key, like the audit log, so
   // the history outlives the account.
   actorId   String?     @db.Uuid
+  // The order that took or gave back these packs, for ORDERED and RELEASED
+  // only.
+  orderId   String?     @db.Uuid
   createdAt DateTime    @default(now())
 
   // The movements go with their batch.
   batch StockBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  order Order?     @relation(fields: [orderId], references: [id], onDelete: Restrict)
 
   @@index([batchId, createdAt])
+  @@index([orderId])
   @@map("stock_movements")
 }
 
@@ -399,4 +409,91 @@ model CartItem {
   @@unique([cartId, variantId])
   @@index([variantId])
   @@map("cart_items")
+}
+
+// Where an order stands (ADR 0026). Paying comes in part 8.
+enum OrderStatus {
+  // Placed, its stock held until holdExpiresAt, waiting for payment.
+  PENDING_PAYMENT
+  // Paid.
+  PAID
+  // Cancelled by the customer before paying: its stock went back.
+  CANCELLED
+  // Not paid in time: its stock went back.
+  EXPIRED
+}
+
+// A customer's order (ADR 0026). It keeps a copy of everything the customer
+// agreed to, the address and the prices included, so later changes to the
+// catalog or the address book never change it. Money is in whole paise.
+// Orders are never deleted, and what was agreed never changes: triggers in
+// the migration refuse both.
+model Order {
+  id                  String      @id @default(uuid()) @db.Uuid
+  // What the customer quotes, such as "7KQ2M9XDPA": random, so it says
+  // nothing about how many orders the shop gets.
+  reference           String      @unique
+  userId              String      @db.Uuid
+  // The customer's Idempotency-Key: the same key places one order.
+  idempotencyKey      String      @db.Uuid
+  status              OrderStatus @default(PENDING_PAYMENT)
+  // A copy of the delivery address as it was (ADR 0019).
+  deliveryName        String
+  deliveryPhone       String
+  deliveryLine1       String
+  deliveryLine2       String?
+  deliveryCity        String
+  deliveryState       String
+  deliveryPincode     String
+  // The items at their prices, with the GST inside them (prices include
+  // GST), the delivery charge, and what the customer pays.
+  itemsTotalPaise     Int
+  itemsGstPaise       Int
+  deliveryChargePaise Int
+  totalPaise          Int
+  // An unpaid order holds its stock until then.
+  holdExpiresAt       DateTime
+  createdAt           DateTime    @default(now())
+  updatedAt           DateTime    @updatedAt
+
+  // A customer with orders is never deleted.
+  user      User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  items     OrderItem[]
+  movements StockMovement[]
+
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+  // For the job that expires unpaid orders.
+  @@index([status, holdExpiresAt])
+  @@map("orders")
+}
+
+// One pack size in an order: a copy of what the customer bought, at that
+// moment's price. The pack size's ID has no foreign key, like the audit
+// log's actor: the order outlives the catalog.
+model OrderItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  orderId        String   @db.Uuid
+  variantId      String   @db.Uuid
+  // The order of the lines, as they were in the cart.
+  position       Int
+  productName    String
+  sku            String
+  quantity       Int
+  unit           PackUnit
+  // For the GST invoice (ADR 0022).
+  hsnCode        String
+  gstRate        Int
+  mrpPaise       Int
+  pricePaise     Int
+  packs          Int
+  // packs times pricePaise, and the GST inside it.
+  lineTotalPaise Int
+  gstPaise       Int
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Each pack size once per order.
+  @@unique([orderId, variantId])
+  @@map("order_items")
 }
