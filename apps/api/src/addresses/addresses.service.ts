@@ -29,6 +29,21 @@ const ADDRESS_FIELDS = {
   updatedAt: true,
 } satisfies Prisma.AddressSelect;
 
+// What an order copies of an address (ADR 0026).
+const DELIVERY_FIELDS = {
+  fullName: true,
+  phone: true,
+  line1: true,
+  line2: true,
+  city: true,
+  state: true,
+  pincode: true,
+} satisfies Prisma.AddressSelect;
+
+export type DeliveryAddress = Prisma.AddressGetPayload<{
+  select: typeof DELIVERY_FIELDS;
+}>;
+
 // A customer's delivery addresses (ADR 0019). Every query names the
 // customer, so nobody can reach someone else's address (BOLA).
 @Injectable()
@@ -110,6 +125,19 @@ export class AddressesService {
         });
       }
     });
+  }
+
+  // The customer's own address, for an order to copy (ADR 0026), or 404,
+  // like someone else's.
+  async deliveryAddress(userId: string, id: string): Promise<DeliveryAddress> {
+    const address = await this.prisma.address.findFirst({
+      where: { id, userId },
+      select: DELIVERY_FIELDS,
+    });
+    if (!address) {
+      throw new NotFoundException(NOT_FOUND);
+    }
+    return address;
   }
 
   // The customer's own address, or 404. Someone else's address gets the

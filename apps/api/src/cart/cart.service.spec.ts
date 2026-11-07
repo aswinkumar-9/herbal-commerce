@@ -1,5 +1,6 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { ShopPacksService } from '../catalog/shop-packs.service';
+import type { Prisma } from '../generated/prisma/client';
 import type { StockService } from '../inventory/stock.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { CART_FULL, OUT_OF_STOCK, tooManyOfProduct } from './cart-rules';
@@ -308,5 +309,53 @@ describe('CartService.remove and empty', () => {
     expect(prisma.cart.deleteMany).toHaveBeenCalledWith({
       where: { userId: USER },
     });
+  });
+});
+
+describe('CartService.lockedLines and clear, for an order', () => {
+  function orderTx() {
+    return {
+      cart: {
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      cartItem: {
+        findMany: jest.fn().mockResolvedValue([{ variantId: V60, packs: 2 }]),
+      },
+    };
+  }
+
+  it("locks the customer's cart by marking it changed, then reads its lines, the first added first", async () => {
+    const { cart } = setup();
+    const tx = orderTx();
+
+    await expect(
+      cart.lockedLines(tx as unknown as Prisma.TransactionClient, USER),
+    ).resolves.toEqual([{ variantId: V60, packs: 2 }]);
+    expect(tx.cart.updateMany).toHaveBeenCalledWith({
+      where: { userId: USER },
+      data: { updatedAt: expect.any(Date) },
+    });
+    expect(tx.cartItem.findMany).toHaveBeenCalledWith({
+      where: { cart: { userId: USER } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { variantId: true, packs: true },
+    });
+    expect(tx.cart.updateMany.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.cartItem.findMany.mock.invocationCallOrder[0],
+    );
+  });
+
+  it("empties the customer's cart inside the order's transaction", async () => {
+    const { cart, prisma } = setup();
+    const tx = orderTx();
+
+    await expect(
+      cart.clear(tx as unknown as Prisma.TransactionClient, USER),
+    ).resolves.toBeUndefined();
+    expect(tx.cart.deleteMany).toHaveBeenCalledWith({
+      where: { userId: USER },
+    });
+    expect(prisma.cart.deleteMany).not.toHaveBeenCalled();
   });
 });

@@ -24,7 +24,10 @@ function setup(existing = 0) {
     },
   };
   const prisma = {
-    address: { findMany: jest.fn().mockResolvedValue([]) },
+    address: {
+      findMany: jest.fn().mockResolvedValue([]),
+      findFirst: jest.fn().mockResolvedValue(null),
+    },
     $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)),
   };
   const service = new AddressesService(prisma as unknown as PrismaService);
@@ -255,5 +258,39 @@ describe('AddressesService.remove', () => {
     await service.remove('user-1', 'address-1');
 
     expect(tx.address.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('AddressesService.deliveryAddress', () => {
+  it("gives an order a copy of the customer's own address, without its ID or flags", async () => {
+    const { service, prisma } = setup();
+    const address = { ...input, line2: null };
+    prisma.address.findFirst.mockResolvedValue(address);
+
+    await expect(
+      service.deliveryAddress('user-1', 'address-1'),
+    ).resolves.toEqual(address);
+
+    const [query] = prisma.address.findFirst.mock.calls[0] as [
+      { where: object; select: Record<string, boolean> },
+    ];
+    expect(query.where).toEqual({ id: 'address-1', userId: 'user-1' });
+    expect(Object.keys(query.select).sort()).toEqual([
+      'city',
+      'fullName',
+      'line1',
+      'line2',
+      'phone',
+      'pincode',
+      'state',
+    ]);
+  });
+
+  it("answers 404 for an unknown address or another customer's", async () => {
+    const { service } = setup();
+
+    await expect(
+      service.deliveryAddress('user-1', 'address-9'),
+    ).rejects.toThrow(new NotFoundException('Address not found'));
   });
 });
