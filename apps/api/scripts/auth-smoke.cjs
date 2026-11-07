@@ -1,8 +1,11 @@
-// End-to-end check of customer sign-up, sign-in, the customer's own account and
-// cart, and the public shop (categories, products, prices, images and stock)
-// against the running API, and that customers can never use the staff routes.
+// End-to-end check of customer sign-up, sign-in, the customer's own account,
+// cart and orders, and the public shop (categories, products, prices, images
+// and stock) against the running API, and that customers can never use the
+// staff routes.
 // Needs the API (pnpm api:dev) and Mailpit (docker compose) to be running.
-// Each run creates two throwaway customer accounts in the local database.
+// Each run creates two throwaway customer accounts in the local database and,
+// with a pack in stock, one cancelled order: orders are never deleted.
+const { randomUUID } = require('node:crypto');
 // `pnpm api:smoke` clears the local rate limits first, so it can run again at once.
 const API = process.env.API_URL ?? 'http://localhost:3000';
 const MAILPIT = process.env.MAILPIT_URL ?? 'http://localhost:8025';
@@ -904,6 +907,118 @@ async function main() {
         (otherCart.body?.items?.length === 0 &&
           removed.status === 204 &&
           afterRemove.body?.items?.length === 0)),
+  );
+
+  // Orders (part 7): from the customer's own cart, to one of their own
+  // addresses. With a pack in stock, one order is placed and cancelled,
+  // which gives its stock back at once.
+  const ordersPath = '/v1/me/orders';
+  const ownerAddressId = remaining.body?.addresses?.[0]?.id;
+  const emptyCheckout = await call('GET', '/v1/me/checkout', {
+    token: ownerToken,
+  });
+  const emptyOrder = await call('POST', ordersPath, {
+    json: { addressId: ownerAddressId, totalRupees: 100 },
+    token: ownerToken,
+    headers: { 'Idempotency-Key': randomUUID() },
+  });
+  check(
+    'checkout needs a customer token, and an empty cart can be neither checked out nor ordered',
+    (await call('GET', '/v1/me/checkout')).status === 401 &&
+      emptyCheckout.status === 409 &&
+      emptyCheckout.body?.message === 'The cart is empty.' &&
+      emptyOrder.status === 409 &&
+      emptyOrder.body?.message === 'The cart is empty.',
+  );
+  const noKey = await call('POST', ordersPath, {
+    json: { addressId: ownerAddressId, totalRupees: 100 },
+    token: ownerToken,
+  });
+  const badOrder = await call('POST', ordersPath, {
+    json: { addressId: 'home', totalRupees: '100' },
+    token: ownerToken,
+    headers: { 'Idempotency-Key': randomUUID() },
+  });
+  check(
+    'placing an order needs an Idempotency-Key and a valid body (400)',
+    noKey.status === 400 &&
+      noKey.body?.errors?.[0]?.field === 'Idempotency-Key' &&
+      badOrder.status === 400,
+  );
+  let quote;
+  let placed;
+  let replayed;
+  let cartAfter;
+  let orderList;
+  let strangerView;
+  let cancelled;
+  let cancelledAgain;
+  let packAgain;
+  if (packInStock) {
+    await call(
+      'PUT',
+      `${cartPath}/items/${encodeURIComponent(packInStock.sku)}`,
+      { json: { packs: 1 }, token: ownerToken },
+    );
+    quote = await call('GET', '/v1/me/checkout', { token: ownerToken });
+    const order = {
+      json: { addressId: ownerAddressId, totalRupees: quote.body?.totalRupees },
+      token: ownerToken,
+      headers: { 'Idempotency-Key': randomUUID() },
+    };
+    placed = await call('POST', ordersPath, order);
+    replayed = await call('POST', ordersPath, order);
+    cartAfter = await call('GET', cartPath, { token: ownerToken });
+    orderList = await call('GET', ordersPath, { token: ownerToken });
+    const orderPath = `${ordersPath}/${placed.body?.id}`;
+    strangerView = await call('GET', orderPath, { token: strangerToken });
+    cancelled = await call('POST', `${orderPath}/cancel`, {
+      token: ownerToken,
+    });
+    cancelledAgain = await call('POST', `${orderPath}/cancel`, {
+      token: ownerToken,
+    });
+    const { card } = productPages.find(({ page }) =>
+      (page.body?.variants ?? []).some((pack) => pack === packInStock),
+    );
+    packAgain = (
+      await call('GET', `/v1/products/${card.slug}`)
+    ).body?.variants?.find((pack) => pack.sku === packInStock.sku);
+  }
+  const holdMinutes = placed
+    ? (new Date(placed.body?.holdExpiresAt) -
+        new Date(placed.body?.createdAt)) /
+      60_000
+    : 0;
+  check(
+    "an order is placed at the checkout's total: 201, waiting for payment for 15 minutes, its lines without IDs, and the cart emptied",
+    !packInStock ||
+      (quote.status === 200 &&
+        placed.status === 201 &&
+        placed.body.status === 'PENDING_PAYMENT' &&
+        /^[A-HJ-NP-Z2-9]{10}$/.test(placed.body.reference) &&
+        placed.body.totalRupees === quote.body.totalRupees &&
+        Math.abs(holdMinutes - 15) < 1 &&
+        placed.body.items.length === 1 &&
+        Object.keys(placed.body.items[0]).sort().join() ===
+          'gstRate,gstRupees,lineTotalRupees,mrpRupees,packs,priceRupees,productName,quantity,sku,unit' &&
+        cartAfter.body?.items?.length === 0),
+  );
+  check(
+    'the same Idempotency-Key answers the same order, which only its owner can list and see',
+    !packInStock ||
+      (replayed.status === 201 &&
+        replayed.body.id === placed.body.id &&
+        orderList.body?.orders?.[0]?.id === placed.body.id &&
+        strangerView.status === 404),
+  );
+  check(
+    'cancelling gives the stock back: 200 and CANCELLED, then 409, and the pack is in stock again',
+    !packInStock ||
+      (cancelled.status === 200 &&
+        cancelled.body.status === 'CANCELLED' &&
+        cancelledAgain.status === 409 &&
+        packAgain?.inStock === true),
   );
   console.log(
     failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`,

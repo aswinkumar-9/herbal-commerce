@@ -126,7 +126,7 @@ describe('rate-limited routes', () => {
       empty: undefined,
     });
     // Placing an order holds stock, so it has its own limit. The checkout
-    // only reads.
+    // and the orders only read, and cancelling gives stock back.
     expect(routeLimits(OrdersController)).toStrictEqual({
       quote: undefined,
       place: ['placeOrder'],
