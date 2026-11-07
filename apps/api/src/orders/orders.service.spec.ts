@@ -77,11 +77,11 @@ const ashLine = {
   quantity: 60,
   unit: 'CAPSULES',
   packs: 3,
-  mrpPaise: 50_000,
-  pricePaise: 44_900,
+  mrpRupees: 500,
+  priceRupees: 449,
   gstRate: 5,
-  lineTotalPaise: 134_700,
-  gstPaise: 6_414,
+  lineTotalRupees: 1_347,
+  gstRupees: 64,
 };
 const teaLine = {
   sku: 'TULSI-100',
@@ -89,20 +89,20 @@ const teaLine = {
   quantity: 100,
   unit: 'G',
   packs: 1,
-  mrpPaise: 25_000,
-  pricePaise: 19_900,
+  mrpRupees: 250,
+  priceRupees: 199,
   gstRate: 18,
-  lineTotalPaise: 19_900,
-  gstPaise: 3_036,
+  lineTotalRupees: 199,
+  gstRupees: 30,
 };
 // Rs 1546 in all: delivery is free.
 const totals = {
-  itemsTotalPaise: 154_600,
-  itemsGstPaise: 9_450,
-  deliveryChargePaise: 0,
-  totalPaise: 154_600,
+  itemsTotalRupees: 1_546,
+  itemsGstRupees: 94,
+  deliveryChargeRupees: 0,
+  totalRupees: 1_546,
 };
-const input = { addressId: ADDRESS, totalPaise: 154_600 };
+const input = { addressId: ADDRESS, totalRupees: 1_546 };
 
 // The order as the query returns it.
 const orderRow = {
@@ -181,9 +181,9 @@ describe('OrdersService.quote', () => {
     cart.lines.mockResolvedValue([{ variantId: TEA, packs: 1 }]);
 
     await expect(orders.quote(USER)).resolves.toMatchObject({
-      itemsTotalPaise: 19_900,
-      deliveryChargePaise: 4_900,
-      totalPaise: 24_800,
+      itemsTotalRupees: 199,
+      deliveryChargeRupees: 49,
+      totalRupees: 248,
     });
   });
 
@@ -324,7 +324,7 @@ describe('OrdersService.place', () => {
     const { orders, tx } = setup();
 
     await expect(
-      orders.place(USER, KEY, { ...input, totalPaise: 149_700 }, NOW),
+      orders.place(USER, KEY, { ...input, totalRupees: 1_497 }, NOW),
     ).rejects.toThrow(new ConflictException(TOTAL_CHANGED));
     expect(tx.order.create).not.toHaveBeenCalled();
   });
@@ -400,7 +400,7 @@ describe('OrdersService.list', () => {
     id,
     reference: '7KQ2M9XDPA',
     status: 'PENDING_PAYMENT',
-    totalPaise: 154_600,
+    totalRupees: 1_546,
     holdExpiresAt: NOW,
     createdAt: NOW,
   });
@@ -429,7 +429,7 @@ describe('OrdersService.list', () => {
         id: true,
         reference: true,
         status: true,
-        totalPaise: true,
+        totalRupees: true,
         holdExpiresAt: true,
         createdAt: true,
       },

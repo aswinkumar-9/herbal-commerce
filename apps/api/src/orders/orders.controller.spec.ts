@@ -10,7 +10,7 @@ const USER = {
 const KEY = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
 const body = {
   addressId: '6f2b9d1e-4c7a-4e3b-9a85-1d2c3e4f5a6b',
-  totalPaise: 154_600,
+  totalRupees: 1_546,
 };
 
 function setup() {

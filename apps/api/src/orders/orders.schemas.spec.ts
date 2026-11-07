@@ -27,23 +27,23 @@ describe('placeOrderSchema', () => {
     expect(
       placeOrderSchema.parse({
         addressId: ADDRESS,
-        totalPaise: 214_600,
+        totalRupees: 2_146,
         status: 'PAID',
         userId: ADDRESS,
       }),
-    ).toEqual({ addressId: ADDRESS, totalPaise: 214_600 });
+    ).toEqual({ addressId: ADDRESS, totalRupees: 2_146 });
   });
 
-  it('refuses an address that is not an ID, and a total that is not whole paise', () => {
+  it('refuses an address that is not an ID, and a total that is not whole rupees', () => {
     expect(
-      refusals(placeOrderSchema, { addressId: 'home', totalPaise: 100 }),
+      refusals(placeOrderSchema, { addressId: 'home', totalRupees: 100 }),
     ).toEqual(['addressId: Choose one of your delivery addresses']);
-    for (const totalPaise of [0, 99.5, '214600', null, undefined]) {
+    for (const totalRupees of [0, 99.5, '2146', null, undefined]) {
       expect(
-        refusals(placeOrderSchema, { addressId: ADDRESS, totalPaise }).map(
+        refusals(placeOrderSchema, { addressId: ADDRESS, totalRupees }).map(
           (refusal) => refusal.split(':')[0],
         ),
-      ).toEqual(['totalPaise']);
+      ).toEqual(['totalRupees']);
     }
   });
 });

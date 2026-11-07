@@ -5,7 +5,7 @@ import { z } from 'zod';
 // they did not see.
 export const placeOrderSchema = z.object({
   addressId: z.uuid('Choose one of your delivery addresses'),
-  totalPaise: z.number().int().min(1),
+  totalRupees: z.number().int().min(1),
 });
 export type PlaceOrderInput = z.infer<typeof placeOrderSchema>;
 

@@ -1,13 +1,13 @@
 import { randomBytes } from 'node:crypto';
 
-// The rules of an order (ADR 0026). Money is in whole paise: 49_900 is
-// Rs 499.
+// The rules of an order (ADR 0026). Money is in whole rupees, like the
+// catalog's (ADR 0022): the GST too, rounded to the nearest rupee.
 
 // An unpaid order holds its stock for 15 minutes, then expires.
 export const HOLD_MINUTES = 15;
 // Delivery is free from Rs 499; below that it costs Rs 49.
-export const FREE_DELIVERY_FROM_PAISE = 49_900;
-export const DELIVERY_CHARGE_PAISE = 4_900;
+export const FREE_DELIVERY_FROM_RUPEES = 499;
+export const DELIVERY_CHARGE_RUPEES = 49;
 // A customer has at most 3 orders waiting for payment at once, so nobody
 // can hold the shop's stock with many unpaid orders.
 export const MAX_OPEN_ORDERS = 3;
@@ -23,65 +23,60 @@ export const notReady = (skus: string[]) =>
 export const notEnoughStock = (sku: string) =>
   `${sku} is out of stock, or not enough of it is left. Change it in the cart and try again.`;
 
-// A price in whole rupees, as the catalog keeps it, in paise.
-export function rupeesToPaise(rupees: number): number {
-  return rupees * 100;
-}
-
 // The delivery charge for items worth this much.
-export function deliveryChargePaise(itemsTotalPaise: number): number {
-  return itemsTotalPaise >= FREE_DELIVERY_FROM_PAISE
+export function deliveryChargeRupees(itemsTotalRupees: number): number {
+  return itemsTotalRupees >= FREE_DELIVERY_FROM_RUPEES
     ? 0
-    : DELIVERY_CHARGE_PAISE;
+    : DELIVERY_CHARGE_RUPEES;
 }
 
-// The GST inside an amount that includes it, rounded to the paisa: at 5%,
-// Rs 449 holds Rs 21.38. A chartered accountant confirms the rounding with
-// the invoices.
-export function gstInsidePaise(amountPaise: number, gstRate: number): number {
-  return Math.round((amountPaise * gstRate) / (100 + gstRate));
+// The GST inside an amount that includes it, rounded to the nearest rupee:
+// at 5%, Rs 449 holds Rs 21.38, so Rs 21. A chartered accountant confirms
+// this rounding with the invoices.
+export function gstInsideRupees(amountRupees: number, gstRate: number): number {
+  return Math.round((amountRupees * gstRate) / (100 + gstRate));
 }
 
 // A line of an order: how many packs, at what price and GST rate.
 export interface PricedLine {
-  pricePaise: number;
+  priceRupees: number;
   packs: number;
   gstRate: number;
 }
 
 // A line's total, and the GST inside it.
 export function lineAmounts(line: PricedLine): {
-  lineTotalPaise: number;
-  gstPaise: number;
+  lineTotalRupees: number;
+  gstRupees: number;
 } {
-  const lineTotalPaise = line.pricePaise * line.packs;
+  const lineTotalRupees = line.priceRupees * line.packs;
   return {
-    lineTotalPaise,
-    gstPaise: gstInsidePaise(lineTotalPaise, line.gstRate),
+    lineTotalRupees,
+    gstRupees: gstInsideRupees(lineTotalRupees, line.gstRate),
   };
 }
 
 // What an order comes to. The GST of the items is the sum of each line's,
 // as an invoice shows it line by line.
 export function orderTotals(lines: PricedLine[]): {
-  itemsTotalPaise: number;
-  itemsGstPaise: number;
-  deliveryChargePaise: number;
-  totalPaise: number;
+  itemsTotalRupees: number;
+  itemsGstRupees: number;
+  deliveryChargeRupees: number;
+  totalRupees: number;
 } {
-  let itemsTotalPaise = 0;
-  let itemsGstPaise = 0;
+  let itemsTotalRupees = 0;
+  let itemsGstRupees = 0;
   for (const line of lines) {
     const amounts = lineAmounts(line);
-    itemsTotalPaise += amounts.lineTotalPaise;
-    itemsGstPaise += amounts.gstPaise;
+    itemsTotalRupees += amounts.lineTotalRupees;
+    itemsGstRupees += amounts.gstRupees;
   }
-  const delivery = deliveryChargePaise(itemsTotalPaise);
+  const delivery = deliveryChargeRupees(itemsTotalRupees);
   return {
-    itemsTotalPaise,
-    itemsGstPaise,
-    deliveryChargePaise: delivery,
-    totalPaise: itemsTotalPaise + delivery,
+    itemsTotalRupees,
+    itemsGstRupees,
+    deliveryChargeRupees: delivery,
+    totalRupees: itemsTotalRupees + delivery,
   };
 }
 

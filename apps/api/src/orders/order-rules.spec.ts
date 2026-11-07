@@ -1,9 +1,9 @@
 import {
   CART_EMPTY,
-  DELIVERY_CHARGE_PAISE,
-  deliveryChargePaise,
-  FREE_DELIVERY_FROM_PAISE,
-  gstInsidePaise,
+  DELIVERY_CHARGE_RUPEES,
+  deliveryChargeRupees,
+  FREE_DELIVERY_FROM_RUPEES,
+  gstInsideRupees,
   HOLD_MINUTES,
   holdExpiresAt,
   lineAmounts,
@@ -14,7 +14,6 @@ import {
   notReady,
   orderTotals,
   REFERENCE_LENGTH,
-  rupeesToPaise,
   TOO_MANY_OPEN,
   TOTAL_CHANGED,
 } from './order-rules';
@@ -22,8 +21,8 @@ import {
 describe("the owner's numbers", () => {
   it('hold stock 15 minutes, and deliver free from Rs 499, else for Rs 49', () => {
     expect(HOLD_MINUTES).toBe(15);
-    expect(FREE_DELIVERY_FROM_PAISE).toBe(49_900);
-    expect(DELIVERY_CHARGE_PAISE).toBe(4_900);
+    expect(FREE_DELIVERY_FROM_RUPEES).toBe(499);
+    expect(DELIVERY_CHARGE_RUPEES).toBe(49);
   });
 
   it('let a customer have at most 3 orders waiting for payment', () => {
@@ -50,67 +49,64 @@ describe("the owner's numbers", () => {
   });
 });
 
-describe('deliveryChargePaise', () => {
+describe('deliveryChargeRupees', () => {
   it('is Rs 49 below Rs 499, and free from Rs 499', () => {
-    expect(deliveryChargePaise(100)).toBe(4_900);
-    expect(deliveryChargePaise(49_800)).toBe(4_900);
-    expect(deliveryChargePaise(49_899)).toBe(4_900);
-    expect(deliveryChargePaise(49_900)).toBe(0);
-    expect(deliveryChargePaise(250_000)).toBe(0);
+    expect(deliveryChargeRupees(1)).toBe(49);
+    expect(deliveryChargeRupees(498)).toBe(49);
+    expect(deliveryChargeRupees(499)).toBe(0);
+    expect(deliveryChargeRupees(2_500)).toBe(0);
   });
 });
 
-describe('gstInsidePaise', () => {
-  it('finds the GST inside a price that includes it, rounded to the paisa', () => {
-    // Rs 449 at 5%: Rs 21.38 (2138.09 paise).
-    expect(gstInsidePaise(44_900, 5)).toBe(2_138);
-    // Rs 1 at 5%: 4.76 paise, rounded up.
-    expect(gstInsidePaise(100, 5)).toBe(5);
-    expect(gstInsidePaise(11_800, 18)).toBe(1_800);
-    expect(gstInsidePaise(14_000, 40)).toBe(4_000);
-    expect(gstInsidePaise(50_000, 0)).toBe(0);
+describe('gstInsideRupees', () => {
+  it('finds the GST inside a price that includes it, rounded to the nearest rupee', () => {
+    // Rs 449 at 5%: Rs 21.38, so Rs 21.
+    expect(gstInsideRupees(449, 5)).toBe(21);
+    // Rs 11 at 5%: Rs 0.52, rounded up to Rs 1. Rs 10: Rs 0.48, so Rs 0.
+    expect(gstInsideRupees(11, 5)).toBe(1);
+    expect(gstInsideRupees(10, 5)).toBe(0);
+    expect(gstInsideRupees(118, 18)).toBe(18);
+    expect(gstInsideRupees(140, 40)).toBe(40);
+    expect(gstInsideRupees(500, 0)).toBe(0);
   });
 });
 
 describe('lineAmounts and orderTotals', () => {
   it('multiply the packs by the price, and find the GST in the line total', () => {
-    expect(rupeesToPaise(449)).toBe(44_900);
-    expect(lineAmounts({ pricePaise: 44_900, packs: 3, gstRate: 5 })).toEqual({
-      lineTotalPaise: 134_700,
-      gstPaise: 6_414,
+    expect(lineAmounts({ priceRupees: 449, packs: 3, gstRate: 5 })).toEqual({
+      lineTotalRupees: 1_347,
+      gstRupees: 64,
     });
   });
 
   it('add up the lines line by line, with free delivery from Rs 499', () => {
     expect(
       orderTotals([
-        { pricePaise: 44_900, packs: 3, gstRate: 5 },
-        { pricePaise: 79_900, packs: 1, gstRate: 5 },
+        { priceRupees: 449, packs: 3, gstRate: 5 },
+        { priceRupees: 799, packs: 1, gstRate: 5 },
       ]),
     ).toEqual({
-      itemsTotalPaise: 214_600,
-      // 6414 + 3805, each line rounded on its own.
-      itemsGstPaise: 10_219,
-      deliveryChargePaise: 0,
-      totalPaise: 214_600,
+      itemsTotalRupees: 2_146,
+      // 64 + 38, each line rounded on its own.
+      itemsGstRupees: 102,
+      deliveryChargeRupees: 0,
+      totalRupees: 2_146,
     });
   });
 
   it('round the GST of each line on its own, as the invoice will show it', () => {
-    // Three lines of Rs 1 at 5%: 4.76 paise each, so 5 + 5 + 5. The whole
-    // Rs 3 at once would hold 14.29 paise, rounded to 14.
-    const rupee = { pricePaise: 100, packs: 1, gstRate: 5 };
-    expect(orderTotals([rupee, rupee, rupee]).itemsGstPaise).toBe(15);
+    // Three lines of Rs 11 at 5%: Rs 0.52 each, so 1 + 1 + 1. The whole
+    // Rs 33 at once would hold Rs 1.57, rounded to 2.
+    const line = { priceRupees: 11, packs: 1, gstRate: 5 };
+    expect(orderTotals([line, line, line]).itemsGstRupees).toBe(3);
   });
 
   it('add the delivery charge to a small order', () => {
-    expect(
-      orderTotals([{ pricePaise: 19_900, packs: 1, gstRate: 18 }]),
-    ).toEqual({
-      itemsTotalPaise: 19_900,
-      itemsGstPaise: 3_036,
-      deliveryChargePaise: 4_900,
-      totalPaise: 24_800,
+    expect(orderTotals([{ priceRupees: 199, packs: 1, gstRate: 18 }])).toEqual({
+      itemsTotalRupees: 199,
+      itemsGstRupees: 30,
+      deliveryChargeRupees: 49,
+      totalRupees: 248,
     });
   });
 });

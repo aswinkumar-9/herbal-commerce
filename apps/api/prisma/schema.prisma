@@ -425,36 +425,37 @@ enum OrderStatus {
 
 // A customer's order (ADR 0026). It keeps a copy of everything the customer
 // agreed to, the address and the prices included, so later changes to the
-// catalog or the address book never change it. Money is in whole paise.
-// Orders are never deleted, and what was agreed never changes: triggers in
-// the migration refuse both.
+// catalog or the address book never change it. Money is in whole rupees,
+// like the catalog's, the GST too, rounded to the nearest rupee. Orders are
+// never deleted, and what was agreed never changes: triggers in the
+// migrations refuse both.
 model Order {
-  id                  String      @id @default(uuid()) @db.Uuid
+  id                   String      @id @default(uuid()) @db.Uuid
   // What the customer quotes, such as "7KQ2M9XDPA": random, so it says
   // nothing about how many orders the shop gets.
-  reference           String      @unique
-  userId              String      @db.Uuid
+  reference            String      @unique
+  userId               String      @db.Uuid
   // The customer's Idempotency-Key: the same key places one order.
-  idempotencyKey      String      @db.Uuid
-  status              OrderStatus @default(PENDING_PAYMENT)
+  idempotencyKey       String      @db.Uuid
+  status               OrderStatus @default(PENDING_PAYMENT)
   // A copy of the delivery address as it was (ADR 0019).
-  deliveryName        String
-  deliveryPhone       String
-  deliveryLine1       String
-  deliveryLine2       String?
-  deliveryCity        String
-  deliveryState       String
-  deliveryPincode     String
+  deliveryName         String
+  deliveryPhone        String
+  deliveryLine1        String
+  deliveryLine2        String?
+  deliveryCity         String
+  deliveryState        String
+  deliveryPincode      String
   // The items at their prices, with the GST inside them (prices include
   // GST), the delivery charge, and what the customer pays.
-  itemsTotalPaise     Int
-  itemsGstPaise       Int
-  deliveryChargePaise Int
-  totalPaise          Int
+  itemsTotalRupees     Int
+  itemsGstRupees       Int
+  deliveryChargeRupees Int
+  totalRupees          Int
   // An unpaid order holds its stock until then.
-  holdExpiresAt       DateTime
-  createdAt           DateTime    @default(now())
-  updatedAt           DateTime    @updatedAt
+  holdExpiresAt        DateTime
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
 
   // A customer with orders is never deleted.
   user      User            @relation(fields: [userId], references: [id], onDelete: Restrict)
@@ -472,24 +473,24 @@ model Order {
 // moment's price. The pack size's ID has no foreign key, like the audit
 // log's actor: the order outlives the catalog.
 model OrderItem {
-  id             String   @id @default(uuid()) @db.Uuid
-  orderId        String   @db.Uuid
-  variantId      String   @db.Uuid
+  id              String   @id @default(uuid()) @db.Uuid
+  orderId         String   @db.Uuid
+  variantId       String   @db.Uuid
   // The order of the lines, as they were in the cart.
-  position       Int
-  productName    String
-  sku            String
-  quantity       Int
-  unit           PackUnit
+  position        Int
+  productName     String
+  sku             String
+  quantity        Int
+  unit            PackUnit
   // For the GST invoice (ADR 0022).
-  hsnCode        String
-  gstRate        Int
-  mrpPaise       Int
-  pricePaise     Int
-  packs          Int
-  // packs times pricePaise, and the GST inside it.
-  lineTotalPaise Int
-  gstPaise       Int
+  hsnCode         String
+  gstRate         Int
+  mrpRupees       Int
+  priceRupees     Int
+  packs           Int
+  // packs times priceRupees, and the GST inside it.
+  lineTotalRupees Int
+  gstRupees       Int
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 

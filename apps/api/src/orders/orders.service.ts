@@ -20,7 +20,6 @@ import {
   notEnoughStock,
   notReady,
   orderTotals,
-  rupeesToPaise,
   TOO_MANY_OPEN,
   TOTAL_CHANGED,
 } from './order-rules';
@@ -32,27 +31,27 @@ export const ORDER_NOT_FOUND = 'Order not found';
 export const EXPIRE_PER_RUN = 100;
 
 // A line of a checkout or an order as the customer sees it: the pack size
-// by its SKU, never by an ID. Money in whole paise.
+// by its SKU, never by an ID. Money in whole rupees.
 export interface OrderLine {
   sku: string;
   productName: string;
   quantity: number;
   unit: PackUnit;
   packs: number;
-  mrpPaise: number;
-  pricePaise: number;
-  lineTotalPaise: number;
+  mrpRupees: number;
+  priceRupees: number;
+  lineTotalRupees: number;
   gstRate: number;
-  gstPaise: number;
+  gstRupees: number;
 }
 
 // What the cart would cost as an order now.
 export interface Quote {
   items: OrderLine[];
-  itemsTotalPaise: number;
-  itemsGstPaise: number;
-  deliveryChargePaise: number;
-  totalPaise: number;
+  itemsTotalRupees: number;
+  itemsGstRupees: number;
+  deliveryChargeRupees: number;
+  totalRupees: number;
 }
 
 // An order as its customer sees it.
@@ -78,7 +77,7 @@ export interface OrderSummary {
   id: string;
   reference: string;
   status: OrderStatus;
-  totalPaise: number;
+  totalRupees: number;
   holdExpiresAt: Date;
   createdAt: Date;
 }
@@ -96,11 +95,11 @@ const LINE_FIELDS = {
   quantity: true,
   unit: true,
   packs: true,
-  mrpPaise: true,
-  pricePaise: true,
-  lineTotalPaise: true,
+  mrpRupees: true,
+  priceRupees: true,
+  lineTotalRupees: true,
   gstRate: true,
-  gstPaise: true,
+  gstRupees: true,
 } satisfies Prisma.OrderItemSelect;
 
 const ORDER_FIELDS = {
@@ -116,10 +115,10 @@ const ORDER_FIELDS = {
   deliveryCity: true,
   deliveryState: true,
   deliveryPincode: true,
-  itemsTotalPaise: true,
-  itemsGstPaise: true,
-  deliveryChargePaise: true,
-  totalPaise: true,
+  itemsTotalRupees: true,
+  itemsGstRupees: true,
+  deliveryChargeRupees: true,
+  totalRupees: true,
   items: { orderBy: { position: 'asc' }, select: LINE_FIELDS },
 } satisfies Prisma.OrderSelect;
 
@@ -129,7 +128,7 @@ const SUMMARY_FIELDS = {
   id: true,
   reference: true,
   status: true,
-  totalPaise: true,
+  totalRupees: true,
   holdExpiresAt: true,
   createdAt: true,
 } satisfies Prisma.OrderSelect;
@@ -195,7 +194,7 @@ export class OrdersService {
         throw new ConflictException(TOO_MANY_OPEN);
       }
       const { lines, totals } = await this.price(cartLines);
-      if (totals.totalPaise !== input.totalPaise) {
+      if (totals.totalRupees !== input.totalRupees) {
         throw new ConflictException(TOTAL_CHANGED);
       }
       const order = await tx.order.create({
@@ -365,7 +364,6 @@ export class OrdersService {
         unavailable.push(pack.sku);
         continue;
       }
-      const pricePaise = rupeesToPaise(pack.priceRupees);
       lines.push({
         variantId,
         hsnCode: pack.hsnCode,
@@ -374,10 +372,14 @@ export class OrdersService {
         quantity: pack.quantity,
         unit: pack.unit,
         packs: count,
-        mrpPaise: rupeesToPaise(pack.mrpRupees),
-        pricePaise,
+        mrpRupees: pack.mrpRupees,
+        priceRupees: pack.priceRupees,
         gstRate: pack.gstRate,
-        ...lineAmounts({ pricePaise, packs: count, gstRate: pack.gstRate }),
+        ...lineAmounts({
+          priceRupees: pack.priceRupees,
+          packs: count,
+          gstRate: pack.gstRate,
+        }),
       });
     }
     if (unavailable.length > 0) {
