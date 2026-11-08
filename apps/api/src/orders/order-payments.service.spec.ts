@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+} from '@nestjs/common';
 import type { PinoLogger } from 'nestjs-pino';
 import { RetryLaterException } from '../common/retry-later.exception';
 import {
@@ -9,6 +13,7 @@ import type { PaymentsService } from '../payments/payments.service';
 import { RazorpayError } from '../payments/razorpay.gateway';
 import type { PrismaService } from '../prisma/prisma.service';
 import { OrderPaymentsService } from './order-payments.service';
+import type { OrdersService } from './orders.service';
 
 const USER = 'user-1';
 const ORDER_ID = '4f7c2a9e-3b1d-4e8a-9c6f-2d5b8e1a7c30';
@@ -52,6 +57,8 @@ function setup() {
   const payments = {
     keyId: 'rzp_test_FakeKey0123',
     razorpayOrderFor: jest.fn().mockResolvedValue('order_RB58MiP5SPFYyM'),
+    razorpayOrderOf: jest.fn().mockResolvedValue('order_Captured01'),
+    isCheckoutSignatureValid: jest.fn().mockReturnValue(true),
     razorpayPayment: jest.fn().mockResolvedValue(captured),
     forRazorpayOrder: jest.fn().mockResolvedValue(record),
     settlementState: jest
@@ -62,14 +69,18 @@ function setup() {
     requestRefund: jest.fn().mockResolvedValue(undefined),
   };
   const stock = { take: jest.fn().mockResolvedValue(undefined) };
-  const logger = { error: jest.fn() };
+  const orders = {
+    view: jest.fn().mockResolvedValue({ id: ORDER_ID, status: 'PAID' }),
+  };
+  const logger = { error: jest.fn(), warn: jest.fn() };
   const service = new OrderPaymentsService(
     prisma as unknown as PrismaService,
     payments as unknown as PaymentsService,
     stock as unknown as StockService,
+    orders as unknown as OrdersService,
     logger as unknown as PinoLogger,
   );
-  return { service, prisma, tx, payments, stock, logger };
+  return { service, prisma, tx, payments, stock, orders, logger };
 }
 
 async function refusal(promise: Promise<unknown>): Promise<unknown> {
@@ -210,6 +221,149 @@ describe('OrderPaymentsService.start', () => {
       .mockResolvedValueOnce({ status: 'PENDING_PAYMENT' });
 
     await expect(service.start(USER, ORDER_ID, NOW)).rejects.toBe(failure);
+  });
+});
+
+describe('OrderPaymentsService.confirm', () => {
+  const confirmation = {
+    razorpayPaymentId: captured.id,
+    razorpaySignature: 'a'.repeat(64),
+  };
+
+  it("checks Razorpay's signature for this order's Razorpay order, settles on Razorpay's word, and answers the order", async () => {
+    const { service, prisma, payments, orders } = setup();
+
+    await expect(
+      service.confirm(USER, ORDER_ID, confirmation),
+    ).resolves.toEqual({ id: ORDER_ID, status: 'PAID' });
+    expect(prisma.order.findFirst).toHaveBeenCalledWith({
+      where: { id: ORDER_ID, userId: USER },
+      select: { id: true },
+    });
+    expect(payments.razorpayOrderOf).toHaveBeenCalledWith(ORDER_ID);
+    expect(payments.isCheckoutSignatureValid).toHaveBeenCalledWith(
+      'order_Captured01',
+      captured.id,
+      'a'.repeat(64),
+    );
+    expect(payments.razorpayPayment).toHaveBeenCalledWith(captured.id);
+    expect(payments.markPaid).toHaveBeenCalled();
+    expect(orders.view).toHaveBeenCalledWith(USER, ORDER_ID);
+    expect(
+      payments.markPaid.mock.invocationCallOrder[0] <
+        orders.view.mock.invocationCallOrder[0],
+    ).toBe(true);
+  });
+
+  it("answers 404 for an unknown order, or someone else's", async () => {
+    const { service, prisma, payments } = setup();
+    prisma.order.findFirst.mockResolvedValueOnce(null);
+
+    const error = await refusal(service.confirm(USER, ORDER_ID, confirmation));
+
+    expect(error).toBeInstanceOf(NotFoundException);
+    expect((error as NotFoundException).message).toBe('Order not found');
+    expect(payments.razorpayOrderOf).not.toHaveBeenCalled();
+  });
+
+  it('refuses an order whose payment was never started', async () => {
+    const { service, payments } = setup();
+    payments.razorpayOrderOf.mockResolvedValueOnce(null);
+
+    const error = await refusal(service.confirm(USER, ORDER_ID, confirmation));
+
+    expect(error).toBeInstanceOf(ConflictException);
+    expect((error as ConflictException).message).toBe(
+      'Start paying for this order first.',
+    );
+    expect(payments.isCheckoutSignatureValid).not.toHaveBeenCalled();
+  });
+
+  it('refuses a wrong signature without asking Razorpay, and logs only the order', async () => {
+    const { service, payments, orders, logger } = setup();
+    payments.isCheckoutSignatureValid.mockReturnValueOnce(false);
+
+    const error = await refusal(service.confirm(USER, ORDER_ID, confirmation));
+
+    expect(error).toBeInstanceOf(BadRequestException);
+    expect((error as BadRequestException).message).toBe(
+      'The payment could not be verified.',
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      { orderId: ORDER_ID },
+      'A payment came with a wrong signature',
+    );
+    expect(payments.razorpayPayment).not.toHaveBeenCalled();
+    expect(orders.view).not.toHaveBeenCalled();
+  });
+
+  it('answers the order as it is while the payment is not captured', async () => {
+    const { service, prisma, payments, orders } = setup();
+    payments.razorpayPayment.mockResolvedValueOnce({
+      ...captured,
+      status: 'authorized',
+    });
+
+    await service.confirm(USER, ORDER_ID, confirmation);
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(orders.view).toHaveBeenCalledWith(USER, ORDER_ID);
+  });
+
+  it('asks to try again later when Razorpay fails, and logs only its status and code', async () => {
+    const { service, payments, orders, logger } = setup();
+    payments.razorpayPayment.mockRejectedValueOnce(
+      new RazorpayError(null, null, 'Razorpay could not be reached'),
+    );
+
+    const error = await refusal(service.confirm(USER, ORDER_ID, confirmation));
+
+    expect(error).toBeInstanceOf(RetryLaterException);
+    const busy = error as RetryLaterException;
+    expect([busy.getStatus(), busy.retryAfterSeconds]).toEqual([503, 30]);
+    expect(busy.getResponse()).toEqual({
+      message:
+        'Payments are not available right now. Please try again in a minute.',
+      code: 'PAYMENTS_UNAVAILABLE',
+    });
+    expect(logger.error).toHaveBeenCalledWith(
+      { status: null, code: null },
+      'Razorpay could not confirm a payment',
+    );
+    expect(orders.view).not.toHaveBeenCalled();
+  });
+
+  it('passes on any other failure', async () => {
+    const { service, payments } = setup();
+    payments.razorpayPayment.mockResolvedValueOnce({
+      ...captured,
+      amountRupees: 1,
+    });
+
+    await expect(service.confirm(USER, ORDER_ID, confirmation)).rejects.toThrow(
+      'A captured payment does not match its order',
+    );
+  });
+
+  it('refuses a payment that settles another order, or none of ours', async () => {
+    const { service, payments, orders } = setup();
+    payments.forRazorpayOrder.mockResolvedValueOnce({
+      ...record,
+      orderId: 'another-order',
+    });
+
+    const other = await refusal(service.confirm(USER, ORDER_ID, confirmation));
+    expect(other).toBeInstanceOf(BadRequestException);
+
+    payments.forRazorpayOrder.mockResolvedValueOnce(null);
+    const unknown = await refusal(
+      service.confirm(USER, ORDER_ID, confirmation),
+    );
+    expect(unknown).toBeInstanceOf(BadRequestException);
+    expect((unknown as BadRequestException).message).toBe(
+      'The payment could not be verified.',
+    );
+    expect(orders.view).not.toHaveBeenCalled();
   });
 });
 

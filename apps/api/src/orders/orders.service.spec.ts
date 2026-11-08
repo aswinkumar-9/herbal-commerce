@@ -4,6 +4,7 @@ import type { CartService } from '../cart/cart.service';
 import type { ShopPacksService } from '../catalog/shop-packs.service';
 import { NotEnoughStockError } from '../inventory/stock.service';
 import type { StockService } from '../inventory/stock.service';
+import type { PaymentsService } from '../payments/payments.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import {
   CART_EMPTY,
@@ -151,14 +152,16 @@ function setup() {
     take: jest.fn().mockResolvedValue(undefined),
     release: jest.fn().mockResolvedValue(undefined),
   };
+  const payments = { summaryFor: jest.fn().mockResolvedValue(null) };
   const orders = new OrdersService(
     prisma as unknown as PrismaService,
     addresses as unknown as AddressesService,
     cart as unknown as CartService,
     packs as unknown as ShopPacksService,
     stock as unknown as StockService,
+    payments as unknown as PaymentsService,
   );
-  return { orders, prisma, tx, addresses, cart, packs, stock };
+  return { orders, prisma, tx, addresses, cart, packs, stock, payments };
 }
 
 describe('OrdersService.quote', () => {
@@ -360,7 +363,7 @@ describe('OrdersService.place', () => {
 
 describe('OrdersService.view', () => {
   it("shows the customer's own order, with its address and its lines in order", async () => {
-    const { orders, prisma } = setup();
+    const { orders, prisma, payments } = setup();
 
     await expect(orders.view(USER, ORDER)).resolves.toEqual({
       id: ORDER,
@@ -371,7 +374,9 @@ describe('OrdersService.view', () => {
       delivery: address,
       ...totals,
       items: [ashLine, teaLine],
+      payment: null,
     });
+    expect(payments.summaryFor).toHaveBeenCalledWith(ORDER);
     const [query] = prisma.order.findFirst.mock.calls[0] as [
       {
         where: object;
@@ -385,13 +390,35 @@ describe('OrdersService.view', () => {
     );
   });
 
+  it('shows its payment: when it was paid, and any money given back', async () => {
+    const { orders, payments } = setup();
+    const payment = {
+      paidAt: NOW,
+      refunds: [
+        {
+          amountRupees: 1_546,
+          reason: 'ALREADY_PAID',
+          status: 'PENDING',
+          createdAt: NOW,
+        },
+      ],
+    };
+    payments.summaryFor.mockResolvedValueOnce(payment);
+
+    await expect(orders.view(USER, ORDER)).resolves.toMatchObject({
+      id: ORDER,
+      payment,
+    });
+  });
+
   it("answers 404 for an unknown order or someone else's", async () => {
-    const { orders, prisma } = setup();
+    const { orders, prisma, payments } = setup();
     prisma.order.findFirst.mockResolvedValue(null);
 
     await expect(orders.view(USER, ORDER)).rejects.toThrow(
       new NotFoundException(ORDER_NOT_FOUND),
     );
+    expect(payments.summaryFor).not.toHaveBeenCalled();
   });
 });
 

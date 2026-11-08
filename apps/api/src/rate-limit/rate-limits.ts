@@ -42,6 +42,8 @@ export const RATE_LIMITS = {
   placeOrder: { points: 30, duration: HOUR },
   // Starting a payment may ask Razorpay to make an order (ADR 0027).
   startPayment: { points: 60, duration: HOUR },
+  // Confirming a payment asks Razorpay about it (ADR 0027).
+  confirmPayment: { points: 60, duration: HOUR },
   // Failed logins only. A successful login clears the first one.
   loginFailuresByEmailAndIp: {
     points: 5,

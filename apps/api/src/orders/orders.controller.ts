@@ -17,11 +17,16 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
 import { OrderPaymentsService } from './order-payments.service';
 import {
+  confirmPaymentSchema,
   idempotencyKeySchema,
   orderListQuerySchema,
   placeOrderSchema,
 } from './orders.schemas';
-import type { OrderListQuery, PlaceOrderInput } from './orders.schemas';
+import type {
+  ConfirmPaymentInput,
+  OrderListQuery,
+  PlaceOrderInput,
+} from './orders.schemas';
 import { OrdersService } from './orders.service';
 
 // The signed-in customer's checkout, orders and their payment (ADR 0026,
@@ -99,5 +104,20 @@ export class OrdersController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ) {
     return this.orderPayments.start(user.id, id);
+  }
+
+  // Confirms a payment with what Razorpay's page gave the app. The server
+  // checks Razorpay's signature, then asks Razorpay itself, and answers the
+  // order: paid, still waiting, or with its money on the way back.
+  @Post('orders/:id/payment/confirm')
+  @HttpCode(HttpStatus.OK)
+  @RateLimit('confirmPayment')
+  confirmPayment(
+    @CurrentUser() user: AuthUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(confirmPaymentSchema))
+    body: ConfirmPaymentInput,
+  ) {
+    return this.orderPayments.confirm(user.id, id, body);
   }
 }

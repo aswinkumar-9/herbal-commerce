@@ -125,9 +125,9 @@ describe('rate-limited routes', () => {
       remove: undefined,
       empty: undefined,
     });
-    // Placing an order holds stock, and starting a payment may ask
-    // Razorpay for an order, so each has its own limit. The checkout and
-    // the orders only read, and cancelling gives stock back.
+    // Placing an order holds stock, and starting or confirming a payment
+    // asks Razorpay, so each has its own limit. The checkout and the orders
+    // only read, and cancelling gives stock back.
     expect(routeLimits(OrdersController)).toStrictEqual({
       quote: undefined,
       place: ['placeOrder'],
@@ -135,6 +135,7 @@ describe('rate-limited routes', () => {
       view: undefined,
       cancel: undefined,
       pay: ['startPayment'],
+      confirmPayment: ['confirmPayment'],
     });
   });
 });

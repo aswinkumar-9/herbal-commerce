@@ -51,6 +51,7 @@ function setup() {
     createOrder: jest.fn().mockResolvedValue(RAZORPAY_ORDER),
     findOrderByReceipt: jest.fn().mockResolvedValue(null),
     fetchPayment: jest.fn(),
+    isCheckoutSignatureValid: jest.fn(),
     refund: jest.fn().mockResolvedValue({
       id: 'rfnd_FP8QHiV938haTz',
       paymentId: 'pay_Late00000001',
@@ -214,6 +215,82 @@ describe('PaymentsService', () => {
       await expect(service.razorpayOrderFor(ORDER)).rejects.toThrow(
         'The payment was not saved',
       );
+    });
+  });
+
+  it('finds the Razorpay order an order is paid with, or null before paying starts', async () => {
+    const { service, prisma } = setup();
+    prisma.payment.findUnique.mockResolvedValueOnce({
+      razorpayOrderId: 'order_Saved00001',
+    });
+
+    await expect(service.razorpayOrderOf(ORDER.orderId)).resolves.toBe(
+      'order_Saved00001',
+    );
+    expect(prisma.payment.findUnique).toHaveBeenCalledWith({
+      where: { orderId: ORDER.orderId },
+      select: { razorpayOrderId: true },
+    });
+    await expect(service.razorpayOrderOf(ORDER.orderId)).resolves.toBeNull();
+  });
+
+  it("asks the gateway whether the payment page's signature is Razorpay's", () => {
+    const { service, razorpay } = setup();
+    razorpay.isCheckoutSignatureValid
+      .mockReturnValueOnce(true)
+      .mockReturnValueOnce(false);
+
+    expect(
+      service.isCheckoutSignatureValid('order_A1', 'pay_A1', 'signature'),
+    ).toBe(true);
+    expect(razorpay.isCheckoutSignatureValid).toHaveBeenCalledWith(
+      'order_A1',
+      'pay_A1',
+      'signature',
+    );
+    expect(
+      service.isCheckoutSignatureValid('order_A1', 'pay_A1', 'signature'),
+    ).toBe(false);
+  });
+
+  describe('summaryFor', () => {
+    it('shows when the order was paid, and its refunds oldest first, without Razorpay IDs', async () => {
+      const { service, prisma } = setup();
+      const summary = {
+        paidAt: NOW,
+        refunds: [
+          {
+            amountRupees: 498,
+            reason: 'ALREADY_PAID',
+            status: 'PENDING',
+            createdAt: NOW,
+          },
+        ],
+      };
+      prisma.payment.findUnique.mockResolvedValueOnce(summary);
+
+      await expect(service.summaryFor(ORDER.orderId)).resolves.toEqual(summary);
+      expect(prisma.payment.findUnique).toHaveBeenCalledWith({
+        where: { orderId: ORDER.orderId },
+        select: {
+          paidAt: true,
+          refunds: {
+            orderBy: { createdAt: 'asc' },
+            select: {
+              amountRupees: true,
+              reason: true,
+              status: true,
+              createdAt: true,
+            },
+          },
+        },
+      });
+    });
+
+    it('answers null before paying starts', async () => {
+      const { service } = setup();
+
+      await expect(service.summaryFor(ORDER.orderId)).resolves.toBeNull();
     });
   });
 

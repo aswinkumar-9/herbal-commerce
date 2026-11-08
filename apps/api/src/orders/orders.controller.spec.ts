@@ -24,6 +24,7 @@ function setup() {
   };
   const orderPayments = {
     start: jest.fn().mockResolvedValue({ razorpayOrderId: 'order_A1' }),
+    confirm: jest.fn().mockResolvedValue({ id: 'order-1', status: 'PAID' }),
   };
   const controller = new OrdersController(
     orders as unknown as OrdersService,
@@ -95,5 +96,22 @@ describe('OrdersController', () => {
       razorpayOrderId: 'order_A1',
     });
     expect(orderPayments.start).toHaveBeenCalledWith('user-1', 'order-1');
+  });
+
+  it("confirms a payment for the caller's own order, with what Razorpay's page gave", async () => {
+    const { controller, orderPayments } = setup();
+    const confirmation = {
+      razorpayPaymentId: 'pay_G3P9vcIhRs3NV4',
+      razorpaySignature: 'a'.repeat(64),
+    };
+
+    await expect(
+      controller.confirmPayment(USER, 'order-1', confirmation),
+    ).resolves.toEqual({ id: 'order-1', status: 'PAID' });
+    expect(orderPayments.confirm).toHaveBeenCalledWith(
+      'user-1',
+      'order-1',
+      confirmation,
+    );
   });
 });

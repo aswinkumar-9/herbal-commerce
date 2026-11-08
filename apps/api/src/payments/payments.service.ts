@@ -32,6 +32,18 @@ export interface SettlementState {
   refunded: boolean;
 }
 
+// What an order shows of its payment: when it was paid, and any money
+// given back, with why and how far along it is. Razorpay's IDs stay inside.
+export interface PaymentSummary {
+  paidAt: Date | null;
+  refunds: {
+    amountRupees: number;
+    reason: RefundReason;
+    status: RefundStatus;
+    createdAt: Date;
+  }[];
+}
+
 // Razorpay's refund statuses, as ours.
 const REFUND_STATUS = {
   pending: 'PENDING',
@@ -61,7 +73,7 @@ export class PaymentsService {
   // only once, so an order never gets two, even when two requests ask at the
   // same moment.
   async razorpayOrderFor(order: PayableOrder): Promise<string> {
-    const saved = await this.savedRazorpayOrder(order.orderId);
+    const saved = await this.razorpayOrderOf(order.orderId);
     if (saved) {
       return saved;
     }
@@ -82,11 +94,53 @@ export class PaymentsService {
       ],
       skipDuplicates: true,
     });
-    const now = await this.savedRazorpayOrder(order.orderId);
+    const now = await this.razorpayOrderOf(order.orderId);
     if (!now) {
       throw new Error('The payment was not saved');
     }
     return now;
+  }
+
+  // The Razorpay order an order is paid with, or null before paying starts.
+  async razorpayOrderOf(orderId: string): Promise<string | null> {
+    const payment = await this.prisma.payment.findUnique({
+      where: { orderId },
+      select: { razorpayOrderId: true },
+    });
+    return payment?.razorpayOrderId ?? null;
+  }
+
+  // Whether what the payment page gave the app is really Razorpay's.
+  isCheckoutSignatureValid(
+    razorpayOrderId: string,
+    razorpayPaymentId: string,
+    signature: string,
+  ): boolean {
+    return this.razorpay.isCheckoutSignatureValid(
+      razorpayOrderId,
+      razorpayPaymentId,
+      signature,
+    );
+  }
+
+  // What the customer sees of an order's payment, or null before paying
+  // starts.
+  summaryFor(orderId: string): Promise<PaymentSummary | null> {
+    return this.prisma.payment.findUnique({
+      where: { orderId },
+      select: {
+        paidAt: true,
+        refunds: {
+          orderBy: { createdAt: 'asc' },
+          select: {
+            amountRupees: true,
+            reason: true,
+            status: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
   }
 
   // A payment as Razorpay knows it now: the only word on whether money came.
@@ -190,14 +244,6 @@ export class PaymentsService {
         'A refund was not taken yet: it is asked again later',
       );
     }
-  }
-
-  private async savedRazorpayOrder(orderId: string): Promise<string | null> {
-    const payment = await this.prisma.payment.findUnique({
-      where: { orderId },
-      select: { razorpayOrderId: true },
-    });
-    return payment?.razorpayOrderId ?? null;
   }
 
   // Razorpay refuses a second order with the same receipt. Then the first

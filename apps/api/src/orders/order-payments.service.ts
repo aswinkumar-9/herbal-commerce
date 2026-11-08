@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   NotFoundException,
@@ -17,8 +18,19 @@ import {
   type RazorpayPayment,
 } from '../payments/razorpay.gateway';
 import { PrismaService } from '../prisma/prisma.service';
-import { HOLD_OVER, NOT_PAYABLE, PAYMENTS_UNAVAILABLE } from './order-rules';
-import { ORDER_NOT_FOUND } from './orders.service';
+import {
+  HOLD_OVER,
+  NOT_PAYABLE,
+  PAYMENT_NOT_STARTED,
+  PAYMENT_NOT_VERIFIED,
+  PAYMENTS_UNAVAILABLE,
+} from './order-rules';
+import type { ConfirmPaymentInput } from './orders.schemas';
+import {
+  ORDER_NOT_FOUND,
+  OrdersService,
+  type OrderView,
+} from './orders.service';
 
 // How long the app waits before asking again when Razorpay can't be
 // reached.
@@ -62,6 +74,7 @@ export class OrderPaymentsService {
     private readonly prisma: PrismaService,
     private readonly payments: PaymentsService,
     private readonly stock: StockService,
+    private readonly orders: OrdersService,
     @InjectPinoLogger(OrderPaymentsService.name)
     private readonly logger: PinoLogger,
   ) {}
@@ -110,6 +123,57 @@ export class OrderPaymentsService {
       razorpayKeyId: this.payments.keyId,
       razorpayOrderId,
     };
+  }
+
+  // Confirms a payment with what Razorpay's page gave the app. Razorpay's
+  // signature must be right for this order's Razorpay order, and then
+  // Razorpay itself is asked: the app's word alone never pays an order. The
+  // answer is the order as it is now: paid, still waiting (a payment not
+  // captured yet, or failed), or with its money on the way back.
+  async confirm(
+    userId: string,
+    orderId: string,
+    input: ConfirmPaymentInput,
+  ): Promise<OrderView> {
+    const order = await this.prisma.order.findFirst({
+      where: { id: orderId, userId },
+      select: { id: true },
+    });
+    if (!order) {
+      throw new NotFoundException(ORDER_NOT_FOUND);
+    }
+    const razorpayOrderId = await this.payments.razorpayOrderOf(orderId);
+    if (!razorpayOrderId) {
+      throw new ConflictException(PAYMENT_NOT_STARTED);
+    }
+    if (
+      !this.payments.isCheckoutSignatureValid(
+        razorpayOrderId,
+        input.razorpayPaymentId,
+        input.razorpaySignature,
+      )
+    ) {
+      this.logger.warn({ orderId }, 'A payment came with a wrong signature');
+      throw new BadRequestException(PAYMENT_NOT_VERIFIED);
+    }
+    let settlement: Settlement;
+    try {
+      settlement = await this.settle(input.razorpayPaymentId);
+    } catch (error) {
+      if (error instanceof RazorpayError) {
+        throw this.unavailable(error, 'Razorpay could not confirm a payment');
+      }
+      throw error;
+    }
+    // The signature ties the payment to this order's Razorpay order, so
+    // this never happens.
+    if (
+      settlement.kind === 'UNKNOWN_ORDER' ||
+      (settlement.kind !== 'NOT_CAPTURED' && settlement.orderId !== orderId)
+    ) {
+      throw new BadRequestException(PAYMENT_NOT_VERIFIED);
+    }
+    return this.orders.view(userId, orderId);
   }
 
   // Settles a Razorpay payment: what Razorpay says now decides, never what
@@ -246,25 +310,15 @@ export class OrderPaymentsService {
     }
   }
 
-  // Razorpay unreachable or refusing: try again later, and the log says
-  // why, with Razorpay's status and code only. An order cancelled or
-  // expired meanwhile is refused by the database: then it can't be paid.
+  // Razorpay unreachable or refusing: try again later. An order cancelled
+  // or expired meanwhile is refused by the database: then it can't be paid.
   private async startFailed(
     userId: string,
     orderId: string,
     error: unknown,
   ): Promise<never> {
     if (error instanceof RazorpayError) {
-      this.logger.error(
-        { status: error.status, code: error.code },
-        'Razorpay could not start a payment',
-      );
-      throw new RetryLaterException(
-        503,
-        PAYMENTS_UNAVAILABLE,
-        'PAYMENTS_UNAVAILABLE',
-        RETRY_PAYMENTS_SECONDS,
-      );
+      throw this.unavailable(error, 'Razorpay could not start a payment');
     }
     const order = await this.prisma.order.findFirst({
       where: { id: orderId, userId },
@@ -274,5 +328,17 @@ export class OrderPaymentsService {
       throw new ConflictException(NOT_PAYABLE);
     }
     throw error;
+  }
+
+  // Razorpay can't be asked now: try again later. The log says why, with
+  // Razorpay's status and code only.
+  private unavailable(error: RazorpayError, what: string): RetryLaterException {
+    this.logger.error({ status: error.status, code: error.code }, what);
+    return new RetryLaterException(
+      503,
+      PAYMENTS_UNAVAILABLE,
+      'PAYMENTS_UNAVAILABLE',
+      RETRY_PAYMENTS_SECONDS,
+    );
   }
 }

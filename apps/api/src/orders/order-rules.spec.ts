@@ -15,6 +15,8 @@ import {
   notEnoughStock,
   notReady,
   orderTotals,
+  PAYMENT_NOT_STARTED,
+  PAYMENT_NOT_VERIFIED,
   PAYMENTS_UNAVAILABLE,
   REFERENCE_LENGTH,
   TOO_MANY_OPEN,
@@ -50,6 +52,8 @@ describe("the owner's numbers", () => {
     expect(PAYMENTS_UNAVAILABLE).toBe(
       'Payments are not available right now. Please try again in a minute.',
     );
+    expect(PAYMENT_NOT_STARTED).toBe('Start paying for this order first.');
+    expect(PAYMENT_NOT_VERIFIED).toBe('The payment could not be verified.');
     expect(notReady(['ASH-CAP-60', 'TULSI-100'])).toBe(
       "These packs can't be ordered now: ASH-CAP-60, TULSI-100. Change or remove them first.",
     );

@@ -1,4 +1,5 @@
 import {
+  confirmPaymentSchema,
   idempotencyKeySchema,
   orderListQuerySchema,
   placeOrderSchema,
@@ -80,5 +81,60 @@ describe('orderListQuerySchema', () => {
         (r) => r.split(':')[0],
       ),
     ).toEqual(['before']);
+  });
+});
+
+describe('confirmPaymentSchema', () => {
+  const SIGNATURE =
+    '2fe297ba8d4585a8ecb4e852d6603baf5e5aac841d17c54584d715a588538d9a';
+
+  it("takes the payment ID and the signature from Razorpay's page, and drops the rest", () => {
+    expect(
+      confirmPaymentSchema.parse({
+        razorpayPaymentId: 'pay_G3P9vcIhRs3NV4',
+        razorpaySignature: SIGNATURE.toUpperCase(),
+        razorpayOrderId: 'order_FromTheApp01',
+      }),
+    ).toEqual({
+      razorpayPaymentId: 'pay_G3P9vcIhRs3NV4',
+      razorpaySignature: SIGNATURE.toUpperCase(),
+    });
+  });
+
+  it('refuses a payment ID or a signature in another form', () => {
+    for (const razorpayPaymentId of [
+      'pay_',
+      'order_RB58MiP5SPFYyM',
+      'pay_a/b',
+      ' pay_G3P9',
+    ]) {
+      expect(
+        refusals(confirmPaymentSchema, {
+          razorpayPaymentId,
+          razorpaySignature: SIGNATURE,
+        }),
+      ).toEqual([
+        "razorpayPaymentId: Send the razorpay_payment_id from Razorpay's payment page",
+      ]);
+    }
+    for (const razorpaySignature of [
+      SIGNATURE.slice(1),
+      `${SIGNATURE}0`,
+      'z'.repeat(64),
+    ]) {
+      expect(
+        refusals(confirmPaymentSchema, {
+          razorpayPaymentId: 'pay_G3P9vcIhRs3NV4',
+          razorpaySignature,
+        }),
+      ).toEqual([
+        "razorpaySignature: Send the razorpay_signature from Razorpay's payment page",
+      ]);
+    }
+    expect(
+      refusals(confirmPaymentSchema, {}).map(
+        (refusal) => refusal.split(':')[0],
+      ),
+    ).toEqual(['razorpayPaymentId', 'razorpaySignature']);
   });
 });
