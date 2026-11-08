@@ -1,6 +1,10 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { PinoLogger } from 'nestjs-pino';
 import { RetryLaterException } from '../common/retry-later.exception';
+import {
+  NotEnoughStockError,
+  type StockService,
+} from '../inventory/stock.service';
 import type { PaymentsService } from '../payments/payments.service';
 import { RazorpayError } from '../payments/razorpay.gateway';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -8,6 +12,8 @@ import { OrderPaymentsService } from './order-payments.service';
 
 const USER = 'user-1';
 const ORDER_ID = '4f7c2a9e-3b1d-4e8a-9c6f-2d5b8e1a7c30';
+const PAYMENT_ID = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a101';
+const REFUND_ID = 'f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f101';
 const NOW = new Date('2026-11-08T06:00:00.000Z');
 const HOLD = new Date('2026-11-08T06:10:00.000Z');
 
@@ -18,22 +24,52 @@ const order = {
   totalRupees: 498,
   holdExpiresAt: HOLD,
 };
+const captured = {
+  id: 'pay_G3P9vcIhRs3NV4',
+  orderId: 'order_Captured01',
+  amountRupees: 498,
+  refundedRupees: 0,
+  currency: 'INR',
+  status: 'captured' as const,
+  method: 'upi',
+};
+const record = { id: PAYMENT_ID, orderId: ORDER_ID, amountRupees: 498 };
+const items = [{ variantId: 'b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1', packs: 1 }];
 
 function setup() {
+  const tx = {
+    order: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUniqueOrThrow: jest
+        .fn()
+        .mockResolvedValue({ status: 'PENDING_PAYMENT', items }),
+    },
+  };
   const prisma = {
     order: { findFirst: jest.fn().mockResolvedValue(order) },
+    $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
   };
   const payments = {
     keyId: 'rzp_test_FakeKey0123',
     razorpayOrderFor: jest.fn().mockResolvedValue('order_RB58MiP5SPFYyM'),
+    razorpayPayment: jest.fn().mockResolvedValue(captured),
+    forRazorpayOrder: jest.fn().mockResolvedValue(record),
+    settlementState: jest
+      .fn()
+      .mockResolvedValue({ paidBy: null, refunded: false }),
+    markPaid: jest.fn().mockResolvedValue(undefined),
+    recordRefund: jest.fn().mockResolvedValue(REFUND_ID),
+    requestRefund: jest.fn().mockResolvedValue(undefined),
   };
+  const stock = { take: jest.fn().mockResolvedValue(undefined) };
   const logger = { error: jest.fn() };
   const service = new OrderPaymentsService(
     prisma as unknown as PrismaService,
     payments as unknown as PaymentsService,
+    stock as unknown as StockService,
     logger as unknown as PinoLogger,
   );
-  return { service, prisma, payments, logger };
+  return { service, prisma, tx, payments, stock, logger };
 }
 
 async function refusal(promise: Promise<unknown>): Promise<unknown> {
@@ -174,5 +210,301 @@ describe('OrderPaymentsService.start', () => {
       .mockResolvedValueOnce({ status: 'PENDING_PAYMENT' });
 
     await expect(service.start(USER, ORDER_ID, NOW)).rejects.toBe(failure);
+  });
+});
+
+describe('OrderPaymentsService.settle', () => {
+  it('pays an order waiting for payment: the order locked first, the payment before the order', async () => {
+    const { service, prisma, tx, payments, stock } = setup();
+
+    await expect(service.settle(captured.id, NOW)).resolves.toEqual({
+      kind: 'PAID',
+      orderId: ORDER_ID,
+      late: false,
+    });
+    expect(payments.razorpayPayment).toHaveBeenCalledWith(captured.id);
+    expect(payments.forRazorpayOrder).toHaveBeenCalledWith('order_Captured01');
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(tx.order.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: ORDER_ID },
+      data: { updatedAt: NOW },
+    });
+    expect(tx.order.findUniqueOrThrow).toHaveBeenCalledWith({
+      where: { id: ORDER_ID },
+      select: {
+        status: true,
+        items: {
+          orderBy: { position: 'asc' },
+          select: { variantId: true, packs: true },
+        },
+      },
+    });
+    expect(payments.settlementState).toHaveBeenCalledWith(
+      tx,
+      PAYMENT_ID,
+      captured.id,
+    );
+    expect(payments.markPaid).toHaveBeenCalledWith(
+      tx,
+      PAYMENT_ID,
+      captured.id,
+      NOW,
+    );
+    expect(tx.order.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: ORDER_ID, status: 'PENDING_PAYMENT' },
+      data: { status: 'PAID' },
+    });
+    // The lock comes first, the payment is paid before the order.
+    const lock = tx.order.updateMany.mock.invocationCallOrder[0];
+    const read = tx.order.findUniqueOrThrow.mock.invocationCallOrder[0];
+    const paid = payments.markPaid.mock.invocationCallOrder[0];
+    const orderPaid = tx.order.updateMany.mock.invocationCallOrder[1];
+    expect(lock < read && read < paid && paid < orderPaid).toBe(true);
+    expect(stock.take).not.toHaveBeenCalled();
+    expect(payments.recordRefund).not.toHaveBeenCalled();
+    expect(payments.requestRefund).not.toHaveBeenCalled();
+  });
+
+  it('changes nothing for a payment that is not captured', async () => {
+    for (const status of [
+      'created',
+      'authorized',
+      'failed',
+      'refunded',
+    ] as const) {
+      const { service, prisma, payments } = setup();
+      payments.razorpayPayment.mockResolvedValueOnce({ ...captured, status });
+
+      await expect(service.settle(captured.id, NOW)).resolves.toEqual({
+        kind: 'NOT_CAPTURED',
+        razorpayStatus: status,
+      });
+      expect(payments.forRazorpayOrder).not.toHaveBeenCalled();
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    }
+  });
+
+  it('changes nothing for a payment that is not for one of our orders', async () => {
+    const { service, prisma, payments } = setup();
+    payments.razorpayPayment.mockResolvedValueOnce({
+      ...captured,
+      orderId: null,
+    });
+
+    await expect(service.settle(captured.id, NOW)).resolves.toEqual({
+      kind: 'UNKNOWN_ORDER',
+    });
+    expect(payments.forRazorpayOrder).not.toHaveBeenCalled();
+
+    payments.forRazorpayOrder.mockResolvedValueOnce(null);
+    await expect(service.settle(captured.id, NOW)).resolves.toEqual({
+      kind: 'UNKNOWN_ORDER',
+    });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('decides nothing for a captured payment of another amount or currency', async () => {
+    for (const other of [
+      { amountRupees: 497 },
+      { amountRupees: null },
+      { currency: 'USD' },
+    ]) {
+      const { service, prisma, payments } = setup();
+      payments.razorpayPayment.mockResolvedValueOnce({
+        ...captured,
+        ...other,
+      });
+
+      await expect(service.settle(captured.id, NOW)).rejects.toThrow(
+        'A captured payment does not match its order',
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    }
+  });
+
+  it('changes nothing when the same payment is settled again', async () => {
+    for (const state of [
+      { paidBy: captured.id, refunded: false },
+      { paidBy: null, refunded: true },
+      { paidBy: 'pay_Other0000001', refunded: true },
+    ]) {
+      const { service, tx, payments, stock } = setup();
+      payments.settlementState.mockResolvedValueOnce(state);
+
+      await expect(service.settle(captured.id, NOW)).resolves.toEqual({
+        kind: 'ALREADY_SETTLED',
+        orderId: ORDER_ID,
+      });
+      expect(payments.markPaid).not.toHaveBeenCalled();
+      expect(payments.recordRefund).not.toHaveBeenCalled();
+      expect(stock.take).not.toHaveBeenCalled();
+      // Only the lock touched the order.
+      expect(tx.order.updateMany).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('pays an expired order late when its stock can be taken again', async () => {
+    const { service, tx, payments, stock } = setup();
+    tx.order.findUniqueOrThrow.mockResolvedValueOnce({
+      status: 'EXPIRED',
+      items,
+    });
+
+    await expect(service.settle(captured.id, NOW)).resolves.toEqual({
+      kind: 'PAID',
+      orderId: ORDER_ID,
+      late: true,
+    });
+    expect(stock.take).toHaveBeenCalledWith(tx, ORDER_ID, items, NOW);
+    expect(payments.markPaid).toHaveBeenCalledWith(
+      tx,
+      PAYMENT_ID,
+      captured.id,
+      NOW,
+    );
+    expect(tx.order.updateMany).toHaveBeenLastCalledWith({
+      where: { id: ORDER_ID, status: 'EXPIRED' },
+      data: { status: 'PAID' },
+    });
+    expect(
+      stock.take.mock.invocationCallOrder[0] <
+        payments.markPaid.mock.invocationCallOrder[0],
+    ).toBe(true);
+    expect(payments.recordRefund).not.toHaveBeenCalled();
+  });
+
+  it('gives a late payment back in full when the stock is gone, and asks Razorpay only after saving', async () => {
+    const { service, prisma, tx, payments, stock } = setup();
+    tx.order.findUniqueOrThrow.mockResolvedValueOnce({
+      status: 'EXPIRED',
+      items,
+    });
+    stock.take.mockRejectedValueOnce(
+      new NotEnoughStockError(items[0].variantId),
+    );
+
+    await expect(service.settle(captured.id, NOW)).resolves.toEqual({
+      kind: 'REFUNDING',
+      orderId: ORDER_ID,
+      reason: 'ORDER_EXPIRED',
+      refundId: REFUND_ID,
+    });
+    expect(payments.recordRefund).toHaveBeenCalledWith(tx, {
+      paymentId: PAYMENT_ID,
+      razorpayPaymentId: captured.id,
+      amountRupees: 498,
+      reason: 'ORDER_EXPIRED',
+    });
+    expect(payments.markPaid).not.toHaveBeenCalled();
+    expect(tx.order.updateMany).toHaveBeenCalledTimes(1);
+    expect(payments.requestRefund).toHaveBeenCalledWith(REFUND_ID);
+    const saved = await prisma.$transaction.mock.results[0].value;
+    expect(saved).toMatchObject({ kind: 'REFUNDING' });
+    expect(
+      payments.recordRefund.mock.invocationCallOrder[0] <
+        payments.requestRefund.mock.invocationCallOrder[0],
+    ).toBe(true);
+  });
+
+  it('gives back a payment for a cancelled order, without taking stock', async () => {
+    const { service, tx, payments, stock } = setup();
+    tx.order.findUniqueOrThrow.mockResolvedValueOnce({
+      status: 'CANCELLED',
+      items,
+    });
+
+    await expect(service.settle(captured.id, NOW)).resolves.toEqual({
+      kind: 'REFUNDING',
+      orderId: ORDER_ID,
+      reason: 'ORDER_CANCELLED',
+      refundId: REFUND_ID,
+    });
+    expect(stock.take).not.toHaveBeenCalled();
+    expect(payments.markPaid).not.toHaveBeenCalled();
+    expect(payments.requestRefund).toHaveBeenCalledWith(REFUND_ID);
+  });
+
+  it('gives back a second payment for an order already paid', async () => {
+    const { service, tx, payments } = setup();
+    tx.order.findUniqueOrThrow.mockResolvedValueOnce({ status: 'PAID', items });
+    payments.settlementState.mockResolvedValueOnce({
+      paidBy: 'pay_First000001',
+      refunded: false,
+    });
+
+    await expect(service.settle(captured.id, NOW)).resolves.toEqual({
+      kind: 'REFUNDING',
+      orderId: ORDER_ID,
+      reason: 'ALREADY_PAID',
+      refundId: REFUND_ID,
+    });
+    expect(payments.recordRefund).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({ reason: 'ALREADY_PAID' }),
+    );
+    expect(payments.markPaid).not.toHaveBeenCalled();
+  });
+
+  it('never pays a payment twice: a second payment goes back even while the order shows as waiting', async () => {
+    const { service, tx, payments } = setup();
+    payments.settlementState.mockResolvedValueOnce({
+      paidBy: 'pay_First000001',
+      refunded: false,
+    });
+
+    await expect(service.settle(captured.id, NOW)).resolves.toMatchObject({
+      kind: 'REFUNDING',
+      reason: 'ALREADY_PAID',
+    });
+    expect(payments.markPaid).not.toHaveBeenCalled();
+    expect(tx.order.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('gives back a payment for a paid order whose payment shows no payer, as already paid', async () => {
+    const { service, tx } = setup();
+    tx.order.findUniqueOrThrow.mockResolvedValueOnce({ status: 'PAID', items });
+
+    await expect(service.settle(captured.id, NOW)).resolves.toMatchObject({
+      kind: 'REFUNDING',
+      reason: 'ALREADY_PAID',
+    });
+  });
+
+  it('passes on any other failure while taking stock again, and records no refund', async () => {
+    const { service, tx, payments, stock } = setup();
+    tx.order.findUniqueOrThrow.mockResolvedValueOnce({
+      status: 'EXPIRED',
+      items,
+    });
+    const failure = new Error('the database is down');
+    stock.take.mockRejectedValueOnce(failure);
+
+    await expect(service.settle(captured.id, NOW)).rejects.toBe(failure);
+    expect(payments.recordRefund).not.toHaveBeenCalled();
+    expect(payments.requestRefund).not.toHaveBeenCalled();
+  });
+
+  it('fails when the order changed although it was locked', async () => {
+    const { service, tx } = setup();
+    tx.order.updateMany
+      .mockResolvedValueOnce({ count: 1 })
+      .mockResolvedValueOnce({ count: 0 });
+
+    await expect(service.settle(captured.id, NOW)).rejects.toThrow(
+      'The order changed while it was locked',
+    );
+  });
+
+  it("passes Razorpay's failure on, before deciding anything", async () => {
+    const { service, prisma, payments } = setup();
+    const failure = new RazorpayError(
+      null,
+      null,
+      'Razorpay could not be reached',
+    );
+    payments.razorpayPayment.mockRejectedValueOnce(failure);
+
+    await expect(service.settle(captured.id, NOW)).rejects.toBe(failure);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });

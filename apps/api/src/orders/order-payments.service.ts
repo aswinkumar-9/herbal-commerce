@@ -5,8 +5,17 @@ import {
 } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { RetryLaterException } from '../common/retry-later.exception';
-import { PaymentsService } from '../payments/payments.service';
-import { RazorpayError } from '../payments/razorpay.gateway';
+import type { Prisma } from '../generated/prisma/client';
+import type { RefundReason } from '../generated/prisma/enums';
+import { NotEnoughStockError, StockService } from '../inventory/stock.service';
+import {
+  PaymentsService,
+  type PaymentRecord,
+} from '../payments/payments.service';
+import {
+  RazorpayError,
+  type RazorpayPayment,
+} from '../payments/razorpay.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { HOLD_OVER, NOT_PAYABLE, PAYMENTS_UNAVAILABLE } from './order-rules';
 import { ORDER_NOT_FOUND } from './orders.service';
@@ -26,6 +35,25 @@ export interface PaymentStart {
   razorpayOrderId: string;
 }
 
+// What settling a Razorpay payment did (ADR 0027).
+export type Settlement =
+  // Not captured, so no money yet (authorized, created or failed): nothing
+  // changes. A captured payment comes back later.
+  | { kind: 'NOT_CAPTURED'; razorpayStatus: RazorpayPayment['status'] }
+  // Not for one of our orders.
+  | { kind: 'UNKNOWN_ORDER' }
+  // Handled before: paid the order, or is being given back.
+  | { kind: 'ALREADY_SETTLED'; orderId: string }
+  // Paid the order. Late: after it expired, with its stock taken again.
+  | { kind: 'PAID'; orderId: string; late: boolean }
+  // Goes back to the customer in full, and why.
+  | {
+      kind: 'REFUNDING';
+      orderId: string;
+      reason: RefundReason;
+      refundId: string;
+    };
+
 // Paying for orders (ADR 0027). An order asks the payments for its Razorpay
 // order, and never reads their tables.
 @Injectable()
@@ -33,6 +61,7 @@ export class OrderPaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly payments: PaymentsService,
+    private readonly stock: StockService,
     @InjectPinoLogger(OrderPaymentsService.name)
     private readonly logger: PinoLogger,
   ) {}
@@ -81,6 +110,140 @@ export class OrderPaymentsService {
       razorpayKeyId: this.payments.keyId,
       razorpayOrderId,
     };
+  }
+
+  // Settles a Razorpay payment: what Razorpay says now decides, never what
+  // a client says. In one transaction, with the order locked, so a cancel or
+  // an expiry at the same moment waits for it:
+  // - an order waiting for payment is paid;
+  // - an expired one is paid late if its stock can be taken again, from the
+  //   batches that expire first; otherwise the payment goes back (the
+  //   owner's rule);
+  // - a cancelled one gives the payment back;
+  // - a second payment for an order already paid goes back.
+  // The same payment settled again changes nothing. Razorpay is asked for a
+  // refund only once the transaction is saved.
+  async settle(
+    razorpayPaymentId: string,
+    now = new Date(),
+  ): Promise<Settlement> {
+    const paid = await this.payments.razorpayPayment(razorpayPaymentId);
+    if (paid.status !== 'captured') {
+      return { kind: 'NOT_CAPTURED', razorpayStatus: paid.status };
+    }
+    const record = paid.orderId
+      ? await this.payments.forRazorpayOrder(paid.orderId)
+      : null;
+    if (!record) {
+      return { kind: 'UNKNOWN_ORDER' };
+    }
+    // Razorpay takes only its order's amount, so this never happens; if it
+    // ever did, nothing is decided without a person.
+    if (paid.amountRupees !== record.amountRupees || paid.currency !== 'INR') {
+      throw new Error('A captured payment does not match its order');
+    }
+    const settlement = await this.prisma.$transaction((tx) =>
+      this.settleLocked(tx, record, paid.id, now),
+    );
+    if (settlement.kind === 'REFUNDING') {
+      await this.payments.requestRefund(settlement.refundId);
+    }
+    return settlement;
+  }
+
+  private async settleLocked(
+    tx: Prisma.TransactionClient,
+    record: PaymentRecord,
+    razorpayPaymentId: string,
+    now: Date,
+  ): Promise<Settlement> {
+    const orderId = record.orderId;
+    // The lock: the order's row stays locked until the transaction ends.
+    await tx.order.updateMany({
+      where: { id: orderId },
+      data: { updatedAt: now },
+    });
+    const order = await tx.order.findUniqueOrThrow({
+      where: { id: orderId },
+      select: {
+        status: true,
+        items: {
+          orderBy: { position: 'asc' },
+          select: { variantId: true, packs: true },
+        },
+      },
+    });
+    const state = await this.payments.settlementState(
+      tx,
+      record.id,
+      razorpayPaymentId,
+    );
+    if (state.paidBy === razorpayPaymentId || state.refunded) {
+      return { kind: 'ALREADY_SETTLED', orderId };
+    }
+    const refund = async (reason: RefundReason): Promise<Settlement> => ({
+      kind: 'REFUNDING',
+      orderId,
+      reason,
+      refundId: await this.payments.recordRefund(tx, {
+        paymentId: record.id,
+        razorpayPaymentId,
+        amountRupees: record.amountRupees,
+        reason,
+      }),
+    });
+    if (state.paidBy !== null) {
+      return refund('ALREADY_PAID');
+    }
+    if (order.status === 'PENDING_PAYMENT') {
+      await this.markOrderPaid(
+        tx,
+        record,
+        razorpayPaymentId,
+        order.status,
+        now,
+      );
+      return { kind: 'PAID', orderId, late: false };
+    }
+    if (order.status === 'EXPIRED') {
+      try {
+        await this.stock.take(tx, orderId, order.items, now);
+      } catch (error) {
+        if (error instanceof NotEnoughStockError) {
+          return refund('ORDER_EXPIRED');
+        }
+        throw error;
+      }
+      await this.markOrderPaid(
+        tx,
+        record,
+        razorpayPaymentId,
+        order.status,
+        now,
+      );
+      return { kind: 'PAID', orderId, late: true };
+    }
+    return refund(
+      order.status === 'CANCELLED' ? 'ORDER_CANCELLED' : 'ALREADY_PAID',
+    );
+  }
+
+  // The payment first: the database pays an order only once its payment is.
+  private async markOrderPaid(
+    tx: Prisma.TransactionClient,
+    record: PaymentRecord,
+    razorpayPaymentId: string,
+    from: 'PENDING_PAYMENT' | 'EXPIRED',
+    now: Date,
+  ): Promise<void> {
+    await this.payments.markPaid(tx, record.id, razorpayPaymentId, now);
+    const { count } = await tx.order.updateMany({
+      where: { id: record.orderId, status: from },
+      data: { status: 'PAID' },
+    });
+    if (count !== 1) {
+      throw new Error('The order changed while it was locked');
+    }
   }
 
   // Razorpay unreachable or refusing: try again later, and the log says

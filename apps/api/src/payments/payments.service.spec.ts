@@ -1,3 +1,5 @@
+import type { PinoLogger } from 'nestjs-pino';
+import type { Prisma } from '../generated/prisma/client';
 import type { PrismaService } from '../prisma/prisma.service';
 import { PaymentsService } from './payments.service';
 import { RazorpayError, type RazorpayGateway } from './razorpay.gateway';
@@ -14,6 +16,9 @@ const RAZORPAY_ORDER = {
   receipt: '7KQ2M9XDPA',
   status: 'created' as const,
 };
+const PAYMENT_ID = 'a1a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a101';
+const REFUND_ID = 'f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f101';
+const NOW = new Date('2026-11-08T06:00:00.000Z');
 
 function setup() {
   const prisma = {
@@ -21,17 +26,52 @@ function setup() {
       findUnique: jest.fn().mockResolvedValue(null),
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
     },
+    refund: {
+      findUnique: jest.fn().mockResolvedValue({
+        razorpayPaymentId: 'pay_Late00000001',
+        status: 'REQUESTED',
+      }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+  };
+  const tx = {
+    payment: {
+      findUniqueOrThrow: jest
+        .fn()
+        .mockResolvedValue({ razorpayPaymentId: null }),
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
+    refund: {
+      findUnique: jest.fn().mockResolvedValue(null),
+      create: jest.fn().mockResolvedValue({ id: REFUND_ID }),
+    },
   };
   const razorpay = {
     keyId: 'rzp_test_FakeKey0123',
     createOrder: jest.fn().mockResolvedValue(RAZORPAY_ORDER),
     findOrderByReceipt: jest.fn().mockResolvedValue(null),
+    fetchPayment: jest.fn(),
+    refund: jest.fn().mockResolvedValue({
+      id: 'rfnd_FP8QHiV938haTz',
+      paymentId: 'pay_Late00000001',
+      amountRupees: 498,
+      status: 'pending',
+    }),
   };
+  const logger = { warn: jest.fn() };
   const service = new PaymentsService(
     prisma as unknown as PrismaService,
     razorpay as unknown as RazorpayGateway,
+    logger as unknown as PinoLogger,
   );
-  return { service, prisma, razorpay };
+  return {
+    service,
+    prisma,
+    tx: tx as unknown as Prisma.TransactionClient,
+    txMock: tx,
+    razorpay,
+    logger,
+  };
 }
 
 describe('PaymentsService', () => {
@@ -173,6 +213,181 @@ describe('PaymentsService', () => {
 
       await expect(service.razorpayOrderFor(ORDER)).rejects.toThrow(
         'The payment was not saved',
+      );
+    });
+  });
+
+  it('asks Razorpay how a payment stands', async () => {
+    const { service, razorpay } = setup();
+    razorpay.fetchPayment.mockResolvedValueOnce({ id: 'pay_A1' });
+
+    await expect(service.razorpayPayment('pay_A1')).resolves.toEqual({
+      id: 'pay_A1',
+    });
+    expect(razorpay.fetchPayment).toHaveBeenCalledWith('pay_A1');
+  });
+
+  it('finds our payment by its Razorpay order', async () => {
+    const { service, prisma } = setup();
+    const record = {
+      id: PAYMENT_ID,
+      orderId: ORDER.orderId,
+      amountRupees: 498,
+    };
+    prisma.payment.findUnique.mockResolvedValueOnce(record);
+
+    await expect(
+      service.forRazorpayOrder('order_RB58MiP5SPFYyM'),
+    ).resolves.toEqual(record);
+    expect(prisma.payment.findUnique).toHaveBeenCalledWith({
+      where: { razorpayOrderId: 'order_RB58MiP5SPFYyM' },
+      select: { id: true, orderId: true, amountRupees: true },
+    });
+  });
+
+  describe('settlementState', () => {
+    it('says which Razorpay payment paid the payment, and whether this one is being given back', async () => {
+      const { service, tx, txMock } = setup();
+      txMock.payment.findUniqueOrThrow.mockResolvedValueOnce({
+        razorpayPaymentId: 'pay_First000001',
+      });
+      txMock.refund.findUnique.mockResolvedValueOnce({ id: REFUND_ID });
+
+      await expect(
+        service.settlementState(tx, PAYMENT_ID, 'pay_Second00001'),
+      ).resolves.toEqual({ paidBy: 'pay_First000001', refunded: true });
+      expect(txMock.payment.findUniqueOrThrow).toHaveBeenCalledWith({
+        where: { id: PAYMENT_ID },
+        select: { razorpayPaymentId: true },
+      });
+      expect(txMock.refund.findUnique).toHaveBeenCalledWith({
+        where: { razorpayPaymentId: 'pay_Second00001' },
+        select: { id: true },
+      });
+    });
+
+    it('says not paid and not refunded for a new payment', async () => {
+      const { service, tx } = setup();
+
+      await expect(
+        service.settlementState(tx, PAYMENT_ID, 'pay_First000001'),
+      ).resolves.toEqual({ paidBy: null, refunded: false });
+    });
+  });
+
+  describe('markPaid', () => {
+    it('records the Razorpay payment that paid, and when, only on an unpaid payment', async () => {
+      const { service, tx, txMock } = setup();
+
+      await service.markPaid(tx, PAYMENT_ID, 'pay_First000001', NOW);
+
+      expect(txMock.payment.updateMany).toHaveBeenCalledWith({
+        where: { id: PAYMENT_ID, razorpayPaymentId: null },
+        data: { razorpayPaymentId: 'pay_First000001', paidAt: NOW },
+      });
+    });
+
+    it('fails when the payment was paid already', async () => {
+      const { service, tx, txMock } = setup();
+      txMock.payment.updateMany.mockResolvedValueOnce({ count: 0 });
+
+      await expect(
+        service.markPaid(tx, PAYMENT_ID, 'pay_First000001', NOW),
+      ).rejects.toThrow('The payment was paid already');
+    });
+  });
+
+  it('records a refund in the transaction, and answers its ID', async () => {
+    const { service, tx, txMock, razorpay } = setup();
+    const refund = {
+      paymentId: PAYMENT_ID,
+      razorpayPaymentId: 'pay_Late00000001',
+      amountRupees: 498,
+      reason: 'ORDER_EXPIRED' as const,
+    };
+
+    await expect(service.recordRefund(tx, refund)).resolves.toBe(REFUND_ID);
+    expect(txMock.refund.create).toHaveBeenCalledWith({
+      data: refund,
+      select: { id: true },
+    });
+    expect(razorpay.refund).not.toHaveBeenCalled();
+  });
+
+  describe('requestRefund', () => {
+    it('asks Razorpay with our refund as its receipt, and saves what Razorpay answered', async () => {
+      for (const [answered, saved] of [
+        ['pending', 'PENDING'],
+        ['processed', 'PROCESSED'],
+        ['failed', 'FAILED'],
+      ] as const) {
+        const { service, prisma, razorpay } = setup();
+        razorpay.refund.mockResolvedValueOnce({
+          id: 'rfnd_FP8QHiV938haTz',
+          paymentId: 'pay_Late00000001',
+          amountRupees: 498,
+          status: answered,
+        });
+
+        await service.requestRefund(REFUND_ID);
+
+        expect(prisma.refund.findUnique).toHaveBeenCalledWith({
+          where: { id: REFUND_ID },
+          select: { razorpayPaymentId: true, status: true },
+        });
+        expect(razorpay.refund).toHaveBeenCalledWith(
+          'pay_Late00000001',
+          REFUND_ID,
+        );
+        expect(prisma.refund.updateMany).toHaveBeenCalledWith({
+          where: { id: REFUND_ID, status: 'REQUESTED' },
+          data: { status: saved, razorpayRefundId: 'rfnd_FP8QHiV938haTz' },
+        });
+      }
+    });
+
+    it('asks nothing for an unknown refund, or one Razorpay has already taken', async () => {
+      for (const found of [
+        null,
+        { razorpayPaymentId: 'pay_Late00000001', status: 'PENDING' },
+        { razorpayPaymentId: 'pay_Late00000001', status: 'PROCESSED' },
+      ]) {
+        const { service, prisma, razorpay } = setup();
+        prisma.refund.findUnique.mockResolvedValueOnce(found);
+
+        await service.requestRefund(REFUND_ID);
+
+        expect(razorpay.refund).not.toHaveBeenCalled();
+        expect(prisma.refund.updateMany).not.toHaveBeenCalled();
+      }
+    });
+
+    it('leaves the refund REQUESTED when Razorpay fails, logs only its status and code, and never throws', async () => {
+      const { service, prisma, razorpay, logger } = setup();
+      razorpay.refund.mockRejectedValueOnce(
+        new RazorpayError(null, null, 'Razorpay could not be reached'),
+      );
+
+      await expect(service.requestRefund(REFUND_ID)).resolves.toBeUndefined();
+
+      expect(prisma.refund.updateMany).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        { refundId: REFUND_ID, status: null, code: null },
+        'A refund was not taken yet: it is asked again later',
+      );
+    });
+
+    it('logs only the name of any other failure', async () => {
+      const { service, prisma, logger } = setup();
+      prisma.refund.updateMany.mockRejectedValueOnce(
+        new TypeError('the database is down'),
+      );
+
+      await expect(service.requestRefund(REFUND_ID)).resolves.toBeUndefined();
+
+      expect(logger.warn).toHaveBeenCalledWith(
+        { refundId: REFUND_ID, errorName: 'TypeError' },
+        'A refund was not taken yet: it is asked again later',
       );
     });
   });
