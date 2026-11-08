@@ -9,6 +9,7 @@ import { StaffImagesController } from '../catalog/staff-images.controller';
 import { StaffStockController } from '../inventory/staff-stock.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffVariantsController } from '../catalog/staff-variants.controller';
+import { OrdersController } from '../orders/orders.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
 import { StaffAuditLogController } from '../staff/staff-audit-log.controller';
 import { StaffAuthController } from '../staff/staff-auth.controller';
@@ -60,6 +61,8 @@ describe('public routes', () => {
     expect(publicHandlers(StaffStockController)).toEqual([]);
     // Part 6: a cart belongs to a signed-in customer.
     expect(publicHandlers(CartController)).toEqual([]);
+    // Part 7: so do checkout and orders.
+    expect(publicHandlers(OrdersController)).toEqual([]);
     // Parts 4A and 4B: customers browse the shop before they sign in.
     expect(publicHandlers(CategoriesController)).toEqual([
       'list',

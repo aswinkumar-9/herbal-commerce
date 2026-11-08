@@ -20,6 +20,8 @@ function row(changes: object = {}, productChanges: object = {}) {
     product: {
       name: 'Ashwagandha Capsules',
       slug: 'ashwagandha-capsules',
+      hsnCode: '300490',
+      gstRate: 5,
       isActive: true,
       category: { isActive: true },
       variants: [{ id: V60 }, { id: V120 }],
@@ -46,7 +48,7 @@ function setup() {
 }
 
 describe('ShopPacksService', () => {
-  it('finds a pack size by its SKU, with its product, its photo and every size of the product', async () => {
+  it('finds a pack size by its SKU, with its product, its photo, its GST details and every size of the product', async () => {
     const { packs, prisma } = setup();
 
     await expect(packs.findBySku('ASH-CAP-60')).resolves.toEqual({
@@ -57,6 +59,8 @@ describe('ShopPacksService', () => {
       unit: 'CAPSULES',
       mrpRupees: 500,
       priceRupees: 449,
+      hsnCode: '300490',
+      gstRate: 5,
       onSale: true,
       product: {
         name: 'Ashwagandha Capsules',

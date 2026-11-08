@@ -9,6 +9,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   BATCH_NOT_FOUND,
   BATCH_NUMBER_TAKEN,
+  NotEnoughStockError,
   PACK_NOT_FOUND,
   StockService,
 } from './stock.service';
@@ -66,8 +67,13 @@ function setup() {
       create: jest.fn().mockResolvedValue({ id: BATCH }),
       findUniqueOrThrow: jest.fn().mockResolvedValue(row()),
       update: jest.fn().mockResolvedValue(row()),
+      findMany: jest.fn().mockResolvedValue([]),
     },
-    stockMovement: { create: jest.fn().mockResolvedValue({ id: 'm-1' }) },
+    stockMovement: {
+      create: jest.fn().mockResolvedValue({ id: 'm-1' }),
+      createMany: jest.fn().mockResolvedValue({ count: 0 }),
+      groupBy: jest.fn().mockResolvedValue([]),
+    },
   };
   const prisma = {
     productVariant: { findUnique: jest.fn() },
@@ -457,5 +463,157 @@ describe('StockService.listMovements', () => {
       new NotFoundException(BATCH_NOT_FOUND),
     );
     expect(prisma.stockMovement.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('StockService.take, for an order', () => {
+  const ORDER = '0d0d0d0d-0d0d-4d0d-8d0d-0d0d0d0d0d0d';
+  const OTHER = '1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e';
+
+  it('takes the packs from the sellable batches, the first to expire first, after locking them in the order of their IDs', async () => {
+    const { service, tx } = setup();
+    tx.stockBatch.findMany
+      .mockResolvedValueOnce([{ id: 'b-1' }, { id: 'b-2' }, { id: 'b-3' }])
+      .mockResolvedValueOnce([
+        { id: 'b-2', variantId: VARIANT, quantity: 1 },
+        { id: 'b-1', variantId: VARIANT, quantity: 5 },
+        { id: 'b-3', variantId: OTHER, quantity: 4 },
+      ]);
+
+    await service.take(
+      tx as never,
+      ORDER,
+      [
+        { variantId: VARIANT, packs: 3 },
+        { variantId: OTHER, packs: 2 },
+      ],
+      NOW,
+    );
+
+    // Batches with stock that have at least 6 months left on 6 November
+    // 2026, in the order of their IDs.
+    expect(tx.stockBatch.findMany.mock.calls[0][0]).toEqual({
+      where: {
+        variantId: { in: [VARIANT, OTHER] },
+        quantity: { gt: 0 },
+        expiresOn: { gte: day('2027-05-06') },
+      },
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    });
+    const locked = tx.$queryRaw.mock.calls.map((call) => call[1] as string);
+    expect(locked).toEqual(['b-1', 'b-2', 'b-3']);
+    // Read again once locked, the first to expire first.
+    expect(tx.stockBatch.findMany.mock.calls[1][0]).toEqual({
+      where: { id: { in: ['b-1', 'b-2', 'b-3'] } },
+      orderBy: [{ expiresOn: 'asc' }, { batchNumber: 'asc' }],
+      select: { id: true, variantId: true, quantity: true },
+    });
+    expect(tx.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
+      tx.stockBatch.findMany.mock.invocationCallOrder[1],
+    );
+    expect(tx.stockMovement.createMany).toHaveBeenCalledWith({
+      data: [
+        { batchId: 'b-2', change: -1, reason: 'ORDERED', orderId: ORDER },
+        { batchId: 'b-1', change: -2, reason: 'ORDERED', orderId: ORDER },
+        { batchId: 'b-3', change: -2, reason: 'ORDERED', orderId: ORDER },
+      ],
+    });
+  });
+
+  it('skips a batch that another order emptied meanwhile', async () => {
+    const { service, tx } = setup();
+    tx.stockBatch.findMany
+      .mockResolvedValueOnce([{ id: 'b-1' }, { id: 'b-2' }])
+      .mockResolvedValueOnce([
+        { id: 'b-2', variantId: VARIANT, quantity: 0 },
+        { id: 'b-1', variantId: VARIANT, quantity: 5 },
+      ]);
+
+    await service.take(
+      tx as never,
+      ORDER,
+      [{ variantId: VARIANT, packs: 4 }],
+      NOW,
+    );
+
+    expect(tx.stockMovement.createMany).toHaveBeenCalledWith({
+      data: [{ batchId: 'b-1', change: -4, reason: 'ORDERED', orderId: ORDER }],
+    });
+  });
+
+  it('refuses when a pack size has too little sellable stock, naming it, and takes nothing', async () => {
+    const { service, tx } = setup();
+    tx.stockBatch.findMany
+      .mockResolvedValueOnce([{ id: 'b-1' }, { id: 'b-3' }])
+      .mockResolvedValueOnce([
+        { id: 'b-1', variantId: VARIANT, quantity: 5 },
+        { id: 'b-3', variantId: OTHER, quantity: 1 },
+      ]);
+
+    const refusal = service.take(
+      tx as never,
+      ORDER,
+      [
+        { variantId: VARIANT, packs: 4 },
+        { variantId: OTHER, packs: 2 },
+      ],
+      NOW,
+    );
+
+    await expect(refusal).rejects.toThrow(NotEnoughStockError);
+    await expect(refusal).rejects.toMatchObject({ variantId: OTHER });
+    expect(tx.stockMovement.createMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses a pack size without any sellable batch', async () => {
+    const { service, tx } = setup();
+
+    await expect(
+      service.take(tx as never, ORDER, [{ variantId: VARIANT, packs: 1 }], NOW),
+    ).rejects.toMatchObject({ variantId: VARIANT });
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.stockMovement.createMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('StockService.release, for an order cancelled or expired', () => {
+  const ORDER = '0d0d0d0d-0d0d-4d0d-8d0d-0d0d0d0d0d0d';
+
+  it('gives back to each batch what the order still holds of it, in the order of the batch IDs', async () => {
+    const { service, tx } = setup();
+    tx.stockMovement.groupBy.mockResolvedValue([
+      { batchId: 'b-1', _sum: { change: -2 } },
+      { batchId: 'b-2', _sum: { change: 0 } },
+      { batchId: 'b-3', _sum: { change: -1 } },
+    ]);
+
+    await service.release(tx as never, ORDER);
+
+    expect(tx.stockMovement.groupBy).toHaveBeenCalledWith({
+      by: ['batchId'],
+      where: { orderId: ORDER },
+      _sum: { change: true },
+      orderBy: { batchId: 'asc' },
+    });
+    // b-2 was given back already: nothing more for it.
+    expect(tx.stockMovement.createMany).toHaveBeenCalledWith({
+      data: [
+        { batchId: 'b-1', change: 2, reason: 'RELEASED', orderId: ORDER },
+        { batchId: 'b-3', change: 1, reason: 'RELEASED', orderId: ORDER },
+      ],
+    });
+  });
+
+  it('writes nothing when the order holds nothing, or its batches are gone', async () => {
+    const { service, tx } = setup();
+
+    await service.release(tx as never, ORDER);
+    tx.stockMovement.groupBy.mockResolvedValue([
+      { batchId: 'b-1', _sum: { change: 0 } },
+    ]);
+    await service.release(tx as never, ORDER);
+
+    expect(tx.stockMovement.createMany).not.toHaveBeenCalled();
   });
 });

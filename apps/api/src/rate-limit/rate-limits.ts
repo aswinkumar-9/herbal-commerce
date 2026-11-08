@@ -37,6 +37,9 @@ export const RATE_LIMITS = {
   // Each upload is an image to check and re-encode, the heaviest work the
   // API does (ADR 0023).
   imageUploads: { points: 120, duration: HOUR },
+  // Each order holds stock for 15 minutes, so nobody may hold a shop's
+  // stock with a flood of orders (ADR 0026).
+  placeOrder: { points: 30, duration: HOUR },
   // Failed logins only. A successful login clears the first one.
   loginFailuresByEmailAndIp: {
     points: 5,

@@ -3,6 +3,7 @@
 - Status: Accepted and implemented (part 5)
 - Date: 2026-11-06
 - Updated: 2026-11-06 (part 6: the cart asks the inventory which pack sizes are in stock, and holds no stock, see ADR 0025)
+- Updated: 2026-11-08 (part 7: orders take stock from the batch that expires first and give it back, and deleting a written-off product stays allowed, by the owner's choice, see ADR 0026)
 
 ## Context
 
@@ -34,6 +35,7 @@ Two tables:
     - `DAMAGED`: broken, spoiled or lost;
     - `EXPIRED`: written off near or past its expiry;
     - `CORRECTION`: a count found a difference;
+    - since part 7, `ORDERED`: taken by an order, and `RELEASED`: given back by a cancelled or expired order. Only orders make them, and each names its order in `orderId` (ADR 0026);
   - `note`;
   - `actorId`, without a foreign key, like the audit log, so the history outlives the account;
   - `createdAt`.
@@ -59,7 +61,7 @@ All of this was tested in 15 cases, on temporary tables inside a transaction tha
 
 - **A batch may be sold while it expires on or after today plus 6 months.** On 6 November 2026, that means from 6 May 2027. A month without that day uses its last day: 31 August plus 6 months is the end of February. The rule is `MIN_SHELF_LIFE_MONTHS` in `inventory/stock-rules.ts`.
 - **A batch that's too short-dated** may still be received and kept. Staff see it as not sellable, and can write it off.
-- **Orders (later) will take the sellable batch that expires first.** The batch list already comes in that order.
+- **Orders take the sellable batch that expires first** (since part 7, ADR 0026). The batch list comes in that order.
 
 ### Changing stock
 
@@ -83,6 +85,8 @@ A pack size, or a product, that still holds stock is never deleted: the goods ar
 - `This product still has stock. Write it off first, then delete it.`
 
 As for a category with products (ADR 0021), the API doesn't count first, so nothing can slip in between a count and the deletion. **Orders will add foreign keys that also answer `P2003`,** and these two mappings must be revisited then. Written off to 0, a pack size or product can be deleted, and its batches and movements go with it. The audit log keeps their story.
+
+**Revisited in part 7:** orders added no foreign key that a deleted pack size or product could hit. An order's line keeps the pack size's ID without one, and an order's movements point to the order, so the two mappings stay right. Deleting also deletes the movements that say which batch went into which order. The owner chose to keep deleting allowed; the orders keep their own copy of the names and prices (ADR 0026).
 
 ### The shop
 
@@ -149,7 +153,7 @@ The target is the batch, so `?targetId=<a batch's ID>` gives a batch's whole sto
   - **Read the library before trusting a guess.** Prisma's own code shows that a trigger's `restrict_violation` becomes `P2003`.
   - **Part 4D's lesson held.** The migration's SQL test was written as a file that stops unless its transaction has begun, and it ran cleanly the first time.
 - **Still open:**
-  - reservations for orders, with sales and returns as new reasons, and picking the batch that expires first. A cart holds no stock, by the owner's choice (ADR 0025);
+  - returns, as a new reason. Orders take stock from the batch that expires first and give it back since part 7 (ADR 0026), and a cart holds none, by the owner's choice (ADR 0025);
   - a list of batches near their expiry, and low-stock alerts;
   - recalls by batch number;
   - who packs (the second half of open decision 3);

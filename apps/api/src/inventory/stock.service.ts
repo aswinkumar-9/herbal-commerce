@@ -33,6 +33,14 @@ export const BATCH_NUMBER_TAKEN =
 export const notEnoughStock = (held: number) =>
   `Not enough stock: this batch holds ${held}.`;
 
+// An order wanted more of a pack size than its sellable batches hold
+// (ADR 0026). Orders turn it into an answer that names the pack.
+export class NotEnoughStockError extends Error {
+  constructor(readonly variantId: string) {
+    super('Not enough sellable stock for this pack size');
+  }
+}
+
 const BATCH_FIELDS = {
   id: true,
   variantId: true,
@@ -331,17 +339,107 @@ export class StockService {
     };
   }
 
+  // For an order (ADR 0026): takes each line's packs from its pack size's
+  // sellable batches, the first to expire first, as ORDERED movements in
+  // the order's transaction. Throws NotEnoughStockError for the first pack
+  // size without enough, and the transaction then takes nothing. The
+  // batches are locked in the order of their IDs, so two orders at the
+  // same moment take turns instead of waiting for each other forever.
+  async take(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    lines: { variantId: string; packs: number }[],
+    now = new Date(),
+  ): Promise<void> {
+    const candidates = await tx.stockBatch.findMany({
+      where: {
+        variantId: { in: lines.map((line) => line.variantId) },
+        quantity: { gt: 0 },
+        expiresOn: { gte: sellableFrom(now) },
+      },
+      orderBy: { id: 'asc' },
+      select: { id: true },
+    });
+    for (const { id } of candidates) {
+      await this.lockBatch(tx, id);
+    }
+    // Read again once locked: another order may have taken some meanwhile.
+    const batches = await tx.stockBatch.findMany({
+      where: { id: { in: candidates.map((batch) => batch.id) } },
+      orderBy: BATCH_ORDER,
+      select: { id: true, variantId: true, quantity: true },
+    });
+    const movements: Prisma.StockMovementCreateManyInput[] = [];
+    for (const line of lines) {
+      let needed = line.packs;
+      for (const batch of batches) {
+        if (needed === 0) {
+          break;
+        }
+        if (batch.variantId !== line.variantId || batch.quantity === 0) {
+          continue;
+        }
+        const taken = Math.min(needed, batch.quantity);
+        movements.push({
+          batchId: batch.id,
+          change: -taken,
+          reason: 'ORDERED',
+          orderId,
+        });
+        needed -= taken;
+      }
+      if (needed > 0) {
+        throw new NotEnoughStockError(line.variantId);
+      }
+    }
+    await tx.stockMovement.createMany({ data: movements });
+  }
+
+  // For an order that was cancelled or expired (ADR 0026): gives back to
+  // each batch what the order still holds of it, as RELEASED movements in
+  // the order's transaction, in the order of the batches' IDs, the same
+  // order in which take locks them. A batch deleted meanwhile took the
+  // order's movements along, and gets nothing back.
+  async release(tx: Prisma.TransactionClient, orderId: string): Promise<void> {
+    const held = await tx.stockMovement.groupBy({
+      by: ['batchId'],
+      where: { orderId },
+      _sum: { change: true },
+      orderBy: { batchId: 'asc' },
+    });
+    const movements: Prisma.StockMovementCreateManyInput[] = held
+      .filter((batch) => (batch._sum.change ?? 0) < 0)
+      .map((batch) => ({
+        batchId: batch.batchId,
+        change: -(batch._sum.change ?? 0),
+        reason: 'RELEASED',
+        orderId,
+      }));
+    if (movements.length > 0) {
+      await tx.stockMovement.createMany({ data: movements });
+    }
+  }
+
+  // Locks one batch until the transaction ends, or answers false when
+  // there is no such batch. The ID is sent as a parameter, never pasted
+  // into the SQL.
+  private async lockBatch(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<boolean> {
+    const locked = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM stock_batches WHERE id = ${id}::uuid FOR UPDATE`;
+    return locked.length > 0;
+  }
+
   // Locks the batch until the transaction ends, then reads it, or answers
   // 404. One change at a time for each batch, so a check and an audit
-  // entry's "before" see it as it really is. The ID is sent as a
-  // parameter, never pasted into the SQL.
+  // entry's "before" see it as it really is.
   private async lockedBatch(
     tx: Prisma.TransactionClient,
     id: string,
   ): Promise<BatchRow> {
-    const locked = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM stock_batches WHERE id = ${id}::uuid FOR UPDATE`;
-    if (locked.length === 0) {
+    if (!(await this.lockBatch(tx, id))) {
       throw new NotFoundException(BATCH_NOT_FOUND);
     }
     return tx.stockBatch.findUniqueOrThrow({

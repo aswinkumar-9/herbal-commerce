@@ -5,6 +5,7 @@
 - Updated: 2026-11-06 (part 4D: a deleted product's audit entry keeps its images too, and images are done, see ADR 0023)
 - Updated: 2026-11-06 (part 5: each pack on a product's page says whether it is in stock, and a pack that still holds stock cannot be deleted, see ADR 0024)
 - Updated: 2026-11-06 (part 6: a customer's cart names a pack by its SKU, and always shows today's price, see ADR 0025)
+- Updated: 2026-11-08 (part 7: orders keep whole rupees too, the GST rounded to the nearest rupee, by the owner's choice: the plan for paise below is dropped, see ADR 0026)
 
 ## Context
 
@@ -42,7 +43,7 @@ A product has each size once: `(productId, quantity, unit)` is unique.
 - **Staff type `499` for ₹499.** No conversion, and no risk of a price 100 times too high or too low.
 - **Integer columns, never floating-point numbers.** A price is a whole number from 1 to 10,00,000. `449.50` is refused.
 - **Both prices include GST,** as an MRP must. The GST inside a price is worked out on the invoice.
-- **Amounts that can have paise come later, as whole paise.** The GST inside a price is one example (5% inside ₹449 is ₹21.38), an order's total after a discount another. They will live in integer columns named `…Paise`, with orders.
+- **Amounts that can have paise came later, in whole rupees.** The plan here was whole paise for them, such as the GST inside a price (5% inside ₹449 is ₹21.38). Since part 7, by the owner's choice, orders keep whole rupees too, and the GST is rounded to the nearest rupee: ₹21 (ADR 0026).
 
 Money fields always say their unit in their name: `mrpRupees`, `priceRupees`, `fromPriceRupees`.
 
@@ -155,7 +156,7 @@ A price change therefore always leaves its old and new price, with who changed i
 - **Still open:**
   - legal review of the label and price rules;
   - stock per pack, with batch and expiry (done in part 5, ADR 0024);
-  - GST on invoices and order totals in paise (orders);
+  - GST on invoices. Order totals were done in part 7, in whole rupees (ADR 0026);
   - approval of large price changes (with the admin console).
 
   Images were done in part 4D (ADR 0023).

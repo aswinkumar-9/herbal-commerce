@@ -5,8 +5,8 @@ import { MediaStorage } from '../media/media-storage';
 import { PrismaService } from '../prisma/prisma.service';
 import { IMAGE_ORDER, imageFileNames } from './image-files';
 
-// A pack size as another module may know it: the cart (ADR 0025), and
-// orders later. They ask the catalog, never its tables (ADR 0001).
+// A pack size as another module may know it: the cart (ADR 0025) and
+// orders (ADR 0026). They ask the catalog, never its tables (ADR 0001).
 export interface ShopPack {
   // For the asking module's own records only: the shop shows no IDs.
   variantId: string;
@@ -17,6 +17,10 @@ export interface ShopPack {
   unit: PackUnit;
   mrpRupees: number;
   priceRupees: number;
+  // The product's HSN code and GST rate, for an order and its invoice
+  // (ADR 0022). A live product always has both.
+  hsnCode: string | null;
+  gstRate: number | null;
   // Sold now: on sale, in a live product of an active category, exactly
   // when the shop shows it.
   onSale: boolean;
@@ -36,6 +40,8 @@ const PACK_FIELDS = {
     select: {
       name: true,
       slug: true,
+      hsnCode: true,
+      gstRate: true,
       isActive: true,
       category: { select: { isActive: true } },
       variants: { select: { id: true } },
@@ -82,6 +88,8 @@ export class ShopPacksService {
       variantId: id,
       productVariantIds: product.variants.map((variant) => variant.id),
       ...pack,
+      hsnCode: product.hsnCode,
+      gstRate: product.gstRate,
       onSale: isActive && product.isActive && product.category.isActive,
       product: {
         name: product.name,
