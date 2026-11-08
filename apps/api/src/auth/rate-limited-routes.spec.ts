@@ -9,6 +9,7 @@ import { StaffStockController } from '../inventory/staff-stock.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffVariantsController } from '../catalog/staff-variants.controller';
 import { OrdersController } from '../orders/orders.controller';
+import { RazorpayWebhooksController } from '../orders/razorpay-webhooks.controller';
 import { RATE_LIMIT } from '../rate-limit/rate-limit.decorator';
 import { StaffAuthController } from '../staff/staff-auth.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
@@ -136,6 +137,11 @@ describe('rate-limited routes', () => {
       cancel: undefined,
       pay: ['startPayment'],
       confirmPayment: ['confirmPayment'],
+    });
+    // Razorpay's webhooks: the per-IP baseline only, so Razorpay is never
+    // turned away. One without Razorpay's signature does no work.
+    expect(routeLimits(RazorpayWebhooksController)).toStrictEqual({
+      receive: undefined,
     });
   });
 });

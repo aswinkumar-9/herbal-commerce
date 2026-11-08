@@ -32,6 +32,7 @@ function setup() {
         status: 'REQUESTED',
       }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findFirst: jest.fn().mockResolvedValue(null),
     },
   };
   const tx = {
@@ -52,6 +53,7 @@ function setup() {
     findOrderByReceipt: jest.fn().mockResolvedValue(null),
     fetchPayment: jest.fn(),
     isCheckoutSignatureValid: jest.fn(),
+    isWebhookSignatureValid: jest.fn(),
     refund: jest.fn().mockResolvedValue({
       id: 'rfnd_FP8QHiV938haTz',
       paymentId: 'pay_Late00000001',
@@ -291,6 +293,119 @@ describe('PaymentsService', () => {
       const { service } = setup();
 
       await expect(service.summaryFor(ORDER.orderId)).resolves.toBeNull();
+    });
+  });
+
+  it("asks the gateway whether a webhook is Razorpay's", () => {
+    const { service, razorpay } = setup();
+    const body = Buffer.from('{}');
+    razorpay.isWebhookSignatureValid.mockReturnValueOnce(true);
+
+    expect(service.isWebhookSignatureValid(body, 'signature')).toBe(true);
+    expect(razorpay.isWebhookSignatureValid).toHaveBeenCalledWith(
+      body,
+      'signature',
+    );
+  });
+
+  describe('refundChanged', () => {
+    const change = {
+      razorpayRefundId: 'rfnd_FP8QHiV938haTz',
+      receipt: REFUND_ID,
+      status: 'processed' as const,
+    };
+
+    it('finds our refund by Razorpay ID or by its receipt, and moves it forward', async () => {
+      const { service, prisma } = setup();
+      prisma.refund.findFirst.mockResolvedValueOnce({
+        id: REFUND_ID,
+        status: 'REQUESTED',
+        razorpayRefundId: null,
+      });
+
+      await service.refundChanged(change);
+
+      expect(prisma.refund.findFirst).toHaveBeenCalledWith({
+        where: {
+          OR: [{ razorpayRefundId: 'rfnd_FP8QHiV938haTz' }, { id: REFUND_ID }],
+        },
+        select: { id: true, status: true, razorpayRefundId: true },
+      });
+      expect(prisma.refund.updateMany).toHaveBeenCalledWith({
+        where: { id: REFUND_ID, status: 'REQUESTED' },
+        data: {
+          status: 'PROCESSED',
+          razorpayRefundId: 'rfnd_FP8QHiV938haTz',
+        },
+      });
+    });
+
+    it('moves a pending refund to processed or failed', async () => {
+      for (const [said, saved] of [
+        ['processed', 'PROCESSED'],
+        ['failed', 'FAILED'],
+      ] as const) {
+        const { service, prisma } = setup();
+        prisma.refund.findFirst.mockResolvedValueOnce({
+          id: REFUND_ID,
+          status: 'PENDING',
+          razorpayRefundId: 'rfnd_FP8QHiV938haTz',
+        });
+
+        await service.refundChanged({ ...change, status: said });
+
+        expect(prisma.refund.updateMany).toHaveBeenCalledWith({
+          where: { id: REFUND_ID, status: 'PENDING' },
+          data: { status: saved, razorpayRefundId: 'rfnd_FP8QHiV938haTz' },
+        });
+      }
+    });
+
+    it('never moves a refund back, or sideways, and ignores an old webhook', async () => {
+      for (const [stored, said] of [
+        ['PENDING', 'pending'],
+        ['PROCESSED', 'pending'],
+        ['PROCESSED', 'failed'],
+        ['FAILED', 'processed'],
+      ] as const) {
+        const { service, prisma } = setup();
+        prisma.refund.findFirst.mockResolvedValueOnce({
+          id: REFUND_ID,
+          status: stored,
+          razorpayRefundId: 'rfnd_FP8QHiV938haTz',
+        });
+
+        await service.refundChanged({ ...change, status: said });
+
+        expect(prisma.refund.updateMany).not.toHaveBeenCalled();
+      }
+    });
+
+    it('never puts another Razorpay refund on a refund that has one', async () => {
+      const { service, prisma } = setup();
+      prisma.refund.findFirst.mockResolvedValueOnce({
+        id: REFUND_ID,
+        status: 'PENDING',
+        razorpayRefundId: 'rfnd_Other000001',
+      });
+
+      await service.refundChanged(change);
+
+      expect(prisma.refund.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('looks by Razorpay ID alone when the receipt is not one of ours, and changes nothing for a refund not ours', async () => {
+      for (const receipt of [null, 'not-a-uuid']) {
+        const { service, prisma } = setup();
+
+        await service.refundChanged({ ...change, receipt });
+
+        expect(prisma.refund.findFirst).toHaveBeenCalledWith({
+          where: { OR: [{ razorpayRefundId: 'rfnd_FP8QHiV938haTz' }] },
+          select: { id: true, status: true, razorpayRefundId: true },
+        });
+        expect(prisma.refund.updateMany).not.toHaveBeenCalled();
+      }
     });
   });
 

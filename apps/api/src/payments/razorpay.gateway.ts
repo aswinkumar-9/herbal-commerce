@@ -12,7 +12,7 @@ const TIMEOUT_MS = 10_000;
 // client is checked against these before it goes into an address.
 export const RAZORPAY_ORDER_ID = /^order_[A-Za-z0-9]{1,40}$/;
 export const RAZORPAY_PAYMENT_ID = /^pay_[A-Za-z0-9]{1,40}$/;
-const RAZORPAY_REFUND_ID = /^rfnd_[A-Za-z0-9]{1,40}$/;
+export const RAZORPAY_REFUND_ID = /^rfnd_[A-Za-z0-9]{1,40}$/;
 // A receipt: our own reference for an order or a refund, at most 40
 // characters.
 const RECEIPT = /^[A-Za-z0-9_-]{1,40}$/;

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import { z } from 'zod';
 import type { Prisma } from '../generated/prisma/client';
 import type { RefundReason, RefundStatus } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
@@ -48,8 +49,25 @@ export interface PaymentSummary {
 const REFUND_STATUS = {
   pending: 'PENDING',
   processed: 'PROCESSED',
-  failed: 'FAILED',
+    failed: 'FAILED',
 } as const satisfies Record<string, RefundStatus>;
+
+// How far along a refund is. Its status only moves forward, as the
+// database insists.
+const REFUND_STAGE = {
+  REQUESTED: 0,
+  PENDING: 1,
+  PROCESSED: 2,
+  FAILED: 2,
+} as const satisfies Record<RefundStatus, number>;
+
+// What a Razorpay webhook says about a refund.
+export interface RefundChange {
+  razorpayRefundId: string;
+  // Our refund's ID, which we sent as the receipt.
+  receipt: string | null;
+  status: keyof typeof REFUND_STATUS;
+}
 
 // Payments and refunds (ADR 0027): the payments and refunds tables, and
 // Razorpay behind them. The orders ask this service, never Razorpay or
@@ -121,6 +139,47 @@ export class PaymentsService {
       razorpayPaymentId,
       signature,
     );
+  }
+
+  // Whether a webhook is really Razorpay's: its signature over the body
+  // exactly as it arrived.
+  isWebhookSignatureValid(
+    rawBody: Buffer,
+    signature: string | undefined,
+  ): boolean {
+    return this.razorpay.isWebhookSignatureValid(rawBody, signature);
+  }
+
+  // Applies what a Razorpay webhook says about one of our refunds. It is
+  // found by Razorpay's refund ID, or by its receipt, our refund's ID, when
+  // Razorpay's answer to our request never reached us. Its status only moves
+  // forward, so an old or repeated webhook changes nothing.
+  async refundChanged(change: RefundChange): Promise<void> {
+    const ours: Prisma.RefundWhereInput[] = [
+      { razorpayRefundId: change.razorpayRefundId },
+    ];
+    const receipt = z.uuid().safeParse(change.receipt);
+    if (receipt.success) {
+      ours.push({ id: receipt.data });
+    }
+    const refund = await this.prisma.refund.findFirst({
+      where: { OR: ours },
+      select: { id: true, status: true, razorpayRefundId: true },
+    });
+    if (!refund) {
+      return;
+    }
+    const status = REFUND_STATUS[change.status];
+    const otherRefund =
+      refund.razorpayRefundId !== null &&
+      refund.razorpayRefundId !== change.razorpayRefundId;
+    if (otherRefund || REFUND_STAGE[status] <= REFUND_STAGE[refund.status]) {
+      return;
+    }
+    await this.prisma.refund.updateMany({
+      where: { id: refund.id, status: refund.status },
+      data: { status, razorpayRefundId: change.razorpayRefundId },
+    });
   }
 
   // What the customer sees of an order's payment, or null before paying

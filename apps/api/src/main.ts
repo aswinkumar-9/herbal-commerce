@@ -10,9 +10,12 @@ import { serveMedia } from './media/serve-media';
 
 async function bootstrap() {
   // Nest's default parsers also accept HTML-form bodies; this API takes JSON only.
+  // Razorpay signs its webhooks over the body exactly as it arrived, so the
+  // JSON parser keeps those bytes too, as request.rawBody (ADR 0027).
   const app = await NestFactory.create<NestExpressApplication>(AppModule, {
     bufferLogs: true,
     bodyParser: false,
+    rawBody: true,
   });
   app.useLogger(app.get(Logger));
   const config = app.get<ConfigService<Env, true>>(ConfigService);
