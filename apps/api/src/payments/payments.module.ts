@@ -1,10 +1,11 @@
 import { Module } from '@nestjs/common';
+import { PaymentsService } from './payments.service';
 import { RazorpayGateway } from './razorpay.gateway';
 
 // Online payments (ADR 0027). Razorpay is reached only through
-// RazorpayGateway.
+// RazorpayGateway, and the other modules ask PaymentsService.
 @Module({
-  providers: [RazorpayGateway],
-  exports: [RazorpayGateway],
+  providers: [PaymentsService, RazorpayGateway],
+  exports: [PaymentsService],
 })
 export class PaymentsModule {}
