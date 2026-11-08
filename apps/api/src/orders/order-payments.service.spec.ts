@@ -51,7 +51,10 @@ function setup() {
     },
   };
   const prisma = {
-    order: { findFirst: jest.fn().mockResolvedValue(order) },
+    order: {
+      findFirst: jest.fn().mockResolvedValue(order),
+      findMany: jest.fn().mockResolvedValue([]),
+    },
     $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
   };
   const payments = {
@@ -67,6 +70,8 @@ function setup() {
     markPaid: jest.fn().mockResolvedValue(undefined),
     recordRefund: jest.fn().mockResolvedValue(REFUND_ID),
     requestRefund: jest.fn().mockResolvedValue(undefined),
+    razorpayOrdersOf: jest.fn().mockResolvedValue([]),
+    capturedPaymentsOf: jest.fn().mockResolvedValue([]),
   };
   const stock = { take: jest.fn().mockResolvedValue(undefined) };
   const orders = {
@@ -660,5 +665,96 @@ describe('OrderPaymentsService.settle', () => {
 
     await expect(service.settle(captured.id, NOW)).rejects.toBe(failure);
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrderPaymentsService.collectDuePayments', () => {
+  it('asks nothing when no order is due', async () => {
+    const { service, prisma, payments } = setup();
+
+    await expect(service.collectDuePayments(NOW)).resolves.toEqual({
+      settled: 0,
+      failed: 0,
+    });
+    expect(prisma.order.findMany).toHaveBeenCalledWith({
+      where: { status: 'PENDING_PAYMENT', holdExpiresAt: { lte: NOW } },
+      orderBy: { holdExpiresAt: 'asc' },
+      take: 100,
+      select: { id: true },
+    });
+    expect(payments.razorpayOrdersOf).not.toHaveBeenCalled();
+  });
+
+  it('settles each payment Razorpay captured for a due order that started paying', async () => {
+    const { service, prisma, payments } = setup();
+    prisma.order.findMany.mockResolvedValueOnce([
+      { id: ORDER_ID },
+      { id: 'never-paying' },
+    ]);
+    payments.razorpayOrdersOf.mockResolvedValueOnce([
+      { orderId: ORDER_ID, razorpayOrderId: 'order_Captured01' },
+    ]);
+    payments.capturedPaymentsOf.mockResolvedValueOnce([captured.id]);
+    const settle = jest
+      .spyOn(service, 'settle')
+      .mockResolvedValue({ kind: 'PAID', orderId: ORDER_ID, late: false });
+
+    await expect(service.collectDuePayments(NOW)).resolves.toEqual({
+      settled: 1,
+      failed: 0,
+    });
+    expect(payments.razorpayOrdersOf).toHaveBeenCalledWith([
+      ORDER_ID,
+      'never-paying',
+    ]);
+    expect(payments.capturedPaymentsOf).toHaveBeenCalledWith(
+      'order_Captured01',
+    );
+    expect(settle).toHaveBeenCalledWith(captured.id, NOW);
+  });
+
+  it('counts an order Razorpay cannot be asked about, and goes on with the others', async () => {
+    const { service, prisma, payments } = setup();
+    prisma.order.findMany.mockResolvedValueOnce([
+      { id: ORDER_ID },
+      { id: 'second-order' },
+    ]);
+    payments.razorpayOrdersOf.mockResolvedValueOnce([
+      { orderId: ORDER_ID, razorpayOrderId: 'order_Captured01' },
+      { orderId: 'second-order', razorpayOrderId: 'order_Second0001' },
+    ]);
+    payments.capturedPaymentsOf
+      .mockRejectedValueOnce(
+        new RazorpayError(null, null, 'Razorpay could not be reached'),
+      )
+      .mockResolvedValueOnce(['pay_Second000001']);
+    const settle = jest.spyOn(service, 'settle').mockResolvedValue({
+      kind: 'PAID',
+      orderId: 'second-order',
+      late: false,
+    });
+
+    await expect(service.collectDuePayments(NOW)).resolves.toEqual({
+      settled: 1,
+      failed: 1,
+    });
+    expect(settle).toHaveBeenCalledWith('pay_Second000001', NOW);
+  });
+
+  it('counts a payment that could not be settled', async () => {
+    const { service, prisma, payments } = setup();
+    prisma.order.findMany.mockResolvedValueOnce([{ id: ORDER_ID }]);
+    payments.razorpayOrdersOf.mockResolvedValueOnce([
+      { orderId: ORDER_ID, razorpayOrderId: 'order_Captured01' },
+    ]);
+    payments.capturedPaymentsOf.mockResolvedValueOnce([captured.id]);
+    jest
+      .spyOn(service, 'settle')
+      .mockRejectedValue(new Error('the database is down'));
+
+    await expect(service.collectDuePayments(NOW)).resolves.toEqual({
+      settled: 0,
+      failed: 1,
+    });
   });
 });

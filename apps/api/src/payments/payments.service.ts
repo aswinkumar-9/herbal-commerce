@@ -9,6 +9,7 @@ import {
   RazorpayGateway,
   type RazorpayOrder,
   type RazorpayPayment,
+  type RazorpayRefund,
 } from './razorpay.gateway';
 
 // What a payment is for: one of our orders, its reference and its total.
@@ -49,8 +50,13 @@ export interface PaymentSummary {
 const REFUND_STATUS = {
   pending: 'PENDING',
   processed: 'PROCESSED',
-    failed: 'FAILED',
+  failed: 'FAILED',
 } as const satisfies Record<string, RefundStatus>;
+
+// A refund Razorpay has not taken is asked again a minute after it was
+// made, and at most this many in one run.
+const RETRY_REFUNDS_AFTER_MS = 60 * 1000;
+const RETRY_REFUNDS_PER_RUN = 50;
 
 // How far along a refund is. Its status only moves forward, as the
 // database insists.
@@ -207,6 +213,24 @@ export class PaymentsService {
     return this.razorpay.fetchPayment(razorpayPaymentId);
   }
 
+  // The Razorpay orders of the orders that started paying, among these.
+  razorpayOrdersOf(
+    orderIds: string[],
+  ): Promise<{ orderId: string; razorpayOrderId: string }[]> {
+    return this.prisma.payment.findMany({
+      where: { orderId: { in: orderIds } },
+      select: { orderId: true, razorpayOrderId: true },
+    });
+  }
+
+  // The payments Razorpay has captured for one of its orders.
+  async capturedPaymentsOf(razorpayOrderId: string): Promise<string[]> {
+    const payments = await this.razorpay.orderPayments(razorpayOrderId);
+    return payments
+      .filter((payment) => payment.status === 'captured')
+      .map((payment) => payment.id);
+  }
+
   // Our payment for a Razorpay order, or null when the order is not ours.
   forRazorpayOrder(razorpayOrderId: string): Promise<PaymentRecord | null> {
     return this.prisma.payment.findUnique({
@@ -280,19 +304,72 @@ export class PaymentsService {
     if (!refund || refund.status !== 'REQUESTED') {
       return;
     }
+    await this.askForRefund(refundId, refund.razorpayPaymentId);
+  }
+
+  // Asks Razorpay again for the refunds it has not taken, the oldest first,
+  // once each has waited a minute after it was made (its first request
+  // comes from requestRefund). The expiry job calls it every minute.
+  async retryRefunds(
+    now = new Date(),
+  ): Promise<{ taken: number; notTaken: number }> {
+    const waiting = await this.prisma.refund.findMany({
+      where: {
+        status: 'REQUESTED',
+        createdAt: { lte: new Date(now.getTime() - RETRY_REFUNDS_AFTER_MS) },
+      },
+      orderBy: { createdAt: 'asc' },
+      take: RETRY_REFUNDS_PER_RUN,
+      select: { id: true, razorpayPaymentId: true },
+    });
+    let taken = 0;
+    for (const refund of waiting) {
+      if (await this.askForRefund(refund.id, refund.razorpayPaymentId)) {
+        taken += 1;
+      }
+    }
+    return { taken, notTaken: waiting.length - taken };
+  }
+
+  // Asks Razorpay for one refund, and answers whether Razorpay has it now.
+  // When Razorpay refuses, our earlier request may have reached it with its
+  // answer lost: then Razorpay refuses the same receipt again, and the
+  // refund is found among the payment's refunds. A refund Razorpay refuses
+  // outright (400) fails, for staff to give the money back. Anything else
+  // leaves it REQUESTED, to be asked again.
+  private async askForRefund(
+    refundId: string,
+    razorpayPaymentId: string,
+  ): Promise<boolean> {
     try {
-      const taken = await this.razorpay.refund(
-        refund.razorpayPaymentId,
+      await this.saveTaken(
         refundId,
+        await this.razorpay.refund(razorpayPaymentId, refundId),
       );
-      await this.prisma.refund.updateMany({
-        where: { id: refundId, status: 'REQUESTED' },
-        data: {
-          status: REFUND_STATUS[taken.status],
-          razorpayRefundId: taken.id,
-        },
-      });
+      return true;
     } catch (error) {
+      try {
+        const made = (
+          await this.razorpay.paymentRefunds(razorpayPaymentId)
+        ).find((refund) => refund.receipt === refundId);
+        if (made) {
+          await this.saveTaken(refundId, made);
+          return true;
+        }
+        if (error instanceof RazorpayError && error.status === 400) {
+          await this.prisma.refund.updateMany({
+            where: { id: refundId, status: 'REQUESTED' },
+            data: { status: 'FAILED' },
+          });
+          this.logger.error(
+            { refundId, code: error.code },
+            'Razorpay refused a refund: staff must give the money back',
+          );
+          return false;
+        }
+      } catch {
+        // Razorpay or the database can't be asked now: asked again later.
+      }
       this.logger.warn(
         error instanceof RazorpayError
           ? { refundId, status: error.status, code: error.code }
@@ -302,7 +379,21 @@ export class PaymentsService {
             },
         'A refund was not taken yet: it is asked again later',
       );
+      return false;
     }
+  }
+
+  private async saveTaken(
+    refundId: string,
+    taken: RazorpayRefund,
+  ): Promise<void> {
+    await this.prisma.refund.updateMany({
+      where: { id: refundId, status: 'REQUESTED' },
+      data: {
+        status: REFUND_STATUS[taken.status],
+        razorpayRefundId: taken.id,
+      },
+    });
   }
 
   // Razorpay refuses a second order with the same receipt. Then the first

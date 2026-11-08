@@ -298,6 +298,7 @@ describe('RazorpayGateway', () => {
         id: 'rfnd_FP8QHiV938haTz',
         paymentId: PAYMENT_ID,
         amountRupees: 498,
+        receipt: REFUND_RECEIPT,
         status: 'pending',
       });
       const { url, init } = request();
@@ -317,6 +318,64 @@ describe('RazorpayGateway', () => {
       );
       await expect(gateway().refund(PAYMENT_ID, 'a b')).rejects.toThrow(
         'Not a receipt Razorpay takes',
+      );
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('paymentRefunds', () => {
+    it("lists a payment's refunds, with our receipt", async () => {
+      fetchMock.mockResolvedValue(
+        answer(200, {
+          entity: 'collection',
+          count: 2,
+          items: [
+            {
+              id: 'rfnd_FP8QHiV938haTz',
+              entity: 'refund',
+              amount: 49_800,
+              payment_id: PAYMENT_ID,
+              receipt: REFUND_RECEIPT,
+              status: 'processed',
+            },
+            {
+              id: 'rfnd_Other000001',
+              entity: 'refund',
+              amount: 49_800,
+              payment_id: PAYMENT_ID,
+              receipt: null,
+              status: 'failed',
+            },
+          ],
+        }),
+      );
+
+      await expect(gateway().paymentRefunds(PAYMENT_ID)).resolves.toEqual([
+        {
+          id: 'rfnd_FP8QHiV938haTz',
+          paymentId: PAYMENT_ID,
+          amountRupees: 498,
+          receipt: REFUND_RECEIPT,
+          status: 'processed',
+        },
+        {
+          id: 'rfnd_Other000001',
+          paymentId: PAYMENT_ID,
+          amountRupees: 498,
+          receipt: null,
+          status: 'failed',
+        },
+      ]);
+      const { url, init } = request();
+      expect(url).toBe(
+        `https://api.razorpay.com/v1/payments/${PAYMENT_ID}/refunds`,
+      );
+      expect(init.method).toBe('GET');
+    });
+
+    it('refuses an ID that is not a payment ID, without calling Razorpay', async () => {
+      await expect(gateway().paymentRefunds('../orders')).rejects.toThrow(
+        'Not a Razorpay ID',
       );
       expect(fetchMock).not.toHaveBeenCalled();
     });

@@ -25,6 +25,7 @@ function setup() {
     payment: {
       findUnique: jest.fn().mockResolvedValue(null),
       createMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findMany: jest.fn().mockResolvedValue([]),
     },
     refund: {
       findUnique: jest.fn().mockResolvedValue({
@@ -33,6 +34,7 @@ function setup() {
       }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findFirst: jest.fn().mockResolvedValue(null),
+      findMany: jest.fn().mockResolvedValue([]),
     },
   };
   const tx = {
@@ -54,6 +56,8 @@ function setup() {
     fetchPayment: jest.fn(),
     isCheckoutSignatureValid: jest.fn(),
     isWebhookSignatureValid: jest.fn(),
+    orderPayments: jest.fn().mockResolvedValue([]),
+    paymentRefunds: jest.fn().mockResolvedValue([]),
     refund: jest.fn().mockResolvedValue({
       id: 'rfnd_FP8QHiV938haTz',
       paymentId: 'pay_Late00000001',
@@ -61,7 +65,7 @@ function setup() {
       status: 'pending',
     }),
   };
-  const logger = { warn: jest.fn() };
+  const logger = { warn: jest.fn(), error: jest.fn() };
   const service = new PaymentsService(
     prisma as unknown as PrismaService,
     razorpay as unknown as RazorpayGateway,
@@ -409,6 +413,36 @@ describe('PaymentsService', () => {
     });
   });
 
+  it('finds the Razorpay orders of the orders that started paying', async () => {
+    const { service, prisma } = setup();
+    const started = [
+      { orderId: ORDER.orderId, razorpayOrderId: 'order_RB58MiP5SPFYyM' },
+    ];
+    prisma.payment.findMany.mockResolvedValueOnce(started);
+
+    await expect(
+      service.razorpayOrdersOf([ORDER.orderId, 'another-order']),
+    ).resolves.toEqual(started);
+    expect(prisma.payment.findMany).toHaveBeenCalledWith({
+      where: { orderId: { in: [ORDER.orderId, 'another-order'] } },
+      select: { orderId: true, razorpayOrderId: true },
+    });
+  });
+
+  it('finds the payments Razorpay captured for one of its orders, and only those', async () => {
+    const { service, razorpay } = setup();
+    razorpay.orderPayments.mockResolvedValueOnce([
+      { id: 'pay_Failed000001', status: 'failed' },
+      { id: 'pay_Captured0001', status: 'captured' },
+      { id: 'pay_Authorized01', status: 'authorized' },
+    ]);
+
+    await expect(
+      service.capturedPaymentsOf('order_RB58MiP5SPFYyM'),
+    ).resolves.toEqual(['pay_Captured0001']);
+    expect(razorpay.orderPayments).toHaveBeenCalledWith('order_RB58MiP5SPFYyM');
+  });
+
   it('asks Razorpay how a payment stands', async () => {
     const { service, razorpay } = setup();
     razorpay.fetchPayment.mockResolvedValueOnce({ id: 'pay_A1' });
@@ -569,6 +603,78 @@ describe('PaymentsService', () => {
       );
     });
 
+    it('finds the refund Razorpay already made, when it refuses our receipt a second time', async () => {
+      const { service, prisma, razorpay, logger } = setup();
+      razorpay.refund.mockRejectedValueOnce(
+        new RazorpayError(400, 'BAD_REQUEST_ERROR', 'Duplicate request'),
+      );
+      razorpay.paymentRefunds.mockResolvedValueOnce([
+        {
+          id: 'rfnd_Someone00001',
+          paymentId: 'pay_Late00000001',
+          amountRupees: 498,
+          receipt: 'another-receipt',
+          status: 'processed',
+        },
+        {
+          id: 'rfnd_FP8QHiV938haTz',
+          paymentId: 'pay_Late00000001',
+          amountRupees: 498,
+          receipt: REFUND_ID,
+          status: 'processed',
+        },
+      ]);
+
+      await service.requestRefund(REFUND_ID);
+
+      expect(razorpay.paymentRefunds).toHaveBeenCalledWith('pay_Late00000001');
+      expect(prisma.refund.updateMany).toHaveBeenCalledWith({
+        where: { id: REFUND_ID, status: 'REQUESTED' },
+        data: { status: 'PROCESSED', razorpayRefundId: 'rfnd_FP8QHiV938haTz' },
+      });
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('fails a refund Razorpay refuses outright, for staff to give the money back', async () => {
+      const { service, prisma, razorpay, logger } = setup();
+      razorpay.refund.mockRejectedValueOnce(
+        new RazorpayError(
+          400,
+          'BAD_REQUEST_ERROR',
+          'The refund amount exceeds the balance',
+        ),
+      );
+
+      await service.requestRefund(REFUND_ID);
+
+      expect(prisma.refund.updateMany).toHaveBeenCalledWith({
+        where: { id: REFUND_ID, status: 'REQUESTED' },
+        data: { status: 'FAILED' },
+      });
+      expect(logger.error).toHaveBeenCalledWith(
+        { refundId: REFUND_ID, code: 'BAD_REQUEST_ERROR' },
+        'Razorpay refused a refund: staff must give the money back',
+      );
+    });
+
+    it('leaves the refund REQUESTED when Razorpay cannot even be asked about it', async () => {
+      const { service, prisma, razorpay, logger } = setup();
+      razorpay.refund.mockRejectedValueOnce(
+        new RazorpayError(400, 'BAD_REQUEST_ERROR', 'Duplicate request'),
+      );
+      razorpay.paymentRefunds.mockRejectedValueOnce(
+        new RazorpayError(null, null, 'Razorpay could not be reached'),
+      );
+
+      await expect(service.requestRefund(REFUND_ID)).resolves.toBeUndefined();
+
+      expect(prisma.refund.updateMany).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        { refundId: REFUND_ID, status: 400, code: 'BAD_REQUEST_ERROR' },
+        'A refund was not taken yet: it is asked again later',
+      );
+    });
+
     it('logs only the name of any other failure', async () => {
       const { service, prisma, logger } = setup();
       prisma.refund.updateMany.mockRejectedValueOnce(
@@ -581,6 +687,115 @@ describe('PaymentsService', () => {
         { refundId: REFUND_ID, errorName: 'TypeError' },
         'A refund was not taken yet: it is asked again later',
       );
+    });
+  });
+
+  describe('retryRefunds', () => {
+    it('asks again for refunds not taken, a minute after they were made, the oldest first', async () => {
+      const { service, prisma, razorpay } = setup();
+      prisma.refund.findMany.mockResolvedValueOnce([
+        { id: REFUND_ID, razorpayPaymentId: 'pay_Late00000001' },
+        {
+          id: 'f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f202',
+          razorpayPaymentId: 'pay_Late00000002',
+        },
+        {
+          id: 'f3f3f3f3-f3f3-4f3f-8f3f-f3f3f3f3f303',
+          razorpayPaymentId: 'pay_Late00000003',
+        },
+      ]);
+      razorpay.refund
+        .mockResolvedValueOnce({
+          id: 'rfnd_FP8QHiV938haTz',
+          paymentId: 'pay_Late00000001',
+          amountRupees: 498,
+          receipt: REFUND_ID,
+          status: 'pending',
+        })
+        // Razorpay refuses the second outright.
+        .mockRejectedValueOnce(
+          new RazorpayError(400, 'BAD_REQUEST_ERROR', 'Refund not allowed'),
+        )
+        // Razorpay made the third earlier, but our request lost its answer.
+        .mockRejectedValueOnce(
+          new RazorpayError(400, 'BAD_REQUEST_ERROR', 'Duplicate request'),
+        );
+      razorpay.paymentRefunds.mockImplementation((paymentId: string) =>
+        Promise.resolve(
+          paymentId === 'pay_Late00000003'
+            ? [
+                {
+                  id: 'rfnd_FP8QHiV938haUa',
+                  paymentId: 'pay_Late00000003',
+                  amountRupees: 498,
+                  receipt: 'f3f3f3f3-f3f3-4f3f-8f3f-f3f3f3f3f303',
+                  status: 'processed',
+                },
+              ]
+            : [],
+        ),
+      );
+
+      await expect(service.retryRefunds(NOW)).resolves.toEqual({
+        taken: 2,
+        notTaken: 1,
+      });
+      expect(prisma.refund.findMany).toHaveBeenCalledWith({
+        where: {
+          status: 'REQUESTED',
+          createdAt: { lte: new Date('2026-11-08T05:59:00.000Z') },
+        },
+        orderBy: { createdAt: 'asc' },
+        take: 50,
+        select: { id: true, razorpayPaymentId: true },
+      });
+      expect(razorpay.refund.mock.calls).toEqual([
+        ['pay_Late00000001', REFUND_ID],
+        ['pay_Late00000002', 'f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f202'],
+        ['pay_Late00000003', 'f3f3f3f3-f3f3-4f3f-8f3f-f3f3f3f3f303'],
+      ]);
+      expect(prisma.refund.updateMany.mock.calls).toEqual([
+        [
+          {
+            where: { id: REFUND_ID, status: 'REQUESTED' },
+            data: {
+              status: 'PENDING',
+              razorpayRefundId: 'rfnd_FP8QHiV938haTz',
+            },
+          },
+        ],
+        [
+          {
+            where: {
+              id: 'f2f2f2f2-f2f2-4f2f-8f2f-f2f2f2f2f202',
+              status: 'REQUESTED',
+            },
+            data: { status: 'FAILED' },
+          },
+        ],
+        [
+          {
+            where: {
+              id: 'f3f3f3f3-f3f3-4f3f-8f3f-f3f3f3f3f303',
+              status: 'REQUESTED',
+            },
+            data: {
+              status: 'PROCESSED',
+              razorpayRefundId: 'rfnd_FP8QHiV938haUa',
+            },
+          },
+        ],
+      ]);
+    });
+
+    it('asks nothing when no refund waits', async () => {
+      const { service, razorpay } = setup();
+
+      await expect(service.retryRefunds(NOW)).resolves.toEqual({
+        taken: 0,
+        notTaken: 0,
+      });
+      expect(razorpay.refund).not.toHaveBeenCalled();
     });
   });
 });

@@ -61,6 +61,7 @@ const refundAnswer = z.object({
   id: z.string().regex(RAZORPAY_REFUND_ID),
   payment_id: z.string(),
   amount: z.number().int(),
+  receipt: z.string().nullish(),
   status: z.enum(REFUND_STATUSES),
 });
 const listOf = <T extends z.ZodType>(item: T) =>
@@ -90,6 +91,8 @@ export interface RazorpayRefund {
   id: string;
   paymentId: string;
   amountRupees: number | null;
+  // Our refund's ID, sent as its receipt.
+  receipt: string | null;
   status: (typeof REFUND_STATUSES)[number];
 }
 
@@ -200,12 +203,19 @@ export class RazorpayGateway {
       refundAnswer,
       { receipt },
     );
-    return {
-      id: answer.id,
-      paymentId: answer.payment_id,
-      amountRupees: toRupees(answer.amount),
-      status: answer.status,
-    };
+    return razorpayRefund(answer);
+  }
+
+  // Every refund of a payment. It finds a refund whose answer never
+  // reached us, by our receipt.
+  async paymentRefunds(paymentId: string): Promise<RazorpayRefund[]> {
+    checkId(RAZORPAY_PAYMENT_ID, paymentId);
+    const answer = await this.call(
+      'GET',
+      `/payments/${paymentId}/refunds`,
+      listOf(refundAnswer),
+    );
+    return answer.items.map(razorpayRefund);
   }
 
   // Whether the payment page's answer is really Razorpay's: an HMAC-SHA256,
@@ -331,5 +341,15 @@ function razorpayPayment(
     currency: answer.currency,
     status: answer.status,
     method: answer.method ?? null,
+  };
+}
+
+function razorpayRefund(answer: z.infer<typeof refundAnswer>): RazorpayRefund {
+  return {
+    id: answer.id,
+    paymentId: answer.payment_id,
+    amountRupees: toRupees(answer.amount),
+    receipt: answer.receipt ?? null,
+    status: answer.status,
   };
 }

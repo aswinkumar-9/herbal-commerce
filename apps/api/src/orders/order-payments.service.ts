@@ -27,6 +27,7 @@ import {
 } from './order-rules';
 import type { ConfirmPaymentInput } from './orders.schemas';
 import {
+  EXPIRE_PER_RUN,
   ORDER_NOT_FOUND,
   OrdersService,
   type OrderView,
@@ -213,6 +214,45 @@ export class OrderPaymentsService {
       await this.payments.requestRefund(settlement.refundId);
     }
     return settlement;
+  }
+
+  // Before the expiry job expires unpaid orders, asks Razorpay whether any
+  // that started paying was paid in fact: its webhook may be late, or its
+  // customer closed the app. Each captured payment found is settled, so the
+  // order is paid instead of expiring. If Razorpay can't be asked about an
+  // order, it expires anyway: a payment found later is settled by the
+  // owner's rule for late payments. Answers how many payments were settled,
+  // and how many orders could not be asked about.
+  async collectDuePayments(
+    now = new Date(),
+  ): Promise<{ settled: number; failed: number }> {
+    const due = await this.prisma.order.findMany({
+      where: { status: 'PENDING_PAYMENT', holdExpiresAt: { lte: now } },
+      orderBy: { holdExpiresAt: 'asc' },
+      take: EXPIRE_PER_RUN,
+      select: { id: true },
+    });
+    if (due.length === 0) {
+      return { settled: 0, failed: 0 };
+    }
+    const started = await this.payments.razorpayOrdersOf(
+      due.map((order) => order.id),
+    );
+    let settled = 0;
+    let failed = 0;
+    for (const { razorpayOrderId } of started) {
+      try {
+        for (const paymentId of await this.payments.capturedPaymentsOf(
+          razorpayOrderId,
+        )) {
+          await this.settle(paymentId, now);
+          settled += 1;
+        }
+      } catch {
+        failed += 1;
+      }
+    }
+    return { settled, failed };
   }
 
   private async settleLocked(
