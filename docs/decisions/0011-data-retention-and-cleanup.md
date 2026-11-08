@@ -6,6 +6,7 @@
 - Updated: 2026-10-31 (part 3B-5: a Super User removes or invites again a pending Admin, ADR 0016)
 - Updated: 2026-11-01 (part 3C-2: a deleted sign-up takes its delivery addresses with it, ADR 0019)
 - Updated: 2026-11-06 (part 6: carts nobody changed for 90 days are deleted too, ADR 0025)
+- Updated: 2026-11-08 (part 7: orders are never deleted, so an account with orders cannot be deleted, ADR 0026)
 
 ## Context
 
@@ -33,6 +34,8 @@ Unverified sign-ups are also the last piece of pre-account takeover (ADR 0007, g
 | Carts, with their lines (since part 6) | 90 days after their last change | The owner's choice: long enough for a customer who comes back next month, without keeping the data for ever. Every change marks the cart; looking at it doesn't (ADR 0025). |
 
 All periods are in one place: `RETENTION` in `apps/api/src/retention/retention.service.ts`.
+
+**Orders are kept** (since part 7). They are business and tax records: never deleted, by the job or otherwise. Their foreign key to the customer is `ON DELETE RESTRICT`, so an account with orders cannot be deleted. An unverified sign-up can't sign in, so it never has orders, and the job's delete is not affected. Deleting an account on request (DPDP Act) will have to keep its orders; how long, and what else, is for the chartered accountant and the lawyer (ADR 0026).
 
 ### How it runs
 

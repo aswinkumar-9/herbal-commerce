@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.17.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.18.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -9,7 +9,7 @@ Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image
 - **JSON only.** Request bodies must be JSON (`Content-Type: application/json`), at most 100 kB and not compressed. A form body fails validation (`400`), a compressed body gets `415` and a larger body gets `413` (ADR 0008). The one exception is the image upload, whose body is the image itself (see "Managing product images").
 - Every response carries an `X-Request-Id` header. A client may send its own `X-Request-Id` (8 to 64 characters of letters, digits, `_` or `-`); otherwise one is generated.
 - **IDs in paths** are UUIDs. Any other value gets `400` with `"message": "Validation failed (uuid is expected)"`, before any other work.
-- **Money** is a whole number, and its field name says the unit: `priceRupees: 449` is ₹449. Prices are whole rupees and include GST (ADR 0022).
+- **Money** is a whole number, and its field name says the unit: `priceRupees: 449` is ₹449. Every amount is whole rupees, an order's too (ADR 0026). Prices include GST (ADR 0022), so a GST amount, such as an order's `itemsGstRupees`, says how much of a price is GST: it is never added to a total.
 - **Dates without a time,** such as a batch's expiry, are written `2028-09-30`, in requests and answers, and count in India's time (ADR 0024). Moments, such as `createdAt`, are UTC timestamps like `2026-11-06T05:49:34.102Z`.
 - Every response carries the standard security headers (helmet), and no `X-Powered-By`.
 - **Authentication.** Every endpoint needs an access token unless it is marked **Public** below. Send it as `Authorization: Bearer <accessToken>`. There are two kinds: customer endpoints take customer access tokens, and staff endpoints (`/v1/staff/...`) take staff access tokens. Neither works on the other's endpoints. Some staff endpoints are for **Super Users only**, marked so below.
@@ -74,6 +74,7 @@ The per-IP limits are checked before anything else, so a `429` can arrive even f
 | `staff/admins` and `staff/admins/:id/invitation` together (inviting an Admin, and again) | client IP | 20 per hour |
 | `staff/auth/accept-invite` | client IP | 20 per hour |
 | Uploading an image (`POST staff/products/:productId/images`) | client IP | 120 per hour |
+| Placing an order (`POST me/orders`) | client IP | 30 per hour |
 | `login` and `staff/auth/login` together, failed attempts | email + client IP | 5 per hour, then blocked for 15 minutes |
 | `login` and `staff/auth/login` together, failed attempts | email | 50 per hour, then blocked for 1 hour |
 | `login` and `staff/auth/login` together, failed attempts | client IP | 200 per hour, then blocked for 1 hour |
@@ -609,7 +610,7 @@ The cart, as `GET` and `PUT` return it:
 | `status` | `AVAILABLE`: on sale and in stock. `OUT_OF_STOCK`: on sale, but nothing sellable in stock (ADR 0024). `OFF_SALE`: taken off sale, or its product or category hidden. |
 | `packs`, `subtotalRupees`, `mrpTotalRupees` (at the top) | What the `AVAILABLE` lines come to: how many packs, at today's prices, and at their MRPs. The other lines stay in the cart but count for nothing. |
 
-The difference between `mrpTotalRupees` and `subtotalRupees` is what the customer saves against the MRP. Delivery and taxes are not part of the cart: prices include GST (ADR 0022), and delivery charges come with checkout.
+The difference between `mrpTotalRupees` and `subtotalRupees` is what the customer saves against the MRP. Delivery and taxes are not part of the cart: prices include GST (ADR 0022), and the delivery charge comes with checkout (see "Checkout and orders").
 
 ### GET `/v1/me/cart`
 
@@ -665,6 +666,191 @@ Empties the cart: the cart goes, with its lines.
 Response `204 No Content`, also for a customer without a cart.
 
 Errors: `401`; `429` (the 600 per minute limit).
+
+## Checkout and orders
+
+The signed-in customer's own orders (ADR 0026). These endpoints need a **customer** access token, and a staff token gets `401`. The customer always comes from the token: **another customer's order answers `404`**, exactly like one that does not exist.
+
+- **An order is placed from the whole cart,** at today's prices, to one of the customer's own addresses. Every line must be `AVAILABLE` (see "Cart"): there are no partial orders.
+- **It keeps a copy** of its lines, their prices and the delivery address. What the customer agreed to never changes, and an order is never deleted.
+- **It takes its stock at once and holds it for 15 minutes,** until `holdExpiresAt`. Paying comes with the payment gateway, later. An order not paid by then expires within about a minute, and its stock comes back.
+- **At most 3 orders wait for payment** per customer.
+- **Money is whole rupees.** GST is **inside** the prices, never added: `gstRupees` and `itemsGstRupees` say how much of an amount is GST, rounded to the nearest rupee. Delivery costs ₹49 while the items come to less than ₹499, and is free from ₹499. The total is the items plus delivery.
+
+An order, as `POST /v1/me/orders`, `GET /v1/me/orders/:id` and the cancel return it:
+```json
+{
+  "id": "4f7c2a9e-3b1d-4e8a-9c6f-2d5b8e1a7c30",
+  "reference": "7KQ2M9XDPA",
+  "status": "PENDING_PAYMENT",
+  "holdExpiresAt": "2026-11-07T14:57:38.771Z",
+  "createdAt": "2026-11-07T14:42:38.771Z",
+  "itemsTotalRupees": 1347,
+  "itemsGstRupees": 64,
+  "deliveryChargeRupees": 0,
+  "totalRupees": 1347,
+  "items": [
+    {
+      "sku": "ASH-CAP-60",
+      "productName": "Ashwagandha Capsules",
+      "quantity": 60,
+      "unit": "CAPSULES",
+      "packs": 3,
+      "mrpRupees": 500,
+      "priceRupees": 449,
+      "lineTotalRupees": 1347,
+      "gstRate": 5,
+      "gstRupees": 64
+    }
+  ],
+  "delivery": {
+    "fullName": "Asha K",
+    "phone": "9845012345",
+    "line1": "12, 3rd Cross, Indiranagar",
+    "line2": null,
+    "city": "Bengaluru",
+    "state": "Karnataka",
+    "pincode": "560038"
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `reference` | 10 letters and digits, without `I`, `O`, `0` or `1`. Show it to the customer: support asks for it. It is random, never a running number. |
+| `status` | `PENDING_PAYMENT`: waiting for payment, and holding its stock. `CANCELLED`: cancelled by the customer. `EXPIRED`: not paid in time. `PAID` comes with payments. |
+| `holdExpiresAt` | Until when the order holds its stock: 15 minutes after `createdAt` |
+| `itemsTotalRupees` | The lines added up |
+| `itemsGstRupees` | The GST inside `itemsTotalRupees`: the lines' `gstRupees` added up. **It is not added to the total.** |
+| `deliveryChargeRupees` | `49` while the items come to less than ₹499, otherwise `0` |
+| `totalRupees` | `itemsTotalRupees` plus `deliveryChargeRupees`: what the customer pays |
+| `items` | The lines, in the cart's order. Each names its pack size by SKU, with the product's name, the size, `packs`, the MRP and price when the order was placed, `lineTotalRupees` (`packs` times `priceRupees`), the GST rate in percent and the GST inside the line (`gstRupees`). |
+| `delivery` | A copy of the address, as it was when the order was placed |
+
+### GET `/v1/me/checkout`
+
+What the cart would cost as an order now, by the same rules as placing it. Show it before the customer places the order, and send its `totalRupees` with the order.
+
+Response `200`:
+```json
+{
+  "items": [
+    {
+      "sku": "ASH-CAP-60",
+      "productName": "Ashwagandha Capsules",
+      "quantity": 60,
+      "unit": "CAPSULES",
+      "packs": 1,
+      "mrpRupees": 500,
+      "priceRupees": 449,
+      "gstRate": 5,
+      "lineTotalRupees": 449,
+      "gstRupees": 21
+    }
+  ],
+  "itemsTotalRupees": 449,
+  "itemsGstRupees": 21,
+  "deliveryChargeRupees": 49,
+  "totalRupees": 498
+}
+```
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `401` | see "Authentication errors on protected endpoints" | No valid customer access token, or a staff token |
+| `409` | `The cart is empty.` | Nothing in the cart |
+| `409` | `These packs can't be ordered now: ASH-CAP-60. Change or remove them first.` | A line is not `AVAILABLE`. Each such SKU is named. |
+| `409` | `The total has changed. Check the cart and try again.` | A pack size in the cart was deleted a moment ago |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### POST `/v1/me/orders`
+
+Places an order from the whole cart. One transaction prices the lines, checks the total, takes the stock from the batches that expire first, and empties the cart. A refused order changes nothing.
+
+**Header `Idempotency-Key`:** a new UUID for each order the customer means to place. Make it when the customer taps "Place order", and send the same one again only to retry that request. **The same key again answers the order it placed the first time,** and places nothing, whatever the body.
+
+Request:
+```json
+{ "addressId": "6f2b9d1e-4c7a-4e3b-9a85-1d2c3e4f5a6b", "totalRupees": 498 }
+```
+
+| Field | Rules |
+|---|---|
+| `addressId` | One of the customer's own addresses |
+| `totalRupees` | The `totalRupees` the checkout showed, a whole number from 1. If the total is different now, the order is refused. |
+
+Response `201`: the order, `PENDING_PAYMENT`. A repeated key gets the same answer.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | No `Idempotency-Key`, or not a UUID (`Send an Idempotency-Key header: a new UUID for each order`, with the `field` `Idempotency-Key`); `addressId` not a UUID (`Choose one of your delivery addresses`); `totalRupees` missing, or not a whole number from 1 |
+| `401` | see "Authentication errors on protected endpoints" | No valid customer access token, or a staff token |
+| `404` | `Address not found` | The address is not one of the customer's own |
+| `409` | `The cart is empty.` | Nothing in the cart |
+| `409` | `These packs can't be ordered now: ASH-CAP-60. Change or remove them first.` | As for the checkout |
+| `409` | `The total has changed. Check the cart and try again.` | `totalRupees` is not today's total, or a pack size was deleted a moment ago. Show the checkout again. |
+| `409` | `You have 3 orders waiting for payment. Pay for one or cancel it first.` | 3 of the customer's orders wait for payment |
+| `409` | `ASH-CAP-60 is out of stock, or not enough of it is left. Change it in the cart and try again.` | Other orders took the last packs in between |
+| `429` | `code: "RATE_LIMITED"` | 30 orders per hour per IP, or the 600 per minute limit |
+
+Two orders from one cart at the same moment take turns. The second finds the cart empty, or, with the same key, the first order.
+
+### GET `/v1/me/orders`
+
+The customer's orders, **newest first, one page at a time**.
+
+Query parameters, both optional:
+
+| Parameter | Rules | Meaning |
+|---|---|---|
+| `limit` | Whole number, 1 to 50, default 20 | Orders per page |
+| `before` | UUID | The `nextBefore` of the previous page: continue just after it |
+
+Response `200`:
+```json
+{
+  "orders": [
+    {
+      "id": "4f7c2a9e-3b1d-4e8a-9c6f-2d5b8e1a7c30",
+      "reference": "7KQ2M9XDPA",
+      "status": "CANCELLED",
+      "totalRupees": 1347,
+      "holdExpiresAt": "2026-11-07T14:57:38.771Z",
+      "createdAt": "2026-11-07T14:42:38.771Z"
+    }
+  ],
+  "nextBefore": null
+}
+```
+`nextBefore` is `null` on the last page.
+
+Errors: `400` (a bad parameter); `401`; `429` (the 600 per minute limit).
+
+### GET `/v1/me/orders/:id`
+
+Response `200`: the order, with its lines and delivery address.
+
+Errors: `400` (the ID is not a UUID); `401`; `404 Order not found`, also for another customer's order; `429` (the 600 per minute limit).
+
+### POST `/v1/me/orders/:id/cancel`
+
+Cancels an order waiting for payment, and gives its stock back at once, in one transaction.
+
+Response `200`: the order, now `CANCELLED`.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `401` | see "Authentication errors on protected endpoints" | No valid customer access token, or a staff token |
+| `404` | `Order not found` | No such order, or another customer's |
+| `409` | `Only an order waiting for payment can be cancelled.` | The order is already cancelled or expired |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
 ## Staff authentication
 
@@ -1392,18 +1578,18 @@ A batch, as these endpoints return it:
 |---|---|
 | `batchNumber` | As printed on the pack: 1 to 40 letters, digits, `/`, `.` and `-`. Spaces are dropped and letters made capitals: ` ab 2611 ` is stored as `AB2611`. Unique within its pack size. |
 | `manufacturedOn`, `expiresOn` | Dates as on the label, such as `2026-10-31`. Another form, or an impossible date, answers `Use a date like 2026-10-31`. The expiry is after the manufacturing date, and the manufacturing date is not in the future. "Today" is India's date. |
-| `quantity` | The packs on hand: changed only by movements, never below 0 |
+| `quantity` | The packs on hand and free to sell: changed only by movements, never below 0. Packs held by orders waiting for payment are not counted (ADR 0026). |
 | `sellable` | Whether the batch may be sold today: it expires on or after today plus 6 months (on 6 November 2026, from 6 May 2027) |
 
 ### GET `/v1/staff/variants/:variantId/batches`
 
-Every batch of the pack size, the first to expire first, which is the order in which orders will take them.
+Every batch of the pack size, the first to expire first, which is the order in which orders take them.
 
 Response `200`:
 ```json
 { "batches": [...], "quantity": 148, "sellableQuantity": 118 }
 ```
-- `quantity`: every pack on hand, in all batches;
+- `quantity`: every pack on hand and free to sell, in all batches;
 - `sellableQuantity`: those in sellable batches. The shop shows the pack size as in stock while this is above 0.
 
 Errors: `400` (the ID is not a UUID); `401` (see "Authentication errors on protected endpoints"), also for a customer access token; `404 Pack size not found`; `429` (the 600 per minute limit).
@@ -1461,6 +1647,8 @@ Response `200`:
 }
 ```
 
+Since part 7, orders make movements too: `ORDERED` when an order takes packs, and `RELEASED` when a cancelled or expired order gives them back. They show with `"actorId": null` (ADR 0026).
+
 Errors: `400` (a bad ID or parameter); `401`; `404 Batch not found`; `429` (the 600 per minute limit).
 
 ### POST `/v1/staff/batches/:id/movements`
@@ -1475,7 +1663,7 @@ Request:
 | Field | Rules |
 |---|---|
 | `change` | A whole number from -1,000,000 to 1,000,000, never 0 |
-| `reason` | `RECEIVED` (more of this batch arrived: `change` above 0), `DAMAGED` or `EXPIRED` (written off: `change` below 0), or `CORRECTION` (a count found a difference: either way) |
+| `reason` | `RECEIVED` (more of this batch arrived: `change` above 0), `DAMAGED` or `EXPIRED` (written off: `change` below 0), or `CORRECTION` (a count found a difference: either way). `ORDERED` and `RELEASED` are made by orders only. |
 | `note` | Up to 200 characters. **Required for a `CORRECTION`:** say why the count differs. |
 
 Response `201`: the batch, as it is now.
@@ -1545,4 +1733,4 @@ Rules for clients:
 
 ## Not yet implemented
 
-Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: search. Checkout and orders, with their delivery charges, GST invoices and payments. Of stock: reservations, which come with orders (a cart holds no stock, ADR 0025), and a list of batches near their expiry. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0025 and `docs/security.md`.
+Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: search. Of orders: paying for them (with the payment gateway, part 8), GST invoices, emails confirming them, returns and refunds, and staff seeing and handling them. Of stock: a list of batches near their expiry. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0026 and `docs/security.md`.

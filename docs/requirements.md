@@ -92,10 +92,10 @@ GST (HSN codes, invoices), FSSAI/AYUSH licence numbers on products, Legal Metrol
 
 ## 9. Open decisions
 
-1. Launch states or cities.
+1. Launch states or cities. All of India, decided by the owner on 2026-11-07 (ADR 0026).
 2. Do you manufacture the products or buy from licensed makers?
 3. One warehouse or several; who packs? One warehouse for now, decided by the owner on 2026-11-06 (ADR 0024). Who packs is still open.
-4. Cash on delivery at launch?
+4. Cash on delivery at launch? No: online payment only at launch, decided by the owner on 2026-11-07 (ADR 0026).
 5. Region-wise pricing and visibility, or one national catalog for the MVP?
 6. API style: REST + OpenAPI (leaning) or GraphQL.
 7. Who is the business owner in the role model: a Super User or an Admin?

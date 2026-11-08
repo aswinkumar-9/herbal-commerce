@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. The cart holds no stock: stock will be held when an order is placed. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes for the payment, which comes later. A double tap places one order, and an unpaid order expires on its own and gives its stock back. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -84,10 +84,11 @@ It first clears the local rate-limit counters, so it can run again at once. Then
   - every product page shows at least one image, each with only its addresses, size and description, and each card's image is the small file of its product's main photo;
   - every image file, large and small, is served as WebP for any site to show, and the image folders are never listed;
 - the cart: it needs a customer token and starts empty, refuses an unknown pack size and more than 4 packs, puts a pack in stock into one customer's cart only (with today's price and no IDs), and answers `204` when a pack is removed or the cart emptied;
+- orders: the checkout needs a customer token, an empty cart can be neither checked out nor ordered, and an order needs an `Idempotency-Key` and a valid body. With a pack in stock, an order is placed at the checkout's total, holds its stock for 15 minutes and empties the cart; the same key answers the same order, which a second customer can't see; and cancelling gives the stock back. Orders are never deleted, so each such run leaves one cancelled order behind;
 - that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, cannot list, create, change or delete categories, products, pack sizes or images, and cannot see or change stock;
 - that a made-up invitation link is refused.
 
-The staff login, a real invitation and managing categories, products, pack sizes, images and stock need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products", "Manage pack sizes and prices", "Manage product images" and "Manage stock". With an empty shop, the page, price, image and stock checks, and the cart's check with a pack in stock, have nothing to look at. They are most useful while a product with packs, images and stock is live. A customer's cart can be tried by hand too: see "Use the cart".
+The staff login, a real invitation and managing categories, products, pack sizes, images and stock need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products", "Manage pack sizes and prices", "Manage product images" and "Manage stock". With an empty shop, the page, price, image and stock checks, and the cart's and orders' checks with a pack in stock, have nothing to look at. They are most useful while a product with packs, images and stock is live. A customer's cart and orders can be tried by hand too: see "Use the cart" and "Place an order".
 
 Every line should say `PASS`, followed by `All checks passed.`
 
@@ -577,7 +578,7 @@ Dates are written like `2028-09-30` (year, month, day), and "today" is India's d
 
 ## Use the cart
 
-A signed-in customer keeps a cart on the server (ADR 0025). It holds pack sizes and how many packs of each: **at most 4 packs of one product, all its pack sizes together,** and at most 50 pack sizes. It keeps no prices: it always shows today's. It holds no stock either: stock will be held when an order is placed. Only customers have carts: a staff token gets `401`. There are no apps yet, so the cart is tried by hand, with a throwaway customer.
+A signed-in customer keeps a cart on the server (ADR 0025). It holds pack sizes and how many packs of each: **at most 4 packs of one product, all its pack sizes together,** and at most 50 pack sizes. It keeps no prices: it always shows today's. It holds no stock either: stock is held when an order is placed (see "Place an order"). Only customers have carts: a staff token gets `401`. There are no apps yet, so the cart is tried by hand, with a throwaway customer.
 
 A pack size is named by its SKU, exactly as the shop shows it, such as `ASH-CAP-60`. The shop needs a live product with a pack in stock (see "Manage stock").
 
@@ -637,6 +638,54 @@ A pack size is named by its SKU, exactly as the shop shows it, such as `ASH-CAP-
 - **A cart nobody changes for 90 days is deleted** by the hourly cleanup, with its lines. Every change to the cart counts, removing a pack size too.
 - A customer's own cart is not in the audit log: it records staff actions only.
 
+## Place an order
+
+A signed-in customer places an order from the whole cart, to one of their own addresses (ADR 0026). Every amount is whole rupees. **The GST is inside the prices, never added:** the order shows how much of its total is GST. Delivery costs ₹49 while the items come to less than ₹499, and is free from ₹499. An order takes its stock at once, from the batches that expire first, and holds it for 15 minutes. Paying comes later, with the payment gateway, so for now every order ends cancelled or expired. Orders are never deleted.
+
+The shop needs a live product with a pack in stock (see "Manage stock").
+
+1. **Sign in as a customer and fill the cart,** as in "Use the cart", steps 1 to 4. Then add a delivery address:
+   ```powershell
+   $address = @{ fullName = 'Order Tester'; phone = '9845012345'; line1 = '12, 3rd Cross, Indiranagar'; city = 'Bengaluru'; state = 'Karnataka'; pincode = '560038' } | ConvertTo-Json
+   $addressId = (Invoke-RestMethod -Method Post -Uri "$api/me/addresses" -Headers $me -ContentType $json -Body $address).id
+   "[$addressId]"
+   ```
+2. **See the checkout:** what the cart would cost as an order now.
+   ```powershell
+   $quote = Invoke-RestMethod -Uri "$api/me/checkout" -Headers $me
+   $quote.items | Format-Table sku, packs, priceRupees, lineTotalRupees, gstRate, gstRupees
+   $quote | Format-List itemsTotalRupees, itemsGstRupees, deliveryChargeRupees, totalRupees
+   ```
+   For the 2 packs at ₹449 of "Use the cart": `898`, `43`, `0` and `898`. The ₹43 of GST (₹42.76, rounded) is inside the ₹898, not added to it. One pack would cost ₹449 plus ₹49 delivery: ₹498.
+3. **Place the order,** with a new `Idempotency-Key` and the total the checkout showed:
+   ```powershell
+   $key = [guid]::NewGuid().ToString()
+   $orderBody = @{ addressId = $addressId; totalRupees = $quote.totalRupees } | ConvertTo-Json
+   $order = Invoke-RestMethod -Method Post -Uri "$api/me/orders" -Headers ($me + @{ 'Idempotency-Key' = $key }) -ContentType $json -Body $orderBody
+   $order | Format-List reference, status, totalRupees, holdExpiresAt
+   ```
+   It says `PENDING_PAYMENT`, and the cart is now empty. Running the same `$order = …` line again answers the same order and places nothing: that is what a double tap or a retry does.
+4. **See the orders,** newest first, or one of them:
+   ```powershell
+   (Invoke-RestMethod -Uri "$api/me/orders" -Headers $me).orders | Format-Table reference, status, totalRupees, createdAt
+   (Invoke-RestMethod -Uri "$api/me/orders/$($order.id)" -Headers $me).items | Format-Table sku, packs, priceRupees, lineTotalRupees, gstRupees
+   ```
+5. **Cancel it,** or leave it: an order not paid within 15 minutes expires on its own, within about a minute after `holdExpiresAt` (a UTC time). Either way, its stock comes back.
+   ```powershell
+   (Invoke-RestMethod -Method Post -Uri "$api/me/orders/$($order.id)/cancel" -Headers $me).status
+   ```
+6. **Sign out and clean up,** as in "Use the cart", step 7, then:
+   ```powershell
+   Remove-Variable address, addressId, quote, key, orderBody, order -ErrorAction SilentlyContinue
+   ```
+
+- **An order takes the whole cart,** at today's prices. Every line must be `AVAILABLE`: remove the others first.
+- **The total must be the one the customer saw.** If staff change a price in between, placing the order answers `409`: look at the checkout again.
+- **At most 3 orders wait for payment per customer.** Cancel one to place a 4th.
+- **Staff see an order's stock in a batch's history,** as `ORDERED` (taken) and `RELEASED` (given back) movements without an actor. A batch's `quantity` doesn't count the packs that unpaid orders hold.
+- **Orders are never deleted,** and what the customer agreed to never changes. They are not in the audit log: an order is a record itself.
+- **The expiry job writes `Unpaid orders expired`** to the API's log, with the count, whenever it expires any.
+
 ## Repository structure
 
 ```
@@ -652,7 +701,8 @@ A pack size is named by its SKU, exactly as the shop shows it, such as `ASH-CAP-
 │           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset and change, access and roles guards, /v1/me
 │           ├── cart/           signed-in customers' carts: the rules (4 packs of one product, 50 pack sizes, totals) and the routes
 │           ├── catalog/        categories, products, pack sizes and images: their rules (slug, going live, prices, image checks), the staff routes and the public shop
-│           ├── inventory/      stock per batch: the rules (dates, 6-month shelf life), the staff routes, and "in stock" for the shop
+│           ├── inventory/      stock per batch: the rules (dates, 6-month shelf life), the staff routes, "in stock" for the shop, and taking and giving back stock for orders
+│           ├── orders/         checkout and customers' orders: the rules (totals, delivery, GST, references), the routes, and the job that expires unpaid orders
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
 │           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
 │           ├── rate-limit/     limits, rate-limit guard, client IP
@@ -779,6 +829,15 @@ A pack size is named by its SKU, exactly as the shop shows it, such as `ASH-CAP-
 - **The cart answers `401`:** the customer's access token has expired (sign in again, step 3 of "Use the cart"), or it is a staff token. Carts are for customers only.
 - **A cart line shows `OUT_OF_STOCK` or `OFF_SALE`:** the pack sold out, or staff took it off sale, after it went into the cart. The line stays, but doesn't count in the totals. Remove it, or wait for new stock.
 - **A cart is empty after months away:** a cart nobody changes for 90 days is deleted by the hourly cleanup.
+- **The checkout or an order answers `409 The cart is empty.`:** put packs in the cart first. Right after an order, the cart is empty on purpose.
+- **The checkout or an order answers `409 These packs can't be ordered now: …`:** the named pack sizes are `OUT_OF_STOCK` or `OFF_SALE`. Remove them from the cart, then look at the checkout again.
+- **Placing an order answers `409 The total has changed. Check the cart and try again.`:** a price changed after the checkout, or `totalRupees` was not the checkout's. Get the checkout again and send its `totalRupees`. A total in paise, such as `49800` for ₹498, is refused the same way.
+- **Placing an order answers `400` naming `Idempotency-Key`:** send the header with a new UUID, as in step 3 of "Place an order".
+- **Placing an order answers `409 You have 3 orders waiting for payment. Pay for one or cancel it first.`:** cancel one, or wait until one expires.
+- **Placing an order answers `409` "is out of stock, or not enough of it is left":** other orders took the last packs. Change the cart, then look at the checkout again.
+- **Placing an order answers an older order:** its `Idempotency-Key` was used before. Make a new one for each new order.
+- **Cancelling answers `409 Only an order waiting for payment can be cancelled.`:** the order was cancelled already, or it expired.
+- **An order stays `PENDING_PAYMENT` after its hold:** the API is not running, and the expiry job runs inside it. Start the API: the order expires within a minute.
 - **A pasted block runs two commands as one,** for example `ConvertTo-Json$id = …`: the line break between them was lost in the paste. Press `Ctrl+C`, paste the multi-line block on its own, press Enter until the prompt is back, then paste the next line.
 - **Right after `pnpm api:smoke`, a logout answers `429`:** the smoke test uses up the logout limit (120 per minute per IP) on purpose. Wait a minute, or run `pnpm api:limits:clear`.
 - **`prisma migrate dev` says a migration was modified after it was applied, and asks to reset the database:** answer **no**, because a reset deletes all data. An applied migration file was changed, maybe by a search and replace. Put it back exactly as it was applied:
