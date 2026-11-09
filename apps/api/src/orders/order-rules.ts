@@ -108,3 +108,9 @@ export function newOrderReference(
     .map((byte) => REFERENCE_ALPHABET[byte % REFERENCE_ALPHABET.length])
     .join('');
 }
+
+// An order reference as newOrderReference makes it: what staff look an
+// order up by when a customer quotes it.
+export const ORDER_REFERENCE = new RegExp(
+  `^[${REFERENCE_ALPHABET}]{${REFERENCE_LENGTH}}$`,
+);

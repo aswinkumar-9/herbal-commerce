@@ -10,12 +10,14 @@ import { OrdersController } from './orders.controller';
 import { OrdersService } from './orders.service';
 import { RazorpayWebhooksController } from './razorpay-webhooks.controller';
 import { RazorpayWebhooksService } from './razorpay-webhooks.service';
+import { StaffOrdersController } from './staff-orders.controller';
+import { StaffOrdersService } from './staff-orders.service';
 
 // Customers' orders (ADR 0026). An order asks the addresses for where it
 // goes, the cart for what is in it, the catalog for the packs and their
 // prices, the inventory for the stock, and the payments for their Razorpay
 // order (ADR 0027). Razorpay's webhooks settle payments too. Unpaid orders
-// expire every minute.
+// expire every minute. Staff see every order (ADR 0028).
 @Module({
   imports: [
     AddressesModule,
@@ -24,12 +26,17 @@ import { RazorpayWebhooksService } from './razorpay-webhooks.service';
     InventoryModule,
     PaymentsModule,
   ],
-  controllers: [OrdersController, RazorpayWebhooksController],
+  controllers: [
+    OrdersController,
+    RazorpayWebhooksController,
+    StaffOrdersController,
+  ],
   providers: [
     OrdersService,
     OrderPaymentsService,
     RazorpayWebhooksService,
     OrderExpiryScheduler,
+    StaffOrdersService,
   ],
 })
 export class OrdersModule {}

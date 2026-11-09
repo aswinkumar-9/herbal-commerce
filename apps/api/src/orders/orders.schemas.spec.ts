@@ -3,6 +3,7 @@ import {
   idempotencyKeySchema,
   orderListQuerySchema,
   placeOrderSchema,
+  staffOrderListQuerySchema,
 } from './orders.schemas';
 
 const ADDRESS = '6f2b9d1e-4c7a-4e3b-9a85-1d2c3e4f5a6b';
@@ -81,6 +82,69 @@ describe('orderListQuerySchema', () => {
         (r) => r.split(':')[0],
       ),
     ).toEqual(['before']);
+  });
+});
+
+describe('staffOrderListQuerySchema', () => {
+  it('pages 50 orders by default, up to 100, the newest first, continuing after an order ID', () => {
+    expect(staffOrderListQuerySchema.parse({})).toEqual({
+      limit: 50,
+      sort: 'newest',
+    });
+    expect(
+      staffOrderListQuerySchema.parse({
+        limit: '100',
+        after: ADDRESS,
+        status: 'PAID',
+        sort: 'oldest',
+        other: 'dropped',
+      }),
+    ).toEqual({ limit: 100, after: ADDRESS, status: 'PAID', sort: 'oldest' });
+    for (const query of [
+      { limit: '101' },
+      { limit: '0' },
+      { after: 'last' },
+      { sort: 'cheapest' },
+    ]) {
+      expect(
+        refusals(staffOrderListQuerySchema, query).map((r) => r.split(':')[0]),
+      ).toEqual(Object.keys(query));
+    }
+  });
+
+  it('takes every order status, and refuses anything else, saying what to send', () => {
+    for (const status of [
+      'PENDING_PAYMENT',
+      'PAID',
+      'PACKED',
+      'SHIPPED',
+      'DELIVERED',
+      'CANCELLED',
+      'EXPIRED',
+    ]) {
+      expect(staffOrderListQuerySchema.parse({ status }).status).toBe(status);
+    }
+    for (const status of ['paid', 'REFUNDED', '']) {
+      expect(refusals(staffOrderListQuerySchema, { status })).toEqual([
+        'status: Use an order status, such as PAID or PACKED',
+      ]);
+    }
+  });
+
+  it('takes a reference as a customer quotes it, in capitals and without spaces around', () => {
+    expect(
+      staffOrderListQuerySchema.parse({ reference: ' 7kq2m9xdpa ' }).reference,
+    ).toBe('7KQ2M9XDPA');
+    for (const reference of [
+      '7KQ2M9XDP',
+      '7KQ2M9XDPAB',
+      '7KQ2M9XDP0',
+      '7KQ 2M9XDP',
+    ]) {
+      expect(refusals(staffOrderListQuerySchema, { reference })).toEqual([
+        'reference: An order reference has 10 letters and digits',
+      ]);
+    }
   });
 });
 

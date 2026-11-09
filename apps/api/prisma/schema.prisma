@@ -415,7 +415,7 @@ model CartItem {
 enum OrderStatus {
   // Placed, its stock held until holdExpiresAt, waiting for payment.
   PENDING_PAYMENT
-    // Paid, and waiting to be packed.
+  // Paid, and waiting to be packed.
   PAID
   // Cancelled before it shipped: its stock went back, and a payment went
   // back in full.

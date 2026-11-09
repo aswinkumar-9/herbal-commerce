@@ -14,6 +14,7 @@ import {
   NOT_PAYABLE,
   notEnoughStock,
   notReady,
+  ORDER_REFERENCE,
   orderTotals,
   PAYMENT_NOT_STARTED,
   PAYMENT_NOT_VERIFIED,
@@ -150,5 +151,19 @@ describe('newOrderReference', () => {
     expect(first).toMatch(/^[A-HJ-NP-Z2-9]{10}$/);
     expect(second).toMatch(/^[A-HJ-NP-Z2-9]{10}$/);
     expect(first).not.toBe(second);
+  });
+
+  it('is what ORDER_REFERENCE accepts, and nothing else', () => {
+    expect(ORDER_REFERENCE.test(newOrderReference())).toBe(true);
+    expect(ORDER_REFERENCE.test('7KQ2M9XDPA')).toBe(true);
+    for (const wrong of [
+      '7KQ2M9XDP',
+      '7KQ2M9XDPAB',
+      '7KQ2M9XDPI',
+      '7kq2m9xdpa',
+      '7KQ2M9XDP0',
+    ]) {
+      expect([wrong, ORDER_REFERENCE.test(wrong)]).toEqual([wrong, false]);
+    }
   });
 });

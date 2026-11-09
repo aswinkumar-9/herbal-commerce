@@ -6,6 +6,8 @@ import { StaffImagesController } from '../catalog/staff-images.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffVariantsController } from '../catalog/staff-variants.controller';
 import { StaffStockController } from '../inventory/staff-stock.controller';
+import { StaffOrdersController } from '../orders/staff-orders.controller';
+import { StaffRefundsController } from '../payments/staff-refunds.controller';
 import { StaffAdminsController } from './staff-admins.controller';
 import { StaffAuditLogController } from './staff-audit-log.controller';
 import { StaffAuthController } from './staff-auth.controller';
@@ -25,6 +27,8 @@ describe('staff routes', () => {
       StaffVariantsController,
       StaffImagesController,
       StaffStockController,
+      StaffOrdersController,
+      StaffRefundsController,
     ]) {
       expect([controller.name, reflector.get(STAFF_ONLY, controller)]).toEqual([
         controller.name,
@@ -33,17 +37,22 @@ describe('staff routes', () => {
     }
   });
 
-  // New in Part 3B-4; the audit log joined in Part 3B-6.
-  it('manage Admins and show the audit log for Super Users only, as whole controllers', () => {
-    for (const controller of [StaffAdminsController, StaffAuditLogController]) {
+  // New in Part 3B-4; the audit log joined in Part 3B-6, and refunds, which
+  // are money, in Part 9.
+  it('manage Admins, show the audit log and list refunds for Super Users only, as whole controllers', () => {
+    for (const controller of [
+      StaffAdminsController,
+      StaffAuditLogController,
+      StaffRefundsController,
+    ]) {
       expect([
         controller.name,
         reflector.get(SUPER_USER_ONLY, controller),
       ]).toEqual([controller.name, true]);
     }
     // Admins manage categories (Part 4A), products (Part 4B), their pack
-    // sizes and prices (Part 4C), their images (Part 4D), and stock
-    // (Part 5) too.
+    // sizes and prices (Part 4C), their images (Part 4D), stock (Part 5),
+    // and orders (Part 9) too.
     for (const controller of [
       StaffAuthController,
       StaffMeController,
@@ -52,6 +61,7 @@ describe('staff routes', () => {
       StaffVariantsController,
       StaffImagesController,
       StaffStockController,
+      StaffOrdersController,
     ]) {
       expect([
         controller.name,

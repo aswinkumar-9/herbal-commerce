@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { Prisma } from '../generated/prisma/client';
 import type { RefundReason, RefundStatus } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
+import type { RefundListQuery } from './payments.schemas';
 import {
   RazorpayError,
   RazorpayGateway,
@@ -45,6 +46,41 @@ export interface PaymentSummary {
     createdAt: Date;
   }[];
 }
+
+// A refund as Super Users see it, with Razorpay's IDs, to find it in the
+// Razorpay dashboard (ADR 0028).
+export interface StaffRefund {
+  id: string;
+  razorpayPaymentId: string;
+  razorpayRefundId: string | null;
+  amountRupees: number;
+  reason: RefundReason;
+  status: RefundStatus;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+// An order's payment as Super Users see it: Razorpay's IDs, and every
+// refund (ADR 0028).
+export interface StaffPayment {
+  razorpayOrderId: string;
+  razorpayPaymentId: string | null;
+  amountRupees: number;
+  paidAt: Date | null;
+  createdAt: Date;
+  refunds: StaffRefund[];
+}
+
+const STAFF_REFUND_FIELDS = {
+  id: true,
+  razorpayPaymentId: true,
+  razorpayRefundId: true,
+  amountRupees: true,
+  reason: true,
+  status: true,
+  createdAt: true,
+  updatedAt: true,
+} satisfies Prisma.RefundSelect;
 
 // Razorpay's refund statuses, as ours.
 const REFUND_STATUS = {
@@ -206,6 +242,54 @@ export class PaymentsService {
         },
       },
     });
+  }
+
+  // An order's payment for Super Users, with Razorpay's IDs and every
+  // refund, or null before paying starts (ADR 0028).
+  staffPaymentFor(orderId: string): Promise<StaffPayment | null> {
+    return this.prisma.payment.findUnique({
+      where: { orderId },
+      select: {
+        razorpayOrderId: true,
+        razorpayPaymentId: true,
+        amountRupees: true,
+        paidAt: true,
+        createdAt: true,
+        refunds: { orderBy: { createdAt: 'asc' }, select: STAFF_REFUND_FIELDS },
+      },
+    });
+  }
+
+  // Refunds for Super Users, the newest first, one page at a time: those in
+  // one status if asked, such as the FAILED ones that staff give back by
+  // hand. Each names its order (ADR 0028).
+  async listRefunds(query: RefundListQuery): Promise<{
+    refunds: (StaffRefund & { orderId: string })[];
+    nextAfter: string | null;
+  }> {
+    const rows = await this.prisma.refund.findMany({
+      // A filter left out is undefined, and Prisma ignores it.
+      where: { status: query.status },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      // One more than asked for, to know whether another page exists.
+      take: query.limit + 1,
+      ...(query.after ? { cursor: { id: query.after }, skip: 1 } : {}),
+      select: {
+        ...STAFF_REFUND_FIELDS,
+        payment: { select: { orderId: true } },
+      },
+    });
+    const refunds = rows
+      .slice(0, query.limit)
+      .map(({ payment, ...refund }) => ({
+        ...refund,
+        orderId: payment.orderId,
+      }));
+    return {
+      refunds,
+      nextAfter:
+        rows.length > query.limit ? refunds[refunds.length - 1].id : null,
+    };
   }
 
   // A payment as Razorpay knows it now: the only word on whether money came.
