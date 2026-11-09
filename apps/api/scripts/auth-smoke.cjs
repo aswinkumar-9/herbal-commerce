@@ -1,11 +1,16 @@
 // End-to-end check of customer sign-up, sign-in, the customer's own account,
-// cart and orders, and the public shop (categories, products, prices, images
-// and stock) against the running API, and that customers can never use the
-// staff routes.
-// Needs the API (pnpm api:dev) and Mailpit (docker compose) to be running.
+// cart, orders and payments, and the public shop (categories, products,
+// prices, images and stock) against the running API, and that customers can
+// never use the staff routes.
+// Needs the API (pnpm api:dev) and Mailpit (docker compose) to be running,
+// and the internet: paying is started in Razorpay's test mode, so each run
+// with a pack in stock adds a test order to the Razorpay dashboard.
 // Each run creates two throwaway customer accounts in the local database and,
 // with a pack in stock, one cancelled order: orders are never deleted.
-const { randomUUID } = require('node:crypto');
+const { createHmac, randomUUID } = require('node:crypto');
+const { readFileSync } = require('node:fs');
+const path = require('node:path');
+const { parseEnv } = require('node:util');
 // `pnpm api:smoke` clears the local rate limits first, so it can run again at once.
 const API = process.env.API_URL ?? 'http://localhost:3000';
 const MAILPIT = process.env.MAILPIT_URL ?? 'http://localhost:8025';
@@ -46,6 +51,35 @@ async function call(method, path, { json, form, token, headers: extra } = {}) {
 }
 
 const pause = () => new Promise((resolve) => setTimeout(resolve, 500));
+
+// Signs a webhook body as Razorpay does: an HMAC-SHA256 of these exact bytes,
+// with the webhook secret from .env, which is never printed.
+function razorpaySignature(body) {
+  const env = readFileSync(
+    path.join(__dirname, '..', '..', '..', '.env'),
+    'utf8',
+  );
+  const secret = parseEnv(env).RAZORPAY_WEBHOOK_SECRET;
+  if (!secret) {
+    throw new Error('RAZORPAY_WEBHOOK_SECRET is missing from .env');
+  }
+  return createHmac('sha256', secret).update(body).digest('hex');
+}
+
+// Sends a webhook as Razorpay would: this exact body, with this signature.
+async function webhook(body, signature) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (signature) {
+    headers['X-Razorpay-Signature'] = signature;
+  }
+  const response = await fetch(`${API}/v1/payments/razorpay/webhook`, {
+    method: 'POST',
+    headers,
+    body,
+  });
+  const text = await response.text();
+  return { status: response.status, body: text ? JSON.parse(text) : undefined };
+}
 
 // The emails Mailpit holds for this address with this subject, newest first.
 async function mailSearch(address, subject) {
@@ -954,6 +988,13 @@ async function main() {
   let cancelled;
   let cancelledAgain;
   let packAgain;
+  let payment;
+  let paymentAgain;
+  let strangerPayment;
+  let wrongConfirm;
+  let badConfirm;
+  let unpaidView;
+  let paymentAfterCancel;
   if (packInStock) {
     await call(
       'PUT',
@@ -972,12 +1013,31 @@ async function main() {
     orderList = await call('GET', ordersPath, { token: ownerToken });
     const orderPath = `${ordersPath}/${placed.body?.id}`;
     strangerView = await call('GET', orderPath, { token: strangerToken });
+    // Paying (part 8) starts in Razorpay's test mode. Paying itself needs a
+    // person on Razorpay's payment page: pnpm api:pay-test.
+    const payPath = `${orderPath}/payment`;
+    payment = await call('POST', payPath, { token: ownerToken });
+    paymentAgain = await call('POST', payPath, { token: ownerToken });
+    strangerPayment = await call('POST', payPath, { token: strangerToken });
+    wrongConfirm = await call('POST', `${payPath}/confirm`, {
+      json: {
+        razorpayPaymentId: 'pay_SmokeNotReal01',
+        razorpaySignature: '0'.repeat(64),
+      },
+      token: ownerToken,
+    });
+    badConfirm = await call('POST', `${payPath}/confirm`, {
+      json: {},
+      token: ownerToken,
+    });
+    unpaidView = await call('GET', orderPath, { token: ownerToken });
     cancelled = await call('POST', `${orderPath}/cancel`, {
       token: ownerToken,
     });
     cancelledAgain = await call('POST', `${orderPath}/cancel`, {
       token: ownerToken,
     });
+    paymentAfterCancel = await call('POST', payPath, { token: ownerToken });
     const { card } = productPages.find(({ page }) =>
       (page.body?.variants ?? []).some((pack) => pack === packInStock),
     );
@@ -1019,6 +1079,78 @@ async function main() {
         cancelled.body.status === 'CANCELLED' &&
         cancelledAgain.status === 409 &&
         packAgain?.inStock === true),
+  );
+  check(
+    'starting to pay answers 200 in rupees only, with a Razorpay test key, and the same Razorpay order every time',
+    !packInStock ||
+      (payment.status === 200 &&
+        Object.keys(payment.body).sort().join() ===
+          'holdExpiresAt,razorpayKeyId,razorpayOrderId,reference,totalRupees' &&
+        payment.body.razorpayKeyId.startsWith('rzp_test_') &&
+        /^order_[A-Za-z0-9]+$/.test(payment.body.razorpayOrderId) &&
+        payment.body.reference === placed.body?.reference &&
+        payment.body.totalRupees === placed.body?.totalRupees &&
+        paymentAgain.status === 200 &&
+        paymentAgain.body?.razorpayOrderId === payment.body.razorpayOrderId),
+  );
+  check(
+    "only the order's owner can pay for it (404), and a wrong or missing confirmation is refused (400)",
+    !packInStock ||
+      (strangerPayment.status === 404 &&
+        wrongConfirm.status === 400 &&
+        wrongConfirm.body?.message === 'The payment could not be verified.' &&
+        badConfirm.status === 400),
+  );
+  check(
+    'an order shows its payment, unpaid and with no refunds or Razorpay IDs, and once cancelled it can no longer be paid (409)',
+    !packInStock ||
+      (Object.keys(unpaidView.body?.payment ?? {})
+        .sort()
+        .join() === 'paidAt,refunds' &&
+        unpaidView.body.payment.paidAt === null &&
+        unpaidView.body.payment.refunds.length === 0 &&
+        paymentAfterCancel.status === 409 &&
+        paymentAfterCancel.body?.message ===
+          'Only an order waiting for payment can be paid.'),
+  );
+
+  // Razorpay's webhooks (part 8): only a body signed with the webhook secret,
+  // exactly as it was signed, is taken. One the API has no use for, or about
+  // a refund it doesn't know, changes nothing.
+  const unused = JSON.stringify({ event: 'smoke.test', payload: {} });
+  const unknownRefund = JSON.stringify({
+    event: 'refund.processed',
+    payload: {
+      refund: {
+        entity: {
+          id: 'rfnd_SmokeNotReal01',
+          receipt: null,
+          status: 'processed',
+        },
+      },
+    },
+  });
+  const unsigned = await webhook(unused);
+  const wronglySigned = await webhook(unused, '0'.repeat(64));
+  const respaced = await webhook(
+    JSON.stringify(JSON.parse(unused), null, 2),
+    razorpaySignature(unused),
+  );
+  const signedUnused = await webhook(unused, razorpaySignature(unused));
+  const signedRefund = await webhook(
+    unknownRefund,
+    razorpaySignature(unknownRefund),
+  );
+  check(
+    'a webhook without a signature, with a wrong one, or re-spaced after signing is refused (400)',
+    unsigned.status === 400 &&
+      unsigned.body?.message === 'The webhook could not be verified.' &&
+      wronglySigned.status === 400 &&
+      respaced.status === 400,
+  );
+  check(
+    'a webhook signed with the webhook secret is taken (200), even an event the API has no use for, or about a refund it does not know',
+    signedUnused.status === 200 && signedRefund.status === 200,
   );
   console.log(
     failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`,

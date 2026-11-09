@@ -5,14 +5,19 @@ import {
   FREE_DELIVERY_FROM_RUPEES,
   gstInsideRupees,
   HOLD_MINUTES,
+  HOLD_OVER,
   holdExpiresAt,
   lineAmounts,
   MAX_OPEN_ORDERS,
   newOrderReference,
   NOT_CANCELLABLE,
+  NOT_PAYABLE,
   notEnoughStock,
   notReady,
   orderTotals,
+  PAYMENT_NOT_STARTED,
+  PAYMENT_NOT_VERIFIED,
+  PAYMENTS_UNAVAILABLE,
   REFERENCE_LENGTH,
   TOO_MANY_OPEN,
   TOTAL_CHANGED,
@@ -40,6 +45,15 @@ describe("the owner's numbers", () => {
     expect(TOTAL_CHANGED).toBe(
       'The total has changed. Check the cart and try again.',
     );
+    expect(NOT_PAYABLE).toBe('Only an order waiting for payment can be paid.');
+    expect(HOLD_OVER).toBe(
+      'The time to pay for this order is over. Please order again.',
+    );
+    expect(PAYMENTS_UNAVAILABLE).toBe(
+      'Payments are not available right now. Please try again in a minute.',
+    );
+    expect(PAYMENT_NOT_STARTED).toBe('Start paying for this order first.');
+    expect(PAYMENT_NOT_VERIFIED).toBe('The payment could not be verified.');
     expect(notReady(['ASH-CAP-60', 'TULSI-100'])).toBe(
       "These packs can't be ordered now: ASH-CAP-60, TULSI-100. Change or remove them first.",
     );

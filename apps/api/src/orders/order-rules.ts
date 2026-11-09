@@ -18,6 +18,13 @@ export const NOT_CANCELLABLE =
 export const TOO_MANY_OPEN = `You have ${MAX_OPEN_ORDERS} orders waiting for payment. Pay for one or cancel it first.`;
 export const TOTAL_CHANGED =
   'The total has changed. Check the cart and try again.';
+export const NOT_PAYABLE = 'Only an order waiting for payment can be paid.';
+export const HOLD_OVER =
+  'The time to pay for this order is over. Please order again.';
+export const PAYMENTS_UNAVAILABLE =
+  'Payments are not available right now. Please try again in a minute.';
+export const PAYMENT_NOT_STARTED = 'Start paying for this order first.';
+export const PAYMENT_NOT_VERIFIED = 'The payment could not be verified.';
 export const notReady = (skus: string[]) =>
   `These packs can't be ordered now: ${skus.join(', ')}. Change or remove them first.`;
 export const notEnoughStock = (sku: string) =>

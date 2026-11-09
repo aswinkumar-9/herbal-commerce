@@ -9,6 +9,10 @@ import { ShopPacksService } from '../catalog/shop-packs.service';
 import type { Prisma } from '../generated/prisma/client';
 import type { OrderStatus, PackUnit } from '../generated/prisma/enums';
 import { NotEnoughStockError, StockService } from '../inventory/stock.service';
+import {
+  PaymentsService,
+  type PaymentSummary,
+} from '../payments/payments.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   CART_EMPTY,
@@ -70,6 +74,9 @@ export interface OrderView extends Quote {
     state: string;
     pincode: string;
   };
+  // When it was paid, and any money given back; null before paying starts
+  // (ADR 0027).
+  payment: PaymentSummary | null;
 }
 
 // An order in the customer's list of orders.
@@ -142,8 +149,8 @@ const NEWEST_FIRST = [
 // Customers' orders (ADR 0026). An order is placed from the whole cart, at
 // today's prices, and keeps a copy of everything the customer agreed to.
 // It takes its stock at once and holds it until paid, for 15 minutes. It
-// asks the other modules for the address, the cart, the packs and the
-// stock, never their tables.
+// asks the other modules for the address, the cart, the packs, the stock
+// and the payment, never their tables.
 @Injectable()
 export class OrdersService {
   constructor(
@@ -152,6 +159,7 @@ export class OrdersService {
     private readonly cart: CartService,
     private readonly packs: ShopPacksService,
     private readonly stock: StockService,
+    private readonly payments: PaymentsService,
   ) {}
 
   // What the customer's cart would cost as an order now: today's prices,
@@ -241,7 +249,7 @@ export class OrdersService {
     if (!order) {
       throw new NotFoundException(ORDER_NOT_FOUND);
     }
-    return customerOrder(order);
+    return customerOrder(order, await this.payments.summaryFor(order.id));
   }
 
   // The customer's orders, the newest first, one page at a time. Pages
@@ -398,16 +406,19 @@ function customerLine({
   return line;
 }
 
-function customerOrder({
-  deliveryName,
-  deliveryPhone,
-  deliveryLine1,
-  deliveryLine2,
-  deliveryCity,
-  deliveryState,
-  deliveryPincode,
-  ...order
-}: OrderRow): OrderView {
+function customerOrder(
+  {
+    deliveryName,
+    deliveryPhone,
+    deliveryLine1,
+    deliveryLine2,
+    deliveryCity,
+    deliveryState,
+    deliveryPincode,
+    ...order
+  }: OrderRow,
+  payment: PaymentSummary | null,
+): OrderView {
   return {
     ...order,
     delivery: {
@@ -419,5 +430,6 @@ function customerOrder({
       state: deliveryState,
       pincode: deliveryPincode,
     },
+    payment,
   };
 }

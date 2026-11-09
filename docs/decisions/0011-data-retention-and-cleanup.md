@@ -7,6 +7,7 @@
 - Updated: 2026-11-01 (part 3C-2: a deleted sign-up takes its delivery addresses with it, ADR 0019)
 - Updated: 2026-11-06 (part 6: carts nobody changed for 90 days are deleted too, ADR 0025)
 - Updated: 2026-11-08 (part 7: orders are never deleted, so an account with orders cannot be deleted, ADR 0026)
+- Updated: 2026-11-09 (part 8: payments and refunds are kept like orders, ADR 0027)
 
 ## Context
 
@@ -36,6 +37,8 @@ Unverified sign-ups are also the last piece of pre-account takeover (ADR 0007, g
 All periods are in one place: `RETENTION` in `apps/api/src/retention/retention.service.ts`.
 
 **Orders are kept** (since part 7). They are business and tax records: never deleted, by the job or otherwise. Their foreign key to the customer is `ON DELETE RESTRICT`, so an account with orders cannot be deleted. An unverified sign-up can't sign in, so it never has orders, and the job's delete is not affected. Deleting an account on request (DPDP Act) will have to keep its orders; how long, and what else, is for the chartered accountant and the lawyer (ADR 0026).
+
+**Payments and refunds are kept too** (since part 8), with their orders: never deleted, and their foreign keys are `ON DELETE RESTRICT`. They hold only Razorpay's IDs and amounts, never card or bank details (ADR 0027).
 
 ### How it runs
 

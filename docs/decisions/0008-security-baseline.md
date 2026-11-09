@@ -4,6 +4,7 @@
 - Date: 2026-10-25
 - Updated: 2026-10-26 (part 3D: rate limiting exists, `rate-limiter-flexible` is pinned exactly)
 - Updated: 2026-10-29 (part 3B-2: `MFA_ENCRYPTION_KEY`)
+- Updated: 2026-11-09 (part 8: the JSON parser also keeps each body's exact bytes for webhook signatures, and the Razorpay settings, see ADR 0027)
 
 ## Context
 
@@ -21,7 +22,7 @@ Every later endpoint inherits these defaults, so they are set once, here. The fu
 ### HTTP
 
 - **helmet** sets the standard security headers (among them `X-Content-Type-Options: nosniff`, `X-Frame-Options`, a Content Security Policy, `Referrer-Policy` and HSTS) and removes `X-Powered-By`.
-- **JSON bodies only.** Nest's built-in body parsers are switched off (`bodyParser: false`) and only a JSON parser is added, with a 100 kB limit and with compressed bodies refused (`inflate: false`). Form bodies fail validation with `400`, which closes form-based CSRF. Refusing compressed bodies stops "zip bombs": bodies that are small on the wire and huge in memory.
+- **JSON bodies only.** Nest's built-in body parsers are switched off (`bodyParser: false`) and only a JSON parser is added, with a 100 kB limit and with compressed bodies refused (`inflate: false`). Form bodies fail validation with `400`, which closes form-based CSRF. Refusing compressed bodies stops "zip bombs": bodies that are small on the wire and huge in memory. Since part 8, the same parser also keeps each JSON body's exact bytes as `request.rawBody` (`rawBody: true`), because Razorpay signs its webhooks over the body exactly as it was sent. The rules stay the same for every route (ADR 0027).
 - **CORS stays off** until the website exists. It will then allow a list of origins from the environment, never `*`.
 - **The API listens on `127.0.0.1` only** until it is deployed behind HTTPS. Rate limiting has existed since part 3D (ADR 0009). The rest of the pre-production list is in `docs/security.md`.
 
@@ -30,6 +31,7 @@ Every later endpoint inherits these defaults, so they are set once, here. The fu
 - The API refuses to start with invalid or missing configuration. Error messages name the setting, never its value.
 - `JWT_ACCESS_SECRET` must be at least 43 base64url characters (256 bits, as the generator in `.env.example` produces) and must not be repetitive (at least 16 different characters). A test checks that the `.env.example` placeholder is refused.
 - `MFA_ENCRYPTION_KEY` (since part 3B-2, ADR 0013) follows the same rule, and must not be the same as `JWT_ACCESS_SECRET`: one secret, one job.
+- `RAZORPAY_WEBHOOK_SECRET` (since part 8, ADR 0027) follows the same rule, and must differ from both. The Razorpay key ID and key secret must have Razorpay's form, and **in production** the key ID must be a live key (`rzp_live_`): a test key would let test cards pay for real orders.
 - **In production** the API also refuses a database, Valkey, JWT or MFA setting that still contains `change_me`, and a `WEB_BASE_URL` that is not `https://`.
 - **SMTP in production** must switch to TLS (`requireTLS`) or fail, so emails, which carry verification links, are never sent in clear text. Plain SMTP is allowed only in development, for Mailpit.
 
@@ -50,6 +52,6 @@ Every later endpoint inherits these defaults, so they are set once, here. The fu
 ## Consequences
 
 - Every new endpoint gets the headers, the JSON-only rule and the body limit without extra code.
-- A route that needs another body type must add its own parser for that route only: payment webhooks need the raw body to check signatures, and uploads need multipart.
+- A route that needs another body type must add its own parser for that route only, as the image upload does (ADR 0023). Payment webhooks turned out not to need one: they are JSON, and the JSON parser keeps their exact bytes for the signature check (part 8, ADR 0027).
 - Security fixes reach us at least 3 days after release. Until then, the risk is reduced in other ways where possible. For example, `inflate: false` already blocks the compressed-body attack fixed in `body-parser` 2.4.0.
 - Overrides must be reviewed at every upgrade of Nest or Express.

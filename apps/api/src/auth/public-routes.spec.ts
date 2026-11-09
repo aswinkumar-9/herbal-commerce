@@ -10,6 +10,7 @@ import { StaffStockController } from '../inventory/staff-stock.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffVariantsController } from '../catalog/staff-variants.controller';
 import { OrdersController } from '../orders/orders.controller';
+import { RazorpayWebhooksController } from '../orders/razorpay-webhooks.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
 import { StaffAuditLogController } from '../staff/staff-audit-log.controller';
 import { StaffAuthController } from '../staff/staff-auth.controller';
@@ -31,7 +32,7 @@ function publicHandlers(controller: { prototype: object }): string[] {
 }
 
 describe('public routes', () => {
-  it('are exactly the sign-up, sign-in, password reset, invitation, health and shop endpoints', () => {
+  it('are exactly the sign-up, sign-in, password reset, invitation, health, shop and Razorpay webhook endpoints', () => {
     expect(publicHandlers(AuthController)).toEqual([
       'register',
       'verifyEmail',
@@ -63,6 +64,8 @@ describe('public routes', () => {
     expect(publicHandlers(CartController)).toEqual([]);
     // Part 7: so do checkout and orders.
     expect(publicHandlers(OrdersController)).toEqual([]);
+    // Part 8: Razorpay has no token; its signature proves its webhooks.
+    expect(publicHandlers(RazorpayWebhooksController)).toEqual(['receive']);
     // Parts 4A and 4B: customers browse the shop before they sign in.
     expect(publicHandlers(CategoriesController)).toEqual([
       'list',

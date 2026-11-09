@@ -81,6 +81,24 @@ const envSchema = z.object({
   // Encrypts staff MFA secrets in the database. A separate key, so replacing
   // the JWT secret never wipes everyone's MFA.
   MFA_ENCRYPTION_KEY: strongSecret,
+  // Razorpay takes the payments (ADR 0027). The key ID is not secret: the
+  // payment page shows it to every customer. rzp_test_ in test mode.
+  RAZORPAY_KEY_ID: z
+    .string()
+    .regex(
+      /^rzp_(test|live)_[A-Za-z0-9]{8,}$/,
+      'must be a Razorpay key ID: rzp_test_ or rzp_live_, then letters and digits',
+    ),
+  // Its secret, shown once in the Razorpay dashboard.
+  RAZORPAY_KEY_SECRET: z
+    .string()
+    .regex(
+      /^[A-Za-z0-9]{16,}$/,
+      'must be the Key Secret from the Razorpay dashboard: at least 16 letters and digits',
+    ),
+  // Our own secret, which Razorpay signs its webhooks with. Generate it with
+  // the command in .env.example, and set it in the dashboard too.
+  RAZORPAY_WEBHOOK_SECRET: strongSecret,
 });
 
 export type Env = z.infer<typeof envSchema>;
@@ -95,9 +113,21 @@ const PLACEHOLDER_KEYS = [
 
 // One secret must never do two jobs.
 function sharedSecretProblems(env: Env): string[] {
-  return env.MFA_ENCRYPTION_KEY === env.JWT_ACCESS_SECRET
-    ? ['MFA_ENCRYPTION_KEY: must not be the same as JWT_ACCESS_SECRET']
-    : [];
+  const problems: string[] = [];
+  if (env.MFA_ENCRYPTION_KEY === env.JWT_ACCESS_SECRET) {
+    problems.push(
+      'MFA_ENCRYPTION_KEY: must not be the same as JWT_ACCESS_SECRET',
+    );
+  }
+  if (
+    env.RAZORPAY_WEBHOOK_SECRET === env.JWT_ACCESS_SECRET ||
+    env.RAZORPAY_WEBHOOK_SECRET === env.MFA_ENCRYPTION_KEY
+  ) {
+    problems.push(
+      'RAZORPAY_WEBHOOK_SECRET: must not be the same as JWT_ACCESS_SECRET or MFA_ENCRYPTION_KEY',
+    );
+  }
+  return problems;
 }
 
 // Fine on a laptop, never in production.
@@ -113,6 +143,12 @@ function productionProblems(env: Env): string[] {
   }
   if (!env.MEDIA_BASE_URL.startsWith('https://')) {
     problems.push('MEDIA_BASE_URL: must use https in production');
+  }
+  // With a test key, Razorpay's test cards would pay for real orders.
+  if (!env.RAZORPAY_KEY_ID.startsWith('rzp_live_')) {
+    problems.push(
+      'RAZORPAY_KEY_ID: must be a live key (rzp_live_) in production',
+    );
   }
   return problems;
 }

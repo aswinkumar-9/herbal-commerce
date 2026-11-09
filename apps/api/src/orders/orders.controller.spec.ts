@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import type { OrderPaymentsService } from './order-payments.service';
 import { OrdersController } from './orders.controller';
 import type { OrdersService } from './orders.service';
 
@@ -21,8 +22,15 @@ function setup() {
     view: jest.fn().mockResolvedValue({ id: 'order-1' }),
     cancel: jest.fn().mockResolvedValue({ id: 'order-1' }),
   };
-  const controller = new OrdersController(orders as unknown as OrdersService);
-  return { controller, orders };
+  const orderPayments = {
+    start: jest.fn().mockResolvedValue({ razorpayOrderId: 'order_A1' }),
+    confirm: jest.fn().mockResolvedValue({ id: 'order-1', status: 'PAID' }),
+  };
+  const controller = new OrdersController(
+    orders as unknown as OrdersService,
+    orderPayments as unknown as OrderPaymentsService,
+  );
+  return { controller, orders, orderPayments };
 }
 
 describe('OrdersController', () => {
@@ -79,5 +87,31 @@ describe('OrdersController', () => {
     expect(orders.view).toHaveBeenCalledWith('user-1', 'order-1');
     await controller.cancel(USER, 'order-1');
     expect(orders.cancel).toHaveBeenCalledWith('user-1', 'order-1');
+  });
+
+  it("starts paying for the caller's own order, by the ID in the token", async () => {
+    const { controller, orderPayments } = setup();
+
+    await expect(controller.pay(USER, 'order-1')).resolves.toEqual({
+      razorpayOrderId: 'order_A1',
+    });
+    expect(orderPayments.start).toHaveBeenCalledWith('user-1', 'order-1');
+  });
+
+  it("confirms a payment for the caller's own order, with what Razorpay's page gave", async () => {
+    const { controller, orderPayments } = setup();
+    const confirmation = {
+      razorpayPaymentId: 'pay_G3P9vcIhRs3NV4',
+      razorpaySignature: 'a'.repeat(64),
+    };
+
+    await expect(
+      controller.confirmPayment(USER, 'order-1', confirmation),
+    ).resolves.toEqual({ id: 'order-1', status: 'PAID' });
+    expect(orderPayments.confirm).toHaveBeenCalledWith(
+      'user-1',
+      'order-1',
+      confirmation,
+    );
   });
 });

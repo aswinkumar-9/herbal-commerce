@@ -15,19 +15,29 @@ import { CurrentUser } from '../auth/current-user.decorator';
 import { validationFailed } from '../catalog/validation-failed';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
+import { OrderPaymentsService } from './order-payments.service';
 import {
+  confirmPaymentSchema,
   idempotencyKeySchema,
   orderListQuerySchema,
   placeOrderSchema,
 } from './orders.schemas';
-import type { OrderListQuery, PlaceOrderInput } from './orders.schemas';
+import type {
+  ConfirmPaymentInput,
+  OrderListQuery,
+  PlaceOrderInput,
+} from './orders.schemas';
 import { OrdersService } from './orders.service';
 
-// The signed-in customer's checkout and orders (ADR 0026). The customer
-// always comes from the access token, never from the URL or the body.
+// The signed-in customer's checkout, orders and their payment (ADR 0026,
+// ADR 0027). The customer always comes from the access token, never from
+// the URL or the body.
 @Controller('me')
 export class OrdersController {
-  constructor(private readonly orders: OrdersService) {}
+  constructor(
+    private readonly orders: OrdersService,
+    private readonly orderPayments: OrderPaymentsService,
+  ) {}
 
   // What the cart would cost as an order now.
   @Get('checkout')
@@ -81,5 +91,33 @@ export class OrdersController {
     @Param('id', new ParseUUIDPipe()) id: string,
   ) {
     return this.orders.cancel(user.id, id);
+  }
+
+  // Starts paying for an order waiting for payment: what the app needs to
+  // open Razorpay's payment page. Asking again gives the same Razorpay
+  // order.
+  @Post('orders/:id/payment')
+  @HttpCode(HttpStatus.OK)
+  @RateLimit('startPayment')
+  pay(
+    @CurrentUser() user: AuthUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+  ) {
+    return this.orderPayments.start(user.id, id);
+  }
+
+  // Confirms a payment with what Razorpay's page gave the app. The server
+  // checks Razorpay's signature, then asks Razorpay itself, and answers the
+  // order: paid, still waiting, or with its money on the way back.
+  @Post('orders/:id/payment/confirm')
+  @HttpCode(HttpStatus.OK)
+  @RateLimit('confirmPayment')
+  confirmPayment(
+    @CurrentUser() user: AuthUser,
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(confirmPaymentSchema))
+    body: ConfirmPaymentInput,
+  ) {
+    return this.orderPayments.confirm(user.id, id, body);
   }
 }

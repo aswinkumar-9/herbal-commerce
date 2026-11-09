@@ -461,6 +461,8 @@ model Order {
   user      User            @relation(fields: [userId], references: [id], onDelete: Restrict)
   items     OrderItem[]
   movements StockMovement[]
+  // The Razorpay order its customer pays (ADR 0027).
+  payment   Payment?
 
   @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])
@@ -497,4 +499,69 @@ model OrderItem {
   // Each pack size once per order.
   @@unique([orderId, variantId])
   @@map("order_items")
+}
+
+// What a customer pays an order with, at Razorpay (ADR 0027): one for each
+// order, made when the customer first chooses to pay. Money in whole rupees.
+model Payment {
+  id                String    @id @default(uuid()) @db.Uuid
+  orderId           String    @unique @db.Uuid
+  // Razorpay's order, such as "order_RB58MiP5SPFYyM", for the order's total.
+  razorpayOrderId   String    @unique
+  amountRupees      Int
+  // The Razorpay payment that paid the order, and when, once one has.
+  razorpayPaymentId String?   @unique
+  paidAt            DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  // An order is never deleted, and neither is its payment.
+  order   Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  refunds Refund[]
+
+  @@map("payments")
+}
+
+// Why money goes back to a customer.
+enum RefundReason {
+  // Paid after the order expired, when its stock had gone (the owner's rule).
+  ORDER_EXPIRED
+  // Paid for an order the customer had cancelled.
+  ORDER_CANCELLED
+  // A second payment for an order that was already paid.
+  ALREADY_PAID
+}
+
+enum RefundStatus {
+  // Saved, but Razorpay has not taken it yet: the refund job asks again.
+  REQUESTED
+  // Razorpay has taken it, and the money is on its way back.
+  PENDING
+  // The money is back with the customer.
+  PROCESSED
+  // Razorpay could not give it back: staff must act.
+  FAILED
+}
+
+// Money given back to a customer, always a whole Razorpay payment (ADR 0027).
+model Refund {
+  id                String       @id @default(uuid()) @db.Uuid
+  paymentId         String       @db.Uuid
+  // The Razorpay payment given back: each at most once.
+  razorpayPaymentId String       @unique
+  amountRupees      Int
+  reason            RefundReason
+  status            RefundStatus @default(REQUESTED)
+  // Razorpay's refund, such as "rfnd_FP8QHiV938haTz", once it has taken it.
+  razorpayRefundId  String?      @unique
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  // Never deleted either.
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([paymentId])
+  // For the job that asks Razorpay again.
+  @@index([status, createdAt])
+  @@map("refunds")
 }
