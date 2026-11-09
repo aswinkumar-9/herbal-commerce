@@ -145,10 +145,15 @@ describe('rate-limited routes', () => {
     expect(routeLimits(RazorpayWebhooksController)).toStrictEqual({
       receive: undefined,
     });
-    // Staff read orders and refunds, paged: the per-IP baseline is enough.
+    // Staff read orders and refunds, paged, and take an order's steps one
+    // at a time: the per-IP baseline is enough.
     expect(routeLimits(StaffOrdersController)).toStrictEqual({
       list: undefined,
       view: undefined,
+      markPacked: undefined,
+      markShipped: undefined,
+      correctShipment: undefined,
+      markDelivered: undefined,
     });
     expect(routeLimits(StaffRefundsController)).toStrictEqual({
       list: undefined,

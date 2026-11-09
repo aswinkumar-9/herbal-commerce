@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import type { OrderStatus } from '../generated/prisma/enums';
 
 // The rules of an order (ADR 0026). Money is in whole rupees, like the
 // catalog's (ADR 0022): the GST too, rounded to the nearest rupee.
@@ -25,6 +26,33 @@ export const PAYMENTS_UNAVAILABLE =
   'Payments are not available right now. Please try again in a minute.';
 export const PAYMENT_NOT_STARTED = 'Start paying for this order first.';
 export const PAYMENT_NOT_VERIFIED = 'The payment could not be verified.';
+
+// The steps staff take once an order is paid (ADR 0028): the status an
+// order must have for each, and what staff are told when it doesn't, or when
+// the step is done already.
+export const ORDER_STEPS = {
+  PACKED: {
+    from: 'PAID',
+    notReady: 'Only a paid order can be packed.',
+    done: 'This order is packed already.',
+  },
+  SHIPPED: {
+    from: 'PACKED',
+    notReady: 'Only a packed order can be shipped.',
+    done: 'This order has shipped already.',
+  },
+  DELIVERED: {
+    from: 'SHIPPED',
+    notReady: 'Only a shipped order can be marked delivered.',
+    done: 'This order is delivered already.',
+  },
+} as const satisfies Record<
+  string,
+  { from: OrderStatus; notReady: string; done: string }
+>;
+export type OrderStep = keyof typeof ORDER_STEPS;
+export const NOT_ON_ITS_WAY =
+  'Only an order on its way can have its courier or tracking number corrected.';
 export const notReady = (skus: string[]) =>
   `These packs can't be ordered now: ${skus.join(', ')}. Change or remove them first.`;
 export const notEnoughStock = (sku: string) =>

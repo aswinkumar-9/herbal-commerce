@@ -1,4 +1,6 @@
-import { NotFoundException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
+import type { PinoLogger } from 'nestjs-pino';
+import type { AuditService } from '../audit/audit.service';
 import type { PaymentsService } from '../payments/payments.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { StaffOrdersService } from './staff-orders.service';
@@ -55,21 +57,50 @@ const PAYMENT = {
   refunds: [],
 };
 
+const CONTEXT = { actorId: 'staff-1', ip: '127.0.0.1', requestId: 'req-1' };
+const ADMIN = { withPayment: false };
+
 function setup() {
+  const tx = {
+    order: {
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      findUnique: jest.fn().mockResolvedValue({ status: 'PAID', id: ORDER_ID }),
+      findUniqueOrThrow: jest.fn().mockResolvedValue({
+        courierName: 'Delhivery',
+        trackingNumber: '1490811234567',
+      }),
+      update: jest.fn().mockResolvedValue({}),
+    },
+  };
   const prisma = {
     order: {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn().mockResolvedValue(ROW),
     },
+    $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
   };
   const payments = {
     staffPaymentFor: jest.fn().mockResolvedValue(PAYMENT),
   };
+  const audit = { record: jest.fn().mockResolvedValue(undefined) };
+  const logger = { info: jest.fn() };
   const service = new StaffOrdersService(
     prisma as unknown as PrismaService,
     payments as unknown as PaymentsService,
+    audit as unknown as AuditService,
+    logger as unknown as PinoLogger,
   );
-  return { service, prisma, payments };
+  return { service, prisma, tx, payments, audit, logger };
+}
+
+// What a refused call throws.
+async function refusal(promise: Promise<unknown>): Promise<Error> {
+  return promise.then(
+    () => {
+      throw new Error('expected a refusal');
+    },
+    (error: Error) => error,
+  );
 }
 
 const summary = (id: string) => ({
@@ -220,5 +251,268 @@ describe('StaffOrdersService.view', () => {
     expect(error).toBeInstanceOf(NotFoundException);
     expect((error as NotFoundException).message).toBe('Order not found');
     expect(payments.staffPaymentFor).not.toHaveBeenCalled();
+  });
+});
+
+describe('StaffOrdersService steps', () => {
+  it('packs a paid order: the status and its time in one guarded update, audited, and answers the order', async () => {
+    const { service, prisma, tx, audit, logger } = setup();
+
+    const view = await service.markPacked(ORDER_ID, CONTEXT, ADMIN, NOW);
+
+    expect(tx.order.updateMany).toHaveBeenCalledWith({
+      where: { id: ORDER_ID, status: 'PAID' },
+      data: { status: 'PACKED', packedAt: NOW },
+    });
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...CONTEXT,
+      action: 'order.packed',
+      targetType: 'order',
+      targetId: ORDER_ID,
+      before: { status: 'PAID' },
+      after: { status: 'PACKED' },
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      { orderId: ORDER_ID, actorId: 'staff-1', status: 'PACKED' },
+      'Order moved to its next step',
+    );
+    expect(view.reference).toBe('7KQ2M9XDPA');
+    expect(view).not.toHaveProperty('payment');
+    expect(prisma.order.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: ORDER_ID } }),
+    );
+  });
+
+  it('ships a packed order with its courier and tracking number, which the audit entry keeps', async () => {
+    const { service, tx, audit } = setup();
+    const shipment = {
+      courierName: 'Delhivery',
+      trackingNumber: '1490811234567',
+    };
+
+    await service.markShipped(ORDER_ID, shipment, CONTEXT, ADMIN, NOW);
+
+    expect(tx.order.updateMany).toHaveBeenCalledWith({
+      where: { id: ORDER_ID, status: 'PACKED' },
+      data: { status: 'SHIPPED', shippedAt: NOW, ...shipment },
+    });
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...CONTEXT,
+      action: 'order.shipped',
+      targetType: 'order',
+      targetId: ORDER_ID,
+      before: { status: 'PACKED' },
+      after: { status: 'SHIPPED', ...shipment },
+    });
+  });
+
+  it('marks a shipped order delivered, and shows a Super User its payment', async () => {
+    const { service, tx, audit, payments } = setup();
+
+    const view = await service.markDelivered(
+      ORDER_ID,
+      CONTEXT,
+      { withPayment: true },
+      NOW,
+    );
+
+    expect(tx.order.updateMany).toHaveBeenCalledWith({
+      where: { id: ORDER_ID, status: 'SHIPPED' },
+      data: { status: 'DELIVERED', deliveredAt: NOW },
+    });
+    expect(audit.record.mock.calls[0][1]).toMatchObject({
+      action: 'order.delivered',
+      before: { status: 'SHIPPED' },
+      after: { status: 'DELIVERED' },
+    });
+    expect(view.payment).toBe(PAYMENT);
+    expect(payments.staffPaymentFor).toHaveBeenCalledWith(ORDER_ID);
+  });
+
+  it('refuses a step the order is not ready for, or has taken already (409), and audits nothing', async () => {
+    const cases = [
+      {
+        status: 'PENDING_PAYMENT',
+        step: 'markPacked',
+        message: 'Only a paid order can be packed.',
+      },
+      {
+        status: 'PACKED',
+        step: 'markPacked',
+        message: 'This order is packed already.',
+      },
+      {
+        status: 'PAID',
+        step: 'markShipped',
+        message: 'Only a packed order can be shipped.',
+      },
+      {
+        status: 'SHIPPED',
+        step: 'markShipped',
+        message: 'This order has shipped already.',
+      },
+      {
+        status: 'PACKED',
+        step: 'markDelivered',
+        message: 'Only a shipped order can be marked delivered.',
+      },
+      {
+        status: 'DELIVERED',
+        step: 'markDelivered',
+        message: 'This order is delivered already.',
+      },
+    ] as const;
+    for (const { status, step, message } of cases) {
+      const { service, tx, audit, logger } = setup();
+      tx.order.updateMany.mockResolvedValueOnce({ count: 0 });
+      tx.order.findUnique.mockResolvedValueOnce({ status, id: ORDER_ID });
+
+      const error =
+        step === 'markShipped'
+          ? await refusal(
+              service.markShipped(
+                ORDER_ID,
+                { courierName: 'Delhivery', trackingNumber: '1490811234567' },
+                CONTEXT,
+                ADMIN,
+                NOW,
+              ),
+            )
+          : await refusal(service[step](ORDER_ID, CONTEXT, ADMIN, NOW));
+
+      expect([step, status, error]).toEqual([
+        step,
+        status,
+        new ConflictException(message),
+      ]);
+      expect(audit.record).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalled();
+    }
+  });
+
+  it('answers 404 for an unknown order', async () => {
+    const { service, tx, audit } = setup();
+    tx.order.updateMany.mockResolvedValueOnce({ count: 0 });
+    tx.order.findUnique.mockResolvedValueOnce(null);
+
+    const error = await refusal(
+      service.markPacked(ORDER_ID, CONTEXT, ADMIN, NOW),
+    );
+
+    expect(error).toBeInstanceOf(NotFoundException);
+    expect(error.message).toBe('Order not found');
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+});
+
+describe('StaffOrdersService.correctShipment', () => {
+  it('locks the order on its way, changes only what differs, and audits it', async () => {
+    const { service, tx, audit, logger } = setup();
+
+    const view = await service.correctShipment(
+      ORDER_ID,
+      { courierName: 'Delhivery', trackingNumber: '1490811234568' },
+      CONTEXT,
+      ADMIN,
+      NOW,
+    );
+
+    expect(tx.order.updateMany).toHaveBeenCalledWith({
+      where: { id: ORDER_ID, status: 'SHIPPED' },
+      data: { updatedAt: NOW },
+    });
+    expect(tx.order.update).toHaveBeenCalledWith({
+      where: { id: ORDER_ID },
+      data: { trackingNumber: '1490811234568' },
+    });
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...CONTEXT,
+      action: 'order.shipment_corrected',
+      targetType: 'order',
+      targetId: ORDER_ID,
+      before: { trackingNumber: '1490811234567' },
+      after: { trackingNumber: '1490811234568' },
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      { orderId: ORDER_ID, actorId: 'staff-1' },
+      'Order shipment corrected',
+    );
+    expect(view.reference).toBe('7KQ2M9XDPA');
+  });
+
+  it('corrects the courier alone too, leaving the tracking number out of the change and its audit entry', async () => {
+    const { service, tx, audit } = setup();
+
+    await service.correctShipment(
+      ORDER_ID,
+      { courierName: 'Blue Dart' },
+      CONTEXT,
+      ADMIN,
+      NOW,
+    );
+
+    // Strict: a field sent as undefined would count as present.
+    expect(tx.order.update.mock.calls[0][0]).toStrictEqual({
+      where: { id: ORDER_ID },
+      data: { courierName: 'Blue Dart' },
+    });
+    expect(audit.record.mock.calls[0][1].before).toStrictEqual({
+      courierName: 'Delhivery',
+    });
+    expect(audit.record.mock.calls[0][1].after).toStrictEqual({
+      courierName: 'Blue Dart',
+    });
+  });
+
+  it('changes nothing, and audits nothing, when the values are the same', async () => {
+    const { service, tx, audit, logger } = setup();
+
+    const view = await service.correctShipment(
+      ORDER_ID,
+      { courierName: 'Delhivery', trackingNumber: '1490811234567' },
+      CONTEXT,
+      ADMIN,
+      NOW,
+    );
+
+    expect(tx.order.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+    expect(view.reference).toBe('7KQ2M9XDPA');
+  });
+
+  it('refuses an order that is not on its way (409), and an unknown one (404)', async () => {
+    const { service, tx, audit } = setup();
+    tx.order.updateMany.mockResolvedValue({ count: 0 });
+    tx.order.findUnique.mockResolvedValueOnce({ id: ORDER_ID });
+
+    const notShipped = await refusal(
+      service.correctShipment(
+        ORDER_ID,
+        { courierName: 'Blue Dart' },
+        CONTEXT,
+        ADMIN,
+        NOW,
+      ),
+    );
+    expect(notShipped).toEqual(
+      new ConflictException(
+        'Only an order on its way can have its courier or tracking number corrected.',
+      ),
+    );
+
+    tx.order.findUnique.mockResolvedValueOnce(null);
+    const unknown = await refusal(
+      service.correctShipment(
+        ORDER_ID,
+        { courierName: 'Blue Dart' },
+        CONTEXT,
+        ADMIN,
+        NOW,
+      ),
+    );
+    expect(unknown).toBeInstanceOf(NotFoundException);
+    expect(tx.order.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
   });
 });

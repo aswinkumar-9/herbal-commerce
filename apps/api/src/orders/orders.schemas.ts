@@ -47,6 +47,49 @@ export const staffOrderListQuerySchema = z.object({
 });
 export type StaffOrderListQuery = z.infer<typeof staffOrderListQuerySchema>;
 
+// The courier staff booked, such as "Delhivery": spaces at the ends
+// dropped, and each run of spaces made one.
+const courierName = z
+  .string()
+  .trim()
+  .transform((value) => value.replace(/\s+/g, ' '))
+  .pipe(
+    z
+      .string()
+      .min(2, 'Name the courier in 2 to 60 characters')
+      .max(60, 'Name the courier in 2 to 60 characters'),
+  );
+// The courier's tracking number: spaces dropped and letters in capitals,
+// so "ee 1234 5678 9in" is stored as "EE123456789IN".
+const trackingNumber = z
+  .string()
+  .transform((value) => value.replace(/\s+/g, '').toUpperCase())
+  .pipe(
+    z
+      .string()
+      .regex(
+        /^[A-Z0-9][A-Z0-9-]{3,39}$/,
+        'A tracking number has 4 to 40 letters, digits or hyphens',
+      ),
+  );
+
+// Handing an order to the courier (ADR 0028): who carries it, and its
+// tracking number.
+export const shipmentSchema = z.object({ courierName, trackingNumber });
+export type ShipmentInput = z.infer<typeof shipmentSchema>;
+
+// Correcting an order on its way: the courier, the tracking number, or both.
+export const shipmentCorrectionSchema = z
+  .object({
+    courierName: courierName.optional(),
+    trackingNumber: trackingNumber.optional(),
+  })
+  .refine(
+    (input) => Object.values(input).some((value) => value !== undefined),
+    'Nothing to change',
+  );
+export type ShipmentCorrection = z.infer<typeof shipmentCorrectionSchema>;
+
 // Confirming a payment: what Razorpay's payment page gave the app when the
 // customer paid, as razorpay_payment_id and razorpay_signature. The
 // Razorpay order is never taken from the app: the server knows it.

@@ -11,10 +11,12 @@ import {
   MAX_OPEN_ORDERS,
   newOrderReference,
   NOT_CANCELLABLE,
+  NOT_ON_ITS_WAY,
   NOT_PAYABLE,
   notEnoughStock,
   notReady,
   ORDER_REFERENCE,
+  ORDER_STEPS,
   orderTotals,
   PAYMENT_NOT_STARTED,
   PAYMENT_NOT_VERIFIED,
@@ -55,6 +57,26 @@ describe("the owner's numbers", () => {
     );
     expect(PAYMENT_NOT_STARTED).toBe('Start paying for this order first.');
     expect(PAYMENT_NOT_VERIFIED).toBe('The payment could not be verified.');
+    expect(ORDER_STEPS).toEqual({
+      PACKED: {
+        from: 'PAID',
+        notReady: 'Only a paid order can be packed.',
+        done: 'This order is packed already.',
+      },
+      SHIPPED: {
+        from: 'PACKED',
+        notReady: 'Only a packed order can be shipped.',
+        done: 'This order has shipped already.',
+      },
+      DELIVERED: {
+        from: 'SHIPPED',
+        notReady: 'Only a shipped order can be marked delivered.',
+        done: 'This order is delivered already.',
+      },
+    });
+    expect(NOT_ON_ITS_WAY).toBe(
+      'Only an order on its way can have its courier or tracking number corrected.',
+    );
     expect(notReady(['ASH-CAP-60', 'TULSI-100'])).toBe(
       "These packs can't be ordered now: ASH-CAP-60, TULSI-100. Change or remove them first.",
     );

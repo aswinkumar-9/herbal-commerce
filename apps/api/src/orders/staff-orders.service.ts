@@ -1,4 +1,11 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
+import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
+import type { AuditContext } from '../audit/audit-context';
+import { AuditService } from '../audit/audit.service';
 import type { Prisma } from '../generated/prisma/client';
 import type { OrderStatus } from '../generated/prisma/enums';
 import {
@@ -6,7 +13,12 @@ import {
   type StaffPayment,
 } from '../payments/payments.service';
 import { PrismaService } from '../prisma/prisma.service';
-import type { StaffOrderListQuery } from './orders.schemas';
+import { NOT_ON_ITS_WAY, ORDER_STEPS, type OrderStep } from './order-rules';
+import type {
+  ShipmentCorrection,
+  ShipmentInput,
+  StaffOrderListQuery,
+} from './orders.schemas';
 import {
   ORDER_NOT_FOUND,
   type OrderLine,
@@ -16,6 +28,11 @@ import {
 // A line as staff see it: what to pick and pack, with its HSN code.
 export interface StaffOrderLine extends OrderLine {
   hsnCode: string;
+}
+
+// Who is looking: only a Super User sees an order's payment.
+export interface StaffViewer {
+  withPayment: boolean;
 }
 
 // An order in the staff list.
@@ -110,14 +127,18 @@ type StaffOrderRow = Prisma.OrderGetPayload<{
   select: typeof STAFF_ORDER_FIELDS;
 }>;
 
-// Orders for staff (ADR 0028). Admins and Super Users see every order, to
-// pack and ship it. Only Super Users see its payment and refunds, with
-// Razorpay's IDs: Admins never handle money.
+// Orders for staff (ADR 0028). Admins and Super Users see every order, and
+// take it through its steps: packed, shipped, delivered. Each step is
+// audited in the same transaction. Only Super Users see an order's payment
+// and refunds, with Razorpay's IDs: Admins never handle money.
 @Injectable()
 export class StaffOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly payments: PaymentsService,
+    private readonly audit: AuditService,
+    @InjectPinoLogger(StaffOrdersService.name)
+    private readonly logger: PinoLogger,
   ) {}
 
   // Every order, one page at a time: those in one status, or the one with
@@ -148,7 +169,7 @@ export class StaffOrdersService {
   // One order, or 404. With its payment and refunds for Super Users only.
   async view(
     id: string,
-    { withPayment }: { withPayment: boolean },
+    { withPayment }: StaffViewer,
   ): Promise<StaffOrderView> {
     const order = await this.prisma.order.findUnique({
       where: { id },
@@ -162,6 +183,161 @@ export class StaffOrdersService {
       return view;
     }
     return { ...view, payment: await this.payments.staffPaymentFor(id) };
+  }
+
+  // Marks a paid order packed.
+  markPacked(
+    id: string,
+    context: AuditContext,
+    viewer: StaffViewer,
+    now = new Date(),
+  ): Promise<StaffOrderView> {
+    return this.takeStep(id, 'PACKED', { packedAt: now }, {}, context, viewer);
+  }
+
+  // Marks a packed order shipped: handed to the courier, with its tracking
+  // number.
+  markShipped(
+    id: string,
+    shipment: ShipmentInput,
+    context: AuditContext,
+    viewer: StaffViewer,
+    now = new Date(),
+  ): Promise<StaffOrderView> {
+    return this.takeStep(
+      id,
+      'SHIPPED',
+      { shippedAt: now, ...shipment },
+      shipment,
+      context,
+      viewer,
+    );
+  }
+
+  // Marks a shipped order delivered.
+  markDelivered(
+    id: string,
+    context: AuditContext,
+    viewer: StaffViewer,
+    now = new Date(),
+  ): Promise<StaffOrderView> {
+    return this.takeStep(
+      id,
+      'DELIVERED',
+      { deliveredAt: now },
+      {},
+      context,
+      viewer,
+    );
+  }
+
+  // Corrects the courier or the tracking number of an order on its way,
+  // with the order locked, so two corrections take turns. One that changes
+  // nothing writes no audit entry.
+  async correctShipment(
+    id: string,
+    correction: ShipmentCorrection,
+    context: AuditContext,
+    viewer: StaffViewer,
+    now = new Date(),
+  ): Promise<StaffOrderView> {
+    const changed = await this.prisma.$transaction(async (tx) => {
+      // The lock: the order's row stays locked until the transaction ends.
+      const { count } = await tx.order.updateMany({
+        where: { id, status: 'SHIPPED' },
+        data: { updatedAt: now },
+      });
+      if (count === 0) {
+        const order = await tx.order.findUnique({
+          where: { id },
+          select: { id: true },
+        });
+        if (!order) {
+          throw new NotFoundException(ORDER_NOT_FOUND);
+        }
+        throw new ConflictException(NOT_ON_ITS_WAY);
+      }
+      const current = await tx.order.findUniqueOrThrow({
+        where: { id },
+        select: { courierName: true, trackingNumber: true },
+      });
+      const fields = (['courierName', 'trackingNumber'] as const).filter(
+        (field) =>
+          correction[field] !== undefined &&
+          correction[field] !== current[field],
+      );
+      if (fields.length === 0) {
+        return false;
+      }
+      const before = Object.fromEntries(
+        fields.map((field) => [field, current[field]]),
+      );
+      const after = Object.fromEntries(
+        fields.map((field) => [field, correction[field]]),
+      );
+      await tx.order.update({ where: { id }, data: after });
+      await this.audit.record(tx, {
+        ...context,
+        action: 'order.shipment_corrected',
+        targetType: 'order',
+        targetId: id,
+        before,
+        after,
+      });
+      return true;
+    });
+    if (changed) {
+      this.logger.info(
+        { orderId: id, actorId: context.actorId },
+        'Order shipment corrected',
+      );
+    }
+    return this.view(id, viewer);
+  }
+
+  // Takes one step, guarded by the order's status: only an order in the
+  // step's status moves on, so a double click, or two staff at once, move
+  // it once. The step and its audit entry are one transaction.
+  private async takeStep(
+    id: string,
+    to: OrderStep,
+    data: Prisma.OrderUpdateManyMutationInput,
+    details: Record<string, string>,
+    context: AuditContext,
+    viewer: StaffViewer,
+  ): Promise<StaffOrderView> {
+    const step = ORDER_STEPS[to];
+    await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.order.updateMany({
+        where: { id, status: step.from },
+        data: { status: to, ...data },
+      });
+      if (count === 0) {
+        const order = await tx.order.findUnique({
+          where: { id },
+          select: { status: true },
+        });
+        if (!order) {
+          throw new NotFoundException(ORDER_NOT_FOUND);
+        }
+        throw new ConflictException(
+          order.status === to ? step.done : step.notReady,
+        );
+      }
+      await this.audit.record(tx, {
+        ...context,
+        action: `order.${to.toLowerCase()}`,
+        targetType: 'order',
+        targetId: id,
+        before: { status: step.from },
+        after: { status: to, ...details },
+      });
+    });
+    this.logger.info(
+      { orderId: id, actorId: context.actorId, status: to },
+      'Order moved to its next step',
+    );
+    return this.view(id, viewer);
   }
 }
 
