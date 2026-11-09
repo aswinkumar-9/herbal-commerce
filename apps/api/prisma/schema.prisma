@@ -415,12 +415,19 @@ model CartItem {
 enum OrderStatus {
   // Placed, its stock held until holdExpiresAt, waiting for payment.
   PENDING_PAYMENT
-  // Paid.
+    // Paid, and waiting to be packed.
   PAID
-  // Cancelled by the customer before paying: its stock went back.
+  // Cancelled before it shipped: its stock went back, and a payment went
+  // back in full.
   CANCELLED
   // Not paid in time: its stock went back.
   EXPIRED
+  // Packed by staff, for the courier (ADR 0028).
+  PACKED
+  // Handed to the courier, with its tracking number.
+  SHIPPED
+  // Delivered to the customer.
+  DELIVERED
 }
 
 // A customer's order (ADR 0026). It keeps a copy of everything the customer
@@ -454,6 +461,13 @@ model Order {
   totalRupees          Int
   // An unpaid order holds its stock until then.
   holdExpiresAt        DateTime
+  // The steps after payment, each marked by staff (ADR 0028): packed, handed
+  // to the courier with its tracking number, and delivered.
+  packedAt             DateTime?
+  shippedAt            DateTime?
+  courierName          String?
+  trackingNumber       String?
+  deliveredAt          DateTime?
   createdAt            DateTime    @default(now())
   updatedAt            DateTime    @updatedAt
 
@@ -468,6 +482,8 @@ model Order {
   @@index([userId, createdAt])
   // For the job that expires unpaid orders.
   @@index([status, holdExpiresAt])
+  // For staff: the orders in one status, the oldest first.
+  @@index([status, createdAt])
   @@map("orders")
 }
 
@@ -530,6 +546,10 @@ enum RefundReason {
   ORDER_CANCELLED
   // A second payment for an order that was already paid.
   ALREADY_PAID
+  // A paid order the customer cancelled before it shipped (ADR 0028).
+  CANCELLED_BY_CUSTOMER
+  // A paid order a Super User cancelled before it shipped (ADR 0028).
+  CANCELLED_BY_STAFF
 }
 
 enum RefundStatus {
