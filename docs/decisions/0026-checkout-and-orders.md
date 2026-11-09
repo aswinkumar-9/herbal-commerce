@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 7)
 - Date: 2026-11-08
+- Updated: 2026-11-09 (part 8: orders are paid through Razorpay, and an expired order may still be paid late, see ADR 0027)
 
 ## Context
 
@@ -48,7 +49,7 @@ So 3 packs at ₹449 come to ₹1,347, and the customer pays ₹1,347: ₹1,283 
 - **Every amount but the GST is exact:** prices are whole rupees, and so is the delivery charge.
 - **Why the GST is not added on top:** the price a shopper sees includes all taxes, and the MRP is the most anyone may charge, taxes included. A pack may sell at its MRP, so GST on top would charge more than the MRP.
 - The rules are in `orders/order-rules.ts`: `FREE_DELIVERY_FROM_RUPEES`, `DELIVERY_CHARGE_RUPEES`, `gstInsideRupees` and `orderTotals`.
-- **The payment gateway (part 8) takes paise.** The amount is multiplied by 100 there, and nowhere else.
+- **The payment gateway takes paise** (part 8, ADR 0027). Our code multiplies by 100 only in its calls to Razorpay. Razorpay's payment page wants paise too, and the app multiplies the order's rupees itself, by the owner's choice: our API answers rupees only.
 - **A chartered accountant confirms, before the first invoice:** rounding each line's GST to the rupee, the GST inside the delivery charge (₹49 at 5% holds about ₹2), and the split into CGST and SGST, or IGST.
 
 ### What an order keeps
@@ -85,18 +86,18 @@ So 3 packs at ₹449 come to ₹1,347, and the customer pays ₹1,347: ₹1,283 
 
 | Status | Means | Next |
 |---|---|---|
-| `PENDING_PAYMENT` | Placed. It holds its stock until `holdExpiresAt`, 15 minutes later. | Paid (part 8), cancelled or expired |
-| `CANCELLED` | The customer cancelled it while it waited for payment. Its stock came back at once. | Nothing |
-| `EXPIRED` | It wasn't paid within 15 minutes. Its stock came back. | Nothing |
-| `PAID` | Comes with the payment gateway, in part 8 | Packing and shipping, later |
+| `PENDING_PAYMENT` | Placed. It holds its stock until `holdExpiresAt`, 15 minutes later. | Paid, cancelled or expired |
+| `CANCELLED` | The customer cancelled it while it waited for payment. Its stock came back at once. | Nothing. A payment that still comes goes back in full (ADR 0027). |
+| `EXPIRED` | It wasn't paid within 15 minutes. Its stock came back. | Paid late, if its stock is still free; otherwise the payment goes back in full (ADR 0027) |
+| `PAID` | Paid through Razorpay (part 8, ADR 0027) | Packing and shipping, later |
 
 - **The expiry job** (`OrderExpiryScheduler`) runs inside the API every minute, the first time a minute after startup, and never twice at once.
   - It takes at most 100 orders a run, the oldest hold first, each in its own transaction, so one failure keeps no other waiting.
   - It logs counts only: `Unpaid orders expired`.
   - So an unpaid order's stock comes back within about a minute of its hold ending.
-- **A cancel and an expiry at the same moment never both happen.** Each changes the status only while it is still `PENDING_PAYMENT` (a conditional `updateMany`), so the one that comes second finds nothing to change. Several API instances can run the job safely too, and the payment will use the same guard.
+- **A cancel and an expiry at the same moment never both happen.** Each changes the status only while it is still `PENDING_PAYMENT` (a conditional `updateMany`), so the one that comes second finds nothing to change. Several API instances can run the job safely too, and paying uses the same guard (ADR 0027).
 - **At most 3 orders wait for payment per customer.** A 4th answers `409 You have 3 orders waiting for payment. Pay for one or cancel it first.` Nobody can hold the shop's stock with many unpaid orders. Placing orders also has its own rate limit: 30 per hour per IP.
-- **Nothing can be paid yet,** so today every order ends `CANCELLED` or `EXPIRED`.
+- **Orders are paid since part 8** (ADR 0027). Before the job expires an order that started paying, it asks Razorpay whether the payment came.
 
 ### A double tap places one order
 
@@ -201,9 +202,9 @@ The first two were tested in 28 cases, and the third in 8 more, after converting
   - **Lock many rows in one fixed order,** by ID, so two transactions never wait for each other forever.
   - **A status guard instead of a lock:** an update that names the status it expects lets a cancel and an expiry race safely.
 - **Still open:**
-  - paying for an order (part 8): the gateway, its webhooks, `PAID`, and the amount in paise at the gateway only;
+  - paying for an order: done in part 8, through Razorpay (ADR 0027);
   - GST invoices, numbered per financial year, with the chartered accountant's answers on rounding, the delivery charge and the CGST, SGST or IGST split;
   - staff seeing, packing and shipping orders (the admin console);
   - an email confirming an order;
-  - returns and refunds;
+  - returns, and refunds a customer asks for. Payments that can't be kept go back on their own since part 8 (ADR 0027);
   - how long orders are kept for the tax records, and what deleting an account keeps (ADR 0011).

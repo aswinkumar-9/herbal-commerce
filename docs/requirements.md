@@ -65,7 +65,7 @@ Assumptions to confirm: Admin handles delivery and return approval but never mon
 - Inventory with reservations
 - Search and filters (PostgreSQL full-text first)
 - Cart, checkout, delivery charge and tax, order confirmation
-- Payments through a gateway (sandbox first), server-verified, idempotent
+- Payments through a gateway (sandbox first), server-verified, idempotent. Razorpay, chosen by the owner on 2026-11-08 (ADR 0027)
 - Order lifecycle, cancellations, returns, refunds
 - GST invoices (system-generated, sequential per financial year)
 - Admin console: catalog, prices, stock, orders, returns, customers (limited)

@@ -2,13 +2,14 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes for the payment, which comes later. A double tap places one order, and an unpaid order expires on its own and gives its stock back. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
 - Git
 - Node.js 24 (LTS) and pnpm 12
 - Docker Desktop, running (provides PostgreSQL, Valkey and the Mailpit mail catcher locally)
+- A Razorpay account, for its free test keys: no business details are needed for test mode (ADR 0027)
 - Windows 11 with PowerShell is the tested setup (see `docs/decisions/0005-local-development-environment.md`)
 
 ## First-time setup
@@ -26,6 +27,13 @@ Run everything from the repository root unless stated otherwise.
    node -e "console.log(require('node:crypto').randomBytes(48).toString('base64url'))"
    ```
    Run the same command again for `MFA_ENCRYPTION_KEY`, which encrypts staff MFA secrets. It must be a **different** value: the API refuses to start if the two are the same. Keep it safe: if it is lost, every staff member has to set up MFA again.
+
+   **The API needs Razorpay's test keys to start** (ADR 0027). In the Razorpay dashboard, in Test Mode, open Account & Settings > API Keys and generate a key:
+   - the Key Id, `rzp_test_…`, goes into `RAZORPAY_KEY_ID`;
+   - the Key Secret, shown only once, goes into `RAZORPAY_KEY_SECRET`;
+   - run the command above a third time for `RAZORPAY_WEBHOOK_SECRET`. It must differ from the other two secrets. It is our own: Razorpay gets it only when its webhook is set up, once the API is deployed.
+
+   **Real values go only into `.env`, never into `.env.example`.** If the Key Secret is ever shown or shared, a screenshot included, generate a new key in the dashboard.
 2. Start PostgreSQL, Valkey and Mailpit:
    ```powershell
    docker compose up -d
@@ -85,10 +93,12 @@ It first clears the local rate-limit counters, so it can run again at once. Then
   - every image file, large and small, is served as WebP for any site to show, and the image folders are never listed;
 - the cart: it needs a customer token and starts empty, refuses an unknown pack size and more than 4 packs, puts a pack in stock into one customer's cart only (with today's price and no IDs), and answers `204` when a pack is removed or the cart emptied;
 - orders: the checkout needs a customer token, an empty cart can be neither checked out nor ordered, and an order needs an `Idempotency-Key` and a valid body. With a pack in stock, an order is placed at the checkout's total, holds its stock for 15 minutes and empties the cart; the same key answers the same order, which a second customer can't see; and cancelling gives the stock back. Orders are never deleted, so each such run leaves one cancelled order behind;
+- paying: with a pack in stock, starting to pay for that order answers in rupees only, with a Razorpay test key and the same Razorpay order every time; only its owner can pay for it; a wrong or missing confirmation is refused; the order shows its payment without Razorpay's IDs; and once cancelled it can no longer be paid. This calls Razorpay's test mode, so the smoke test needs the internet, and each run leaves a test order in the Razorpay dashboard;
+- Razorpay's webhooks: one without a signature, with a wrong one, or re-spaced after signing is refused, and one signed with `RAZORPAY_WEBHOOK_SECRET` from `.env` is taken;
 - that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, cannot list, create, change or delete categories, products, pack sizes or images, and cannot see or change stock;
 - that a made-up invitation link is refused.
 
-The staff login, a real invitation and managing categories, products, pack sizes, images and stock need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products", "Manage pack sizes and prices", "Manage product images" and "Manage stock". With an empty shop, the page, price, image and stock checks, and the cart's and orders' checks with a pack in stock, have nothing to look at. They are most useful while a product with packs, images and stock is live. A customer's cart and orders can be tried by hand too: see "Use the cart" and "Place an order".
+The staff login, a real invitation and managing categories, products, pack sizes, images and stock need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products", "Manage pack sizes and prices", "Manage product images" and "Manage stock". With an empty shop, the page, price, image and stock checks, and the cart's and orders' checks with a pack in stock, have nothing to look at. They are most useful while a product with packs, images and stock is live. A customer's cart and orders can be tried by hand too: see "Use the cart" and "Place an order". Paying needs a person on Razorpay's payment page: see "Pay for an order".
 
 Every line should say `PASS`, followed by `All checks passed.`
 
@@ -104,6 +114,7 @@ Emails sent in development never leave your machine. Read them in Mailpit at htt
 | `pnpm api:typecheck` | Type-check all API code, tests included (the tests themselves run without a type check) |
 | `pnpm api:build` | Compile the API |
 | `pnpm api:smoke` | End-to-end check of sign-up, sign-in, password recovery and the rate limits (needs the API and Mailpit running) |
+| `pnpm api:pay-test` | Pay for a real order in Razorpay's test mode, in a browser; `--cancel` to see a refund (development and test keys only). See "Pay for an order" below. |
 | `pnpm api:limits:clear` | Delete all rate-limit counters in the local Valkey (development only; refuses unless `NODE_ENV=development`) |
 | `pnpm api:create-super-user` | Create a Super User (developers only, at most 3). See "Create a Super User" below. |
 | `pnpm api:setup-staff-mfa` | Set up, or replace, a staff member's authenticator app. See "Set up staff MFA" below. |
@@ -640,7 +651,7 @@ A pack size is named by its SKU, exactly as the shop shows it, such as `ASH-CAP-
 
 ## Place an order
 
-A signed-in customer places an order from the whole cart, to one of their own addresses (ADR 0026). Every amount is whole rupees. **The GST is inside the prices, never added:** the order shows how much of its total is GST. Delivery costs ₹49 while the items come to less than ₹499, and is free from ₹499. An order takes its stock at once, from the batches that expire first, and holds it for 15 minutes. Paying comes later, with the payment gateway, so for now every order ends cancelled or expired. Orders are never deleted.
+A signed-in customer places an order from the whole cart, to one of their own addresses (ADR 0026). Every amount is whole rupees. **The GST is inside the prices, never added:** the order shows how much of its total is GST. Delivery costs ₹49 while the items come to less than ₹499, and is free from ₹499. An order takes its stock at once, from the batches that expire first, and holds it for 15 minutes while the customer pays (see "Pay for an order"). Orders are never deleted.
 
 The shop needs a live product with a pack in stock (see "Manage stock").
 
@@ -670,7 +681,7 @@ The shop needs a live product with a pack in stock (see "Manage stock").
    (Invoke-RestMethod -Uri "$api/me/orders" -Headers $me).orders | Format-Table reference, status, totalRupees, createdAt
    (Invoke-RestMethod -Uri "$api/me/orders/$($order.id)" -Headers $me).items | Format-Table sku, packs, priceRupees, lineTotalRupees, gstRupees
    ```
-5. **Cancel it,** or leave it: an order not paid within 15 minutes expires on its own, within about a minute after `holdExpiresAt` (a UTC time). Either way, its stock comes back.
+5. **Cancel it,** or leave it: paying needs Razorpay's payment page (see "Pay for an order"). An order not paid within 15 minutes expires on its own, within about a minute after `holdExpiresAt` (a UTC time). Either way, its stock comes back.
    ```powershell
    (Invoke-RestMethod -Method Post -Uri "$api/me/orders/$($order.id)/cancel" -Headers $me).status
    ```
@@ -686,6 +697,36 @@ The shop needs a live product with a pack in stock (see "Manage stock").
 - **Orders are never deleted,** and what the customer agreed to never changes. They are not in the audit log: an order is a record itself.
 - **The expiry job writes `Unpaid orders expired`** to the API's log, with the count, whenever it expires any.
 
+## Pay for an order
+
+Customers pay through Razorpay (ADR 0027). Until the apps exist, `pnpm api:pay-test` plays the app. It orders for a throwaway customer, and serves a small payment page on your computer, where you pay in Razorpay's test mode. No real money moves: the command runs only in development, with test keys.
+
+The shop needs a live product with a pack in stock (see "Manage stock"). The API and Mailpit must be running, and the internet must be there: the payment page comes from Razorpay.
+
+1. **Run it,** from the repository root:
+   ```powershell
+   pnpm api:pay-test
+   ```
+   It makes a customer (`pay.<number>@example.com`) with an address, orders one pack of the first pack in stock, starts paying, and says `Open http://localhost:4400 in your browser and pay.`
+2. **Pay in the browser:** press **Pay with Razorpay**, and pay with the test card `4100 2800 0000 1007` (any future expiry date, any CVV), or with UPI `success@razorpay`. If a test bank page asks, choose Success.
+3. **Read the result** on the page and in the terminal. The script confirms the payment as an app would, then sends a signed copy of Razorpay's webhook for it, which must change nothing:
+   ```
+   PASS  the API confirms the payment (200)
+   PASS  the order is paid
+   PASS  Razorpay's webhook for the same payment is taken, and changes nothing
+   ```
+4. **A refund:** `pnpm api:pay-test --cancel` cancels the order before you pay. The payment must then go back in full: `Refund of Rs 498 (ORDER_CANCELLED): PENDING`.
+5. **A late payment:** run `pnpm api:pay-test`, open the page, and wait **more than 16 minutes** before paying. The order expires and gives its stock back. The payment then takes the stock again, and the order is paid late. If the stock is gone meanwhile, the payment goes back in full (`ORDER_EXPIRED`).
+6. **The Razorpay dashboard,** in Test Mode, shows the same payments and refunds.
+
+- **An order of one pack at ₹449 costs ₹498** with delivery, in test money.
+- **The API asks Razorpay about every payment.** The page's answer only names the payment, and Razorpay's signature on it must match the Razorpay order the API made for this order.
+- **On a laptop, a refund stays `PENDING`.** Razorpay reports a finished refund with a webhook, and Razorpay can't reach a laptop. Deployed, the webhook moves it to `PROCESSED`. The dashboard shows its real state.
+- **Razorpay's own webhooks need a public HTTPS address,** on port 443 or 80. On a laptop, the smoke test and this script send webhooks signed with `RAZORPAY_WEBHOOK_SECRET` from `.env` instead. To receive Razorpay's own while developing, Razorpay suggests a tunnel such as zrok, and refuses ngrok addresses. ADR 0027 lists the URL and events to set in the dashboard.
+- **A refund made on its own costs Razorpay's fee:** Razorpay keeps the fee it took on the payment, about 2.36% of the order (ADR 0027).
+- **A refund Razorpay refuses** becomes `FAILED`, and the API logs `Razorpay refused a refund: staff must give the money back`. Give it back by hand in the Razorpay dashboard.
+- **The expiry job writes** `Payments found before their orders expired` and `Refunds taken when asked again` to the API's log, with counts only, and a warning when some could not be done.
+
 ## Repository structure
 
 ```
@@ -693,7 +734,7 @@ The shop needs a live product with a pack in stock (see "Manage stock").
 ├── apps/
 │   └── api/                    NestJS backend (modular monolith)
 │       ├── prisma/             schema and migrations
-│       ├── scripts/            auth-smoke.cjs (smoke test), clear-rate-limits.cjs
+│       ├── scripts/            auth-smoke.cjs (smoke test), pay-test.cjs (a payment by hand), clear-rate-limits.cjs
 │       ├── storage/            uploaded image files on a laptop (ignored by Git)
 │       └── src/
 │           ├── addresses/      customers' delivery addresses
@@ -702,7 +743,8 @@ The shop needs a live product with a pack in stock (see "Manage stock").
 │           ├── cart/           signed-in customers' carts: the rules (4 packs of one product, 50 pack sizes, totals) and the routes
 │           ├── catalog/        categories, products, pack sizes and images: their rules (slug, going live, prices, image checks), the staff routes and the public shop
 │           ├── inventory/      stock per batch: the rules (dates, 6-month shelf life), the staff routes, "in stock" for the shop, and taking and giving back stock for orders
-│           ├── orders/         checkout and customers' orders: the rules (totals, delivery, GST, references), the routes, and the job that expires unpaid orders
+│           ├── orders/         checkout and customers' orders: the rules (totals, delivery, GST, references), the routes, paying for them and Razorpay's webhooks, and the job that expires unpaid orders
+│           ├── payments/       payments and refunds, and the only code that talks to Razorpay
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
 │           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
 │           ├── rate-limit/     limits, rate-limit guard, client IP
@@ -720,7 +762,7 @@ The shop needs a live product with a pack in stock (see "Manage stock").
 │   └── decisions/              architecture decision records (ADRs)
 ├── docker-compose.yml          local PostgreSQL, Valkey and Mailpit
 ├── .env.example                template; the real .env is never committed
-├── package.json                root commands (api:dev, api:test, api:smoke, api:limits:clear, ...)
+├── package.json                root commands (api:dev, api:test, api:smoke, api:pay-test, api:limits:clear, ...)
 └── pnpm-workspace.yaml         workspace, build approvals, 3-day minimum release age
 ```
 
@@ -729,6 +771,7 @@ The shop needs a live product with a pack in stock (see "Manage stock").
 - `.env` holds secrets and is ignored by Git. Never commit it or paste it into chats or tickets.
 - `.env.example` is committed, so it holds placeholders only. Never put a real secret in it. If a secret is ever committed or shared, generate a new one.
 - Access and refresh tokens are secrets too. Never paste them into chats, tickets or logs.
+- The Razorpay Key Secret and `RAZORPAY_WEBHOOK_SECRET` are secrets like the others: only in `.env`. Use test keys (`rzp_test_`) on a laptop: production refuses them, and live keys move real money.
 - Use synthetic data in development. Never log passwords, tokens or personal data.
 - The generated database client (`apps/api/src/generated`) is not committed. Run `prisma generate` after cloning.
 - The API listens on `127.0.0.1` only until it is deployed behind HTTPS (the remaining steps are listed in `docs/security.md`). To test on an Android phone, connect it over USB and run `adb reverse tcp:3000 tcp:3000`.
@@ -748,6 +791,11 @@ The shop needs a live product with a pack in stock (see "Manage stock").
 - **`pnpm api:smoke` says "Smoke test stopped":** start the API (`pnpm api:dev`) and Mailpit (`docker compose up -d`), then run it again.
 - **TypeScript says a Prisma model or field does not exist, although the migration ran:** the client is out of date. Run `pnpm exec prisma generate` in `apps/api`.
 - **The API refuses to start: `MFA_ENCRYPTION_KEY: ...`:** add your own value to `.env` (see First-time setup, step 1). It must differ from `JWT_ACCESS_SECRET`.
+- **The API refuses to start: `RAZORPAY_KEY_ID: ...`, `RAZORPAY_KEY_SECRET: ...` or `RAZORPAY_WEBHOOK_SECRET: ...`:** put your Razorpay test keys and your own webhook secret into `.env` (see First-time setup, step 1). The webhook secret must differ from `JWT_ACCESS_SECRET` and `MFA_ENCRYPTION_KEY`.
+- **Paying answers `503 PAYMENTS_UNAVAILABLE`:** find `Razorpay could not start a payment` (or `confirm`) in the API log. A `status` of `401` means the key ID or Key Secret in `.env` is wrong: copy them again from the dashboard, then restart the API. No status means Razorpay couldn't be reached: check the internet.
+- **`pnpm api:pay-test` says "no pack is in stock":** the shop has none. Make a live product with a pack in stock (see "Manage products" to "Manage stock").
+- **`pnpm api:pay-test` says port 4400 is in use:** another payment test is still open. Stop it with Ctrl+C.
+- **After paying, the order still waits for payment:** Razorpay hasn't captured the payment. Check in the dashboard that payments are captured automatically, Razorpay's default.
 - **The authenticator app says "illegal character":** a `0`, `1`, `8` or `9` was typed. The key only has `A`–`Z` and `2`–`7`, so type the letters O, I or B instead.
 - **The setup command refuses every code:** the key in the app differs from the one shown (often `0` for O), or the entry is not **Time based**, or the phone's clock is off. Set the phone's time automatically, delete the app entry and run the command again.
 - **`429 Too Many Requests` while testing by hand:** you used up a rate limit (the `Retry-After` header says for how long). Wait, or run `pnpm api:limits:clear`.

@@ -4,6 +4,7 @@
 - Date: 2026-11-06
 - Updated: 2026-11-06 (part 6: the cart asks the inventory which pack sizes are in stock, and holds no stock, see ADR 0025)
 - Updated: 2026-11-08 (part 7: orders take stock from the batch that expires first and give it back, and deleting a written-off product stays allowed, by the owner's choice, see ADR 0026)
+- Updated: 2026-11-09 (part 8: an expired order paid late takes its stock again, see ADR 0027)
 
 ## Context
 
@@ -35,7 +36,7 @@ Two tables:
     - `DAMAGED`: broken, spoiled or lost;
     - `EXPIRED`: written off near or past its expiry;
     - `CORRECTION`: a count found a difference;
-    - since part 7, `ORDERED`: taken by an order, and `RELEASED`: given back by a cancelled or expired order. Only orders make them, and each names its order in `orderId` (ADR 0026);
+    - since part 7, `ORDERED`: taken by an order, and `RELEASED`: given back by a cancelled or expired order. Only orders make them, and each names its order in `orderId` (ADR 0026). Since part 8, an expired order that is paid late takes its stock again with new `ORDERED` movements, from the sellable batches that expire first (ADR 0027);
   - `note`;
   - `actorId`, without a foreign key, like the audit log, so the history outlives the account;
   - `createdAt`.

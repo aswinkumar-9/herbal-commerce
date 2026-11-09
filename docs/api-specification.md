@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.18.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.19.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -9,7 +9,7 @@ Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image
 - **JSON only.** Request bodies must be JSON (`Content-Type: application/json`), at most 100 kB and not compressed. A form body fails validation (`400`), a compressed body gets `415` and a larger body gets `413` (ADR 0008). The one exception is the image upload, whose body is the image itself (see "Managing product images").
 - Every response carries an `X-Request-Id` header. A client may send its own `X-Request-Id` (8 to 64 characters of letters, digits, `_` or `-`); otherwise one is generated.
 - **IDs in paths** are UUIDs. Any other value gets `400` with `"message": "Validation failed (uuid is expected)"`, before any other work.
-- **Money** is a whole number, and its field name says the unit: `priceRupees: 449` is ₹449. Every amount is whole rupees, an order's too (ADR 0026). Prices include GST (ADR 0022), so a GST amount, such as an order's `itemsGstRupees`, says how much of a price is GST: it is never added to a total.
+- **Money** is a whole number, and its field name says the unit: `priceRupees: 449` is ₹449. Every amount is whole rupees, an order's too (ADR 0026), and so is everything about paying: Razorpay's payment page wants paise, and the app multiplies `totalRupees` by 100 itself (ADR 0027). Prices include GST (ADR 0022), so a GST amount, such as an order's `itemsGstRupees`, says how much of a price is GST: it is never added to a total.
 - **Dates without a time,** such as a batch's expiry, are written `2028-09-30`, in requests and answers, and count in India's time (ADR 0024). Moments, such as `createdAt`, are UTC timestamps like `2026-11-06T05:49:34.102Z`.
 - Every response carries the standard security headers (helmet), and no `X-Powered-By`.
 - **Authentication.** Every endpoint needs an access token unless it is marked **Public** below. Send it as `Authorization: Bearer <accessToken>`. There are two kinds: customer endpoints take customer access tokens, and staff endpoints (`/v1/staff/...`) take staff access tokens. Neither works on the other's endpoints. Some staff endpoints are for **Super Users only**, marked so below.
@@ -33,7 +33,7 @@ Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image
 | `statusCode` | Always. The HTTP status. |
 | `requestId` | Always. Quote it when reporting a problem. |
 | `errors` | Validation failures only: one entry per invalid field. The submitted values are never echoed back. |
-| `code` | Only when a client must react to one specific case. Stable, in capitals. Today: `ACCOUNT_DISABLED`, `RATE_LIMITED`, `SERVER_BUSY`. |
+| `code` | Only when a client must react to one specific case. Stable, in capitals. Today: `ACCOUNT_DISABLED`, `RATE_LIMITED`, `SERVER_BUSY`, `PAYMENTS_UNAVAILABLE`. |
 | `error` | Most errors: the HTTP status name, for example `"Unauthorized"`. |
 
 Unexpected errors return `500` with `"message": "Internal server error"`; the details go to the server log only.
@@ -50,12 +50,13 @@ On a `401` from a protected endpoint, the client refreshes once and retries. If 
 
 ### Rate limits and busy answers
 
-Two answers mean "try again later". Both carry a **`Retry-After`** header with the number of seconds to wait.
+Three answers mean "try again later". All carry a **`Retry-After`** header with the number of seconds to wait.
 
 | Status | Body | Meaning |
 |---|---|---|
 | `429` | `{ "message": "Too many requests. Please try again later.", "code": "RATE_LIMITED" }` | You sent too much: a rate limit is used up, or a sign-in block is running |
 | `503` | `{ "message": "The server is busy. Please try again in a few seconds.", "code": "SERVER_BUSY" }` | The server is too busy checking passwords, or checking uploaded images, right now (`Retry-After: 5`) |
+| `503` | `{ "message": "Payments are not available right now. Please try again in a minute.", "code": "PAYMENTS_UNAVAILABLE" }` | Razorpay can't be reached, or refused our request, while starting or confirming a payment, or handling a webhook (`Retry-After: 30`) |
 
 The per-IP limits are checked before anything else, so a `429` can arrive even for a request that would fail validation.
 
@@ -75,6 +76,8 @@ The per-IP limits are checked before anything else, so a `429` can arrive even f
 | `staff/auth/accept-invite` | client IP | 20 per hour |
 | Uploading an image (`POST staff/products/:productId/images`) | client IP | 120 per hour |
 | Placing an order (`POST me/orders`) | client IP | 30 per hour |
+| Starting a payment (`POST me/orders/:id/payment`) | client IP | 60 per hour |
+| Confirming a payment (`POST me/orders/:id/payment/confirm`) | client IP | 60 per hour |
 | `login` and `staff/auth/login` together, failed attempts | email + client IP | 5 per hour, then blocked for 15 minutes |
 | `login` and `staff/auth/login` together, failed attempts | email | 50 per hour, then blocked for 1 hour |
 | `login` and `staff/auth/login` together, failed attempts | client IP | 200 per hour, then blocked for 1 hour |
@@ -673,7 +676,7 @@ The signed-in customer's own orders (ADR 0026). These endpoints need a **custome
 
 - **An order is placed from the whole cart,** at today's prices, to one of the customer's own addresses. Every line must be `AVAILABLE` (see "Cart"): there are no partial orders.
 - **It keeps a copy** of its lines, their prices and the delivery address. What the customer agreed to never changes, and an order is never deleted.
-- **It takes its stock at once and holds it for 15 minutes,** until `holdExpiresAt`. Paying comes with the payment gateway, later. An order not paid by then expires within about a minute, and its stock comes back.
+- **It takes its stock at once and holds it for 15 minutes,** until `holdExpiresAt`, while the customer pays (see "Paying for an order"). An order not paid by then expires within about a minute, and its stock comes back.
 - **At most 3 orders wait for payment** per customer.
 - **Money is whole rupees.** GST is **inside** the prices, never added: `gstRupees` and `itemsGstRupees` say how much of an amount is GST, rounded to the nearest rupee. Delivery costs ₹49 while the items come to less than ₹499, and is free from ₹499. The total is the items plus delivery.
 
@@ -711,14 +714,15 @@ An order, as `POST /v1/me/orders`, `GET /v1/me/orders/:id` and the cancel return
     "city": "Bengaluru",
     "state": "Karnataka",
     "pincode": "560038"
-  }
+  },
+  "payment": null
 }
 ```
 
 | Field | Meaning |
 |---|---|
 | `reference` | 10 letters and digits, without `I`, `O`, `0` or `1`. Show it to the customer: support asks for it. It is random, never a running number. |
-| `status` | `PENDING_PAYMENT`: waiting for payment, and holding its stock. `CANCELLED`: cancelled by the customer. `EXPIRED`: not paid in time. `PAID` comes with payments. |
+| `status` | `PENDING_PAYMENT`: waiting for payment, and holding its stock. `PAID`: paid. `CANCELLED`: cancelled by the customer. `EXPIRED`: not paid in time. An expired order can still become `PAID` if a late payment finds its stock free (see "Paying for an order"). |
 | `holdExpiresAt` | Until when the order holds its stock: 15 minutes after `createdAt` |
 | `itemsTotalRupees` | The lines added up |
 | `itemsGstRupees` | The GST inside `itemsTotalRupees`: the lines' `gstRupees` added up. **It is not added to the total.** |
@@ -726,6 +730,7 @@ An order, as `POST /v1/me/orders`, `GET /v1/me/orders/:id` and the cancel return
 | `totalRupees` | `itemsTotalRupees` plus `deliveryChargeRupees`: what the customer pays |
 | `items` | The lines, in the cart's order. Each names its pack size by SKU, with the product's name, the size, `packs`, the MRP and price when the order was placed, `lineTotalRupees` (`packs` times `priceRupees`), the GST rate in percent and the GST inside the line (`gstRupees`). |
 | `delivery` | A copy of the address, as it was when the order was placed |
+| `payment` | `null` until paying starts. Then `paidAt` (`null` until paid) and `refunds`: any money going back, each with `amountRupees`, `reason` and `status`, and when it was made (see "Paying for an order"). Razorpay's IDs are never shown. |
 
 ### GET `/v1/me/checkout`
 
@@ -849,8 +854,133 @@ Errors:
 | `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
 | `401` | see "Authentication errors on protected endpoints" | No valid customer access token, or a staff token |
 | `404` | `Order not found` | No such order, or another customer's |
-| `409` | `Only an order waiting for payment can be cancelled.` | The order is already cancelled or expired |
+| `409` | `Only an order waiting for payment can be cancelled.` | The order is paid, cancelled or expired |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+## Paying for an order
+
+Customers pay through Razorpay (ADR 0027). These two endpoints need a **customer** access token, for the customer's own order: another customer's order answers `404`, and a staff token `401`.
+
+1. **Start paying:** `POST /v1/me/orders/:id/payment` answers what the app needs to open Razorpay's payment page.
+2. **Open Razorpay's payment page** (`https://checkout.razorpay.com/v1/checkout.js`) with:
+   - `key`: `razorpayKeyId`;
+   - `order_id`: `razorpayOrderId`;
+   - `amount`: **`totalRupees` × 100.** Razorpay's page counts in paise, and this API answers rupees only;
+   - `currency`: `INR`.
+3. **When the page says the customer paid,** it gives `razorpay_payment_id`, `razorpay_order_id` and `razorpay_signature`. Send the first and the last to `POST /v1/me/orders/:id/payment/confirm`. The answer is the order as it is now.
+4. **If the app closes before confirming,** nothing is lost: Razorpay tells the API with a webhook, and the API also asks Razorpay before an order expires. Show the order again (`GET /v1/me/orders/:id`) when the customer comes back.
+
+**The API decides only on Razorpay's word.** It asks Razorpay about every payment, and only a captured payment for the order's amount counts:
+
+| The order is | When a payment comes |
+|---|---|
+| `PENDING_PAYMENT` | It becomes `PAID`. |
+| `EXPIRED` | It becomes `PAID` if its stock can be taken again. Otherwise the payment goes back in full (`ORDER_EXPIRED`). |
+| `CANCELLED` | The payment goes back in full (`ORDER_CANCELLED`). |
+| `PAID` already | Another payment goes back in full (`ALREADY_PAID`). |
+
+Money going back shows in the order's `payment.refunds`:
+```json
+"payment": {
+  "paidAt": null,
+  "refunds": [
+    { "amountRupees": 498, "reason": "ORDER_CANCELLED", "status": "PENDING", "createdAt": "2026-11-08T12:26:16.311Z" }
+  ]
+}
+```
+
+| Refund `status` | Meaning |
+|---|---|
+| `REQUESTED` | Saved, but Razorpay hasn't taken it yet. The API asks again every minute. |
+| `PENDING` | Razorpay has taken it, and the money is on its way back. |
+| `PROCESSED` | The money is back with the customer. |
+| `FAILED` | Razorpay couldn't give it back. Staff give it back by hand. |
+
+### POST `/v1/me/orders/:id/payment`
+
+Starts paying for an order waiting for payment, while its stock is held. The first time, it makes a Razorpay order for the order's total. **Asking again answers the same Razorpay order,** so a retry does no harm.
+
+Response `200`:
+```json
+{
+  "reference": "7KQ2M9XDPA",
+  "totalRupees": 498,
+  "holdExpiresAt": "2026-11-08T12:21:16.431Z",
+  "razorpayKeyId": "rzp_test_ABCDEFGHijkl01",
+  "razorpayOrderId": "order_RB58MiP5SPFYyM"
+}
+```
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `401` | see "Authentication errors on protected endpoints" | No valid customer access token, or a staff token |
+| `404` | `Order not found` | No such order, or another customer's |
+| `409` | `Only an order waiting for payment can be paid.` | The order is paid, cancelled or expired |
+| `409` | `The time to pay for this order is over. Please order again.` | Its `holdExpiresAt` has passed, even before the job expires it |
+| `429` | `code: "RATE_LIMITED"` | 60 per hour per IP, or the 600 per minute limit |
+| `503` | `code: "PAYMENTS_UNAVAILABLE"` | Razorpay can't be reached. Try again after `Retry-After` (30 seconds). |
+
+### POST `/v1/me/orders/:id/payment/confirm`
+
+Confirms a payment with what Razorpay's payment page gave the app. The API checks Razorpay's signature against **the Razorpay order it made for this order,** then asks Razorpay itself about the payment.
+
+Request:
+```json
+{ "razorpayPaymentId": "pay_G3P9vcIhRs3NV4", "razorpaySignature": "<64 hex characters>" }
+```
+
+| Field | Rules |
+|---|---|
+| `razorpayPaymentId` | The page's `razorpay_payment_id`: `pay_`, then letters and digits |
+| `razorpaySignature` | The page's `razorpay_signature`: 64 hexadecimal characters |
+
+The page's `razorpay_order_id` is not needed: the API uses the one it saved.
+
+Response `200`: the order, as it is now:
+- `PAID`, with `payment.paidAt`;
+- still `PENDING_PAYMENT`, if Razorpay hasn't captured the payment yet, or it failed. Show the order again in a moment;
+- or with the money on its way back, in `payment.refunds`.
+
+Confirming again changes nothing, and answers the same.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | A field is missing or not in its form (`Send the razorpay_payment_id from Razorpay's payment page`, or `Send the razorpay_signature from Razorpay's payment page`) |
+| `400` | `The payment could not be verified.` | The signature is wrong, or the payment is for another order |
+| `401` | see "Authentication errors on protected endpoints" | No valid customer access token, or a staff token |
+| `404` | `Order not found` | No such order, or another customer's |
+| `409` | `Start paying for this order first.` | Paying for this order was never started |
+| `429` | `code: "RATE_LIMITED"` | 60 per hour per IP, or the 600 per minute limit |
+| `503` | `code: "PAYMENTS_UNAVAILABLE"` | Razorpay can't be reached. Try again after `Retry-After` (30 seconds). |
+
+## Razorpay webhooks
+
+### POST `/v1/payments/razorpay/webhook`
+
+**Public,** for Razorpay only: Razorpay calls it when a payment or a refund changes (ADR 0027). Instead of a token, Razorpay signs each webhook:
+- **`X-Razorpay-Signature`:** the hex HMAC-SHA256 of the body, **exactly as it was sent,** with the webhook secret set in the Razorpay dashboard (`RAZORPAY_WEBHOOK_SECRET`). The same JSON with other spacing fails the check;
+- the body is JSON, at most 100 kB, like every other body.
+
+| Event | What the API does |
+|---|---|
+| `payment.authorized`, `payment.captured`, `payment.failed`, `order.paid` | Asks Razorpay about the payment named in `payload.payment.entity.id`, and settles it as a confirmation does |
+| `refund.created`, `refund.processed`, `refund.failed` | Moves our refund forward, found by Razorpay's refund ID or by its receipt (our refund's ID) |
+| Anything else | Nothing |
+
+Response `200`, empty, also for an event the API has no use for. **The same webhook twice changes nothing.**
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `The webhook could not be verified.` | No signature, or a wrong one |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+| `503` | `code: "PAYMENTS_UNAVAILABLE"` | Razorpay can't be asked about the payment now. Razorpay sends the webhook again later, for up to 24 hours. |
 
 ## Staff authentication
 
@@ -1733,4 +1863,4 @@ Rules for clients:
 
 ## Not yet implemented
 
-Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: search. Of orders: paying for them (with the payment gateway, part 8), GST invoices, emails confirming them, returns and refunds, and staff seeing and handling them. Of stock: a list of batches near their expiry. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0026 and `docs/security.md`.
+Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: search. Of orders: GST invoices, emails confirming them and their payments, returns and refunds a customer asks for, and staff seeing and handling them, their payments and refunds. Of stock: a list of batches near their expiry. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0027 and `docs/security.md`.
