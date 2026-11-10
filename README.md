@@ -92,13 +92,13 @@ It first clears the local rate-limit counters, so it can run again at once. Then
   - every product page shows at least one image, each with only its addresses, size and description, and each card's image is the small file of its product's main photo;
   - every image file, large and small, is served as WebP for any site to show, and the image folders are never listed;
 - the cart: it needs a customer token and starts empty, refuses an unknown pack size and more than 4 packs, puts a pack in stock into one customer's cart only (with today's price and no IDs), and answers `204` when a pack is removed or the cart emptied;
-- orders: the checkout needs a customer token, an empty cart can be neither checked out nor ordered, and an order needs an `Idempotency-Key` and a valid body. With a pack in stock, an order is placed at the checkout's total, holds its stock for 15 minutes and empties the cart; the same key answers the same order, which a second customer can't see; and cancelling gives the stock back. Orders are never deleted, so each such run leaves one cancelled order behind;
+- orders: the checkout needs a customer token, an empty cart can be neither checked out nor ordered, and an order needs an `Idempotency-Key` and a valid body. With a pack in stock, an order is placed at the checkout's total, holds its stock for 15 minutes and empties the cart; the same key answers the same order, which a second customer can't see; cancelling gives the stock back, and cancelling again answers `409 This order can no longer be cancelled.`; and the order shows its customer that it isn't packed, shipped or delivered yet. Orders are never deleted, so each such run leaves one cancelled order behind;
 - paying: with a pack in stock, starting to pay for that order answers in rupees only, with a Razorpay test key and the same Razorpay order every time; only its owner can pay for it; a wrong or missing confirmation is refused; the order shows its payment without Razorpay's IDs; and once cancelled it can no longer be paid. This calls Razorpay's test mode, so the smoke test needs the internet, and each run leaves a test order in the Razorpay dashboard;
 - Razorpay's webhooks: one without a signature, with a wrong one, or re-spaced after signing is refused, and one signed with `RAZORPAY_WEBHOOK_SECRET` from `.env` is taken;
-- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, cannot list, create, change or delete categories, products, pack sizes or images, and cannot see or change stock;
+- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, cannot list, create, change or delete categories, products, pack sizes or images, cannot see or change stock, and cannot see orders or refunds as staff, or pack, ship, deliver or cancel an order there. Without a token, those order and refund routes answer `401` too;
 - that a made-up invitation link is refused.
 
-The staff login, a real invitation and managing categories, products, pack sizes, images and stock need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products", "Manage pack sizes and prices", "Manage product images" and "Manage stock". With an empty shop, the page, price, image and stock checks, and the cart's and orders' checks with a pack in stock, have nothing to look at. They are most useful while a product with packs, images and stock is live. A customer's cart and orders can be tried by hand too: see "Use the cart" and "Place an order". Paying needs a person on Razorpay's payment page: see "Pay for an order".
+The staff login, a real invitation, managing categories, products, pack sizes, images and stock, and handling orders need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products", "Manage pack sizes and prices", "Manage product images", "Manage stock" and "Handle orders". With an empty shop, the page, price, image and stock checks, and the cart's and orders' checks with a pack in stock, have nothing to look at. They are most useful while a product with packs, images and stock is live. A customer's cart and orders can be tried by hand too: see "Use the cart" and "Place an order". Paying needs a person on Razorpay's payment page: see "Pay for an order".
 
 Every line should say `PASS`, followed by `All checks passed.`
 
@@ -290,7 +290,7 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
    - `?action=admin.removed`: one kind of entry;
    - `?actorId=<an account's ID>`: what that person did;
    - `?targetId=<an Admin's ID>`: that Admin's whole story, from invitation to removal;
-   - `?targetId=<a category's ID>`, `?targetId=<a product's ID>`, `?targetId=<a pack's ID>`, `?targetId=<an image's ID>` or `?targetId=<a batch's ID>`: that category's, product's, pack's, image's or batch's story, from creation to deletion. A pack's story is its price history, and a batch's its stock history.
+   - `?targetId=<a category's ID>`, `?targetId=<a product's ID>`, `?targetId=<a pack's ID>`, `?targetId=<an image's ID>` or `?targetId=<a batch's ID>`: that category's, product's, pack's, image's or batch's story, from creation to deletion. A pack's story is its price history, and a batch's its stock history. `?targetId=<an order's ID>` shows the steps staff took with that order.
 
    The IDs come from the entries themselves, or from the lists in "Manage Admins", "Manage categories", "Manage products", "Manage pack sizes and prices", "Manage product images" and "Manage stock".
 5. **Sign out and clean up:**
@@ -724,8 +724,80 @@ The shop needs a live product with a pack in stock (see "Manage stock"). The API
 - **On a laptop, a refund stays `PENDING`.** Razorpay reports a finished refund with a webhook, and Razorpay can't reach a laptop. Deployed, the webhook moves it to `PROCESSED`. The dashboard shows its real state.
 - **Razorpay's own webhooks need a public HTTPS address,** on port 443 or 80. On a laptop, the smoke test and this script send webhooks signed with `RAZORPAY_WEBHOOK_SECRET` from `.env` instead. To receive Razorpay's own while developing, Razorpay suggests a tunnel such as zrok, and refuses ngrok addresses. ADR 0027 lists the URL and events to set in the dashboard.
 - **A refund made on its own costs Razorpay's fee:** Razorpay keeps the fee it took on the payment, about 2.36% of the order (ADR 0027).
+- **A paid order can be cancelled until it ships,** by its customer or by a Super User. Its payment goes back in full, as `CANCELLED_BY_CUSTOMER` or `CANCELLED_BY_STAFF` (see "Handle orders").
 - **A refund Razorpay refuses** becomes `FAILED`, and the API logs `Razorpay refused a refund: staff must give the money back`. Give it back by hand in the Razorpay dashboard.
 - **The expiry job writes** `Payments found before their orders expired` and `Refunds taken when asked again` to the API's log, with counts only, and a warning when some could not be done.
+
+## Handle orders
+
+Staff take a paid order through its steps: packed, shipped with the courier and its tracking number, and delivered (ADR 0028). Admins and Super Users take the steps. Only a Super User sees an order's payment, and cancels an order, until it ships: a paid order's payment then goes back in full. Every step is in the audit log. There is no courier integration: staff book the courier themselves, and type in its name and the tracking number.
+
+The shop needs a paid order: see "Pay for an order".
+
+1. **Sign in as staff and set the variables,** as in "Manage products", step 1.
+2. **List the paid orders,** the oldest first: the work to pack, in turn.
+   ```powershell
+   $page = Invoke-RestMethod -Uri "$api/staff/orders?status=PAID&sort=oldest" -Headers $auth
+   $page.orders | Format-Table reference, status, totalRupees, deliveryName, deliveryCity, createdAt, id
+   ```
+   Take the order's ID from the list: `$orderId = '<its id>'`. Or find the order a customer quoted, by its reference, in place of `7KQ2M9XDPA` here:
+   ```powershell
+   $orderId = (Invoke-RestMethod -Uri "$api/staff/orders?reference=7KQ2M9XDPA" -Headers $auth).orders[0].id
+   "[$orderId]"
+   ```
+   **If the brackets are empty, stop.**
+3. **See what to pack,** and where it goes:
+   ```powershell
+   $order = Invoke-RestMethod -Uri "$api/staff/orders/$orderId" -Headers $auth
+   $order.items | Format-Table sku, productName, packs, hsnCode
+   $order.delivery | Format-List
+   ```
+   A Super User also sees `$order.payment`, with Razorpay's IDs and any refunds. An Admin's answer has no `payment`.
+4. **Mark it packed,** once the parcel is ready:
+   ```powershell
+   (Invoke-RestMethod -Method Post -Uri "$api/staff/orders/$orderId/packed" -Headers $auth).status
+   ```
+5. **Mark it shipped,** once the courier has it, with the courier's name and the tracking number:
+   ```powershell
+   $body = @{ courierName = 'Delhivery'; trackingNumber = 'ee 1490 8112 3456' } | ConvertTo-Json
+   Invoke-RestMethod -Method Post -Uri "$api/staff/orders/$orderId/shipped" -Headers $auth -ContentType $json -Body $body | Format-List status, shippedAt, courierName, trackingNumber
+   ```
+   The tracking number is stored without spaces and in capitals: `EE149081123456`. To correct a typing mistake while the order is on its way, send only what changes:
+   ```powershell
+   $body = @{ trackingNumber = 'EE149081123457' } | ConvertTo-Json
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/orders/$orderId/shipment" -Headers $auth -ContentType $json -Body $body | Format-List courierName, trackingNumber
+   ```
+6. **Mark it delivered,** once the courier says so:
+   ```powershell
+   (Invoke-RestMethod -Method Post -Uri "$api/staff/orders/$orderId/delivered" -Headers $auth).status
+   ```
+7. **Or cancel it instead,** as a Super User, any time before step 5. Its stock comes back at once, and a paid order's payment goes back in full:
+   ```powershell
+   $cancelled = Invoke-RestMethod -Method Post -Uri "$api/staff/orders/$orderId/cancel" -Headers $auth
+   $cancelled.status
+   $cancelled.payment.refunds | Format-Table amountRupees, reason, status, razorpayRefundId
+   ```
+   It says `CANCELLED`, with a refund of the whole total, `CANCELLED_BY_STAFF`. On a laptop the refund stays `PENDING` (see "Pay for an order").
+8. **See the refunds,** as a Super User: all of them, the newest first, or with `?status=FAILED` only those Razorpay refused, to give back by hand in the Razorpay dashboard:
+   ```powershell
+   (Invoke-RestMethod -Uri "$api/staff/refunds" -Headers $auth).refunds | Format-Table createdAt, amountRupees, reason, status, orderId
+   ```
+9. **Read the order's story** in the audit log, as a Super User:
+   ```powershell
+   (Invoke-RestMethod -Uri "$api/staff/audit-log?targetId=$orderId" -Headers $auth).entries | Format-Table createdAt, action, @{ n = 'actor'; e = { $_.actor.email } }
+   ```
+10. **Clean up:**
+    ```powershell
+    Remove-Variable login, auth, page, orderId, order, body, cancelled -ErrorAction SilentlyContinue
+    ```
+
+- **Each step follows the one before:** a paid order is packed, a packed one shipped, and a shipped one delivered. A step done already answers `409` and changes nothing, so a double click does no harm.
+- **Cancelling a packed order puts its packs back in stock at once:** unpack it, and put the packs back on the shelf.
+- **A customer cancels their own order the same way,** until it ships (`POST /v1/me/orders/:id/cancel`). Its refund's reason is then `CANCELLED_BY_CUSTOMER`.
+- **Each refund costs Razorpay's fee,** about 2.36% of the order (ADR 0027). The owner accepted that for orders cancelled before they ship.
+- **The customer sees each step** on their order: `packedAt`, `shippedAt`, `courierName`, `trackingNumber` and `deliveredAt`.
+- **The audit log keeps every step:** `order.packed`, `order.shipped` (with the courier and tracking number), `order.shipment_corrected` (only what changed), `order.delivered` and `order.cancelled` (with the refund's ID).
+- **The API's log** says `Order moved to its next step`, `Order shipment corrected` and `Order cancelled by staff`, with the order's and the staff member's IDs.
 
 ## Repository structure
 
@@ -743,8 +815,8 @@ The shop needs a live product with a pack in stock (see "Manage stock"). The API
 │           ├── cart/           signed-in customers' carts: the rules (4 packs of one product, 50 pack sizes, totals) and the routes
 │           ├── catalog/        categories, products, pack sizes and images: their rules (slug, going live, prices, image checks), the staff routes and the public shop
 │           ├── inventory/      stock per batch: the rules (dates, 6-month shelf life), the staff routes, "in stock" for the shop, and taking and giving back stock for orders
-│           ├── orders/         checkout and customers' orders: the rules (totals, delivery, GST, references), the routes, paying for them and Razorpay's webhooks, and the job that expires unpaid orders
-│           ├── payments/       payments and refunds, and the only code that talks to Razorpay
+│           ├── orders/         checkout and customers' orders: the rules (totals, delivery, GST, references), the routes, paying for them and Razorpay's webhooks, the job that expires unpaid orders, and staff taking orders through their steps
+│           ├── payments/       payments and refunds, the Super Users' list of refunds, and the only code that talks to Razorpay
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
 │           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
 │           ├── rate-limit/     limits, rate-limit guard, client IP
@@ -884,7 +956,11 @@ The shop needs a live product with a pack in stock (see "Manage stock"). The API
 - **Placing an order answers `409 You have 3 orders waiting for payment. Pay for one or cancel it first.`:** cancel one, or wait until one expires.
 - **Placing an order answers `409` "is out of stock, or not enough of it is left":** other orders took the last packs. Change the cart, then look at the checkout again.
 - **Placing an order answers an older order:** its `Idempotency-Key` was used before. Make a new one for each new order.
-- **Cancelling answers `409 Only an order waiting for payment can be cancelled.`:** the order was cancelled already, or it expired.
+- **Cancelling answers `409 This order can no longer be cancelled.`:** the order has shipped, or it was delivered, cancelled already, or it expired. A shipped order can't be cancelled: returns are still to come.
+- **Marking an order packed, shipped or delivered answers `409`:** a message ending in `already` means the step was done before, maybe by someone else, and nothing changed. `Only a paid order can be packed.`, `Only a packed order can be shipped.` or `Only a shipped order can be marked delivered.` means the order isn't at the step before: look at its `status`.
+- **Shipping answers `400 A tracking number has 4 to 40 letters, digits or hyphens`:** check the number on the courier's receipt. Spaces are fine: they are dropped.
+- **Correcting a shipment answers `409 Only an order on its way can have its courier or tracking number corrected.`:** the order isn't `SHIPPED`. It hasn't shipped yet, or it is delivered.
+- **Cancelling an order, or listing refunds, answers `403 Only a Super User may do this.`:** an Admin is signed in. Admins never move money.
 - **An order stays `PENDING_PAYMENT` after its hold:** the API is not running, and the expiry job runs inside it. Start the API: the order expires within a minute.
 - **A pasted block runs two commands as one,** for example `ConvertTo-Json$id = …`: the line break between them was lost in the paste. Press `Ctrl+C`, paste the multi-line block on its own, press Enter until the prompt is back, then paste the next line.
 - **Right after `pnpm api:smoke`, a logout answers `429`:** the smoke test uses up the logout limit (120 per minute per IP) on purpose. Wait a minute, or run `pnpm api:limits:clear`.

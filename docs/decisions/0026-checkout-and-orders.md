@@ -3,6 +3,7 @@
 - Status: Accepted and implemented (part 7)
 - Date: 2026-11-08
 - Updated: 2026-11-09 (part 8: orders are paid through Razorpay, and an expired order may still be paid late, see ADR 0027)
+- Updated: 2026-11-10 (part 9: staff see orders and take paid ones through packed, shipped and delivered, and an order may be cancelled until it ships, see ADR 0028)
 
 ## Context
 
@@ -87,9 +88,9 @@ So 3 packs at ₹449 come to ₹1,347, and the customer pays ₹1,347: ₹1,283 
 | Status | Means | Next |
 |---|---|---|
 | `PENDING_PAYMENT` | Placed. It holds its stock until `holdExpiresAt`, 15 minutes later. | Paid, cancelled or expired |
-| `CANCELLED` | The customer cancelled it while it waited for payment. Its stock came back at once. | Nothing. A payment that still comes goes back in full (ADR 0027). |
+| `CANCELLED` | The customer cancelled it while it waited for payment. Its stock came back at once. Since part 9, the customer or a Super User may cancel a paid order too, until it ships, and its payment goes back in full (ADR 0028). | Nothing. A payment that still comes goes back in full (ADR 0027). |
 | `EXPIRED` | It wasn't paid within 15 minutes. Its stock came back. | Paid late, if its stock is still free; otherwise the payment goes back in full (ADR 0027) |
-| `PAID` | Paid through Razorpay (part 8, ADR 0027) | Packing and shipping, later |
+| `PAID` | Paid through Razorpay (part 8, ADR 0027) | Packed, shipped and delivered, or cancelled until it ships (part 9, ADR 0028) |
 
 - **The expiry job** (`OrderExpiryScheduler`) runs inside the API every minute, the first time a minute after startup, and never twice at once.
   - It takes at most 100 orders a run, the oldest hold first, each in its own transaction, so one failure keeps no other waiting.
@@ -115,7 +116,7 @@ So 3 packs at ₹449 come to ₹1,347, and the customer pays ₹1,347: ₹1,283 
 | `POST /v1/me/orders` | Places an order from the cart, with the `Idempotency-Key` header and a body of `addressId` and `totalRupees` |
 | `GET /v1/me/orders` | The customer's orders, the newest first, one page at a time |
 | `GET /v1/me/orders/:id` | One of the customer's orders, with its lines and delivery address |
-| `POST /v1/me/orders/:id/cancel` | Cancels an order waiting for payment. Its stock comes back at once. |
+| `POST /v1/me/orders/:id/cancel` | Cancels an order waiting for payment, and since part 9 a paid or packed one too, with its payment back in full (ADR 0028). Its stock comes back at once. |
 
 - **An order has an ID,** like an address (ADR 0019): it is the customer's own record. Its lines name their pack size by SKU, and show no IDs, as in the shop.
 - **The address must be one of the customer's own.** Anyone else's answers `404 Address not found`. The order keeps a copy, so changing or deleting the address later doesn't change the order.
@@ -132,12 +133,12 @@ The orders read only their own tables (ADR 0001):
 
 | | Visitor | Customer | Admin | Super User |
 |---|---|---|---|---|
-| Check out, place and cancel an order | No | Their own only | No | No |
-| See orders | No | Their own only | Later, in the admin console | Later, in the admin console |
+| Check out, place and cancel an order | No | Their own only | No | Since part 9, cancel any order until it ships (ADR 0028) |
+| See orders | No | Their own only | Since part 9, every order, without payments (ADR 0028) | Since part 9, every order, with payments and refunds (ADR 0028) |
 
 - **Every lookup names the customer from the token:** `where: { id, userId }`. Someone else's order answers `404`, like an unknown one (BOLA). The smoke test proves it on every run with a second customer.
 - **A staff token gets `401`** on these routes, as on every customer route.
-- **Orders are not in the audit log:** it records staff actions. An order is a record itself, never changed and never deleted.
+- **Orders are not in the audit log:** it records staff actions. An order is a record itself, never changed and never deleted. Since part 9, staff take orders through their steps, and each step is audited (ADR 0028).
 
 ### Deleting a product that was ordered
 
@@ -204,7 +205,7 @@ The first two were tested in 28 cases, and the third in 8 more, after converting
 - **Still open:**
   - paying for an order: done in part 8, through Razorpay (ADR 0027);
   - GST invoices, numbered per financial year, with the chartered accountant's answers on rounding, the delivery charge and the CGST, SGST or IGST split;
-  - staff seeing, packing and shipping orders (the admin console);
+  - staff seeing, packing and shipping orders: done in part 9 (ADR 0028), apart from the admin console itself;
   - an email confirming an order;
   - returns, and refunds a customer asks for. Payments that can't be kept go back on their own since part 8 (ADR 0027);
   - how long orders are kept for the tax records, and what deleting an account keeps (ADR 0011).

@@ -9,6 +9,8 @@ import { StaffStockController } from '../inventory/staff-stock.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffVariantsController } from '../catalog/staff-variants.controller';
 import { OrdersController } from '../orders/orders.controller';
+import { StaffOrdersController } from '../orders/staff-orders.controller';
+import { StaffRefundsController } from '../payments/staff-refunds.controller';
 import { RazorpayWebhooksController } from '../orders/razorpay-webhooks.controller';
 import { RATE_LIMIT } from '../rate-limit/rate-limit.decorator';
 import { StaffAuthController } from '../staff/staff-auth.controller';
@@ -142,6 +144,20 @@ describe('rate-limited routes', () => {
     // turned away. One without Razorpay's signature does no work.
     expect(routeLimits(RazorpayWebhooksController)).toStrictEqual({
       receive: undefined,
+    });
+    // Staff read orders and refunds, paged, and take an order's steps one
+    // at a time: the per-IP baseline is enough.
+    expect(routeLimits(StaffOrdersController)).toStrictEqual({
+      list: undefined,
+      view: undefined,
+      markPacked: undefined,
+      markShipped: undefined,
+      correctShipment: undefined,
+      markDelivered: undefined,
+      cancel: undefined,
+    });
+    expect(routeLimits(StaffRefundsController)).toStrictEqual({
+      list: undefined,
     });
   });
 });

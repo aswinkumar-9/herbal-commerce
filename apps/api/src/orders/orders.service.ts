@@ -7,7 +7,11 @@ import { AddressesService } from '../addresses/addresses.service';
 import { CartService } from '../cart/cart.service';
 import { ShopPacksService } from '../catalog/shop-packs.service';
 import type { Prisma } from '../generated/prisma/client';
-import type { OrderStatus, PackUnit } from '../generated/prisma/enums';
+import type {
+  OrderStatus,
+  PackUnit,
+  RefundReason,
+} from '../generated/prisma/enums';
 import { NotEnoughStockError, StockService } from '../inventory/stock.service';
 import {
   PaymentsService,
@@ -15,6 +19,7 @@ import {
 } from '../payments/payments.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  CANCELLABLE,
   CART_EMPTY,
   holdExpiresAt,
   lineAmounts,
@@ -65,6 +70,14 @@ export interface OrderView extends Quote {
   status: OrderStatus;
   holdExpiresAt: Date;
   createdAt: Date;
+  // How far it has come (ADR 0028): when it was packed, shipped and
+  // delivered, and the courier with its tracking number. Each is null until
+  // then.
+  packedAt: Date | null;
+  shippedAt: Date | null;
+  courierName: string | null;
+  trackingNumber: string | null;
+  deliveredAt: Date | null;
   delivery: {
     fullName: string;
     phone: string;
@@ -115,6 +128,11 @@ const ORDER_FIELDS = {
   status: true,
   holdExpiresAt: true,
   createdAt: true,
+  packedAt: true,
+  shippedAt: true,
+  courierName: true,
+  trackingNumber: true,
+  deliveredAt: true,
   deliveryName: true,
   deliveryPhone: true,
   deliveryLine1: true,
@@ -273,29 +291,68 @@ export class OrdersService {
     };
   }
 
-  // Cancels the customer's own order while it waits for payment, and gives
-  // its stock back, in one transaction. The status changes only if it is
-  // still waiting, so a cancel and an expiry at the same moment never both
-  // happen. Any other order answers 409; someone else's, 404.
-  async cancel(userId: string, id: string): Promise<OrderView> {
-    await this.prisma.$transaction(async (tx) => {
-      const { count } = await tx.order.updateMany({
-        where: { id, userId, status: 'PENDING_PAYMENT' },
-        data: { status: 'CANCELLED' },
-      });
-      if (count === 0) {
-        const order = await tx.order.findFirst({
-          where: { id, userId },
-          select: { id: true },
-        });
-        if (!order) {
-          throw new NotFoundException(ORDER_NOT_FOUND);
-        }
-        throw new ConflictException(NOT_CANCELLABLE);
-      }
-      await this.stock.release(tx, id);
-    });
+  // Cancels the customer's own order until it ships, and gives its stock
+  // back. A paid order's payment goes back in full: saved in the same
+  // transaction, and asked of Razorpay after it (ADR 0028). Any other order
+  // answers 409; someone else's, 404.
+  async cancel(
+    userId: string,
+    id: string,
+    now = new Date(),
+  ): Promise<OrderView> {
+    const { refundId } = await this.prisma.$transaction((tx) =>
+      this.cancelLocked(tx, { id, userId }, 'CANCELLED_BY_CUSTOMER', now),
+    );
+    if (refundId) {
+      await this.payments.requestRefund(refundId);
+    }
     return this.view(userId, id);
+  }
+
+  // Cancels an order that hasn't shipped, inside the caller's transaction,
+  // with the order locked: so a payment, an expiry or a staff step at the
+  // same moment waits, and then finds it cancelled. Its stock comes back,
+  // and once paid, its payment is saved as going back in full, for the
+  // reason given. The caller asks Razorpay for the refund once the
+  // transaction is saved. Answers the status the order had, and the
+  // refund's ID, if any.
+  async cancelLocked(
+    tx: Prisma.TransactionClient,
+    where: { id: string; userId?: string },
+    reason: Extract<
+      RefundReason,
+      'CANCELLED_BY_CUSTOMER' | 'CANCELLED_BY_STAFF'
+    >,
+    now: Date,
+  ): Promise<{ from: OrderStatus; refundId: string | null }> {
+    // The lock: the order's row stays locked until the transaction ends.
+    const { count } = await tx.order.updateMany({
+      where: { ...where, status: { in: [...CANCELLABLE] } },
+      data: { updatedAt: now },
+    });
+    if (count === 0) {
+      const order = await tx.order.findFirst({ where, select: { id: true } });
+      if (!order) {
+        throw new NotFoundException(ORDER_NOT_FOUND);
+      }
+      throw new ConflictException(NOT_CANCELLABLE);
+    }
+    const { status: from } = await tx.order.findUniqueOrThrow({
+      where: { id: where.id },
+      select: { status: true },
+    });
+    // The refund first: the database cancels a paid order only with its
+    // payment going back.
+    const refundId =
+      from === 'PENDING_PAYMENT'
+        ? null
+        : await this.payments.refundInFull(tx, where.id, reason);
+    await tx.order.update({
+      where: { id: where.id },
+      data: { status: 'CANCELLED' },
+    });
+    await this.stock.release(tx, where.id);
+    return { from, refundId };
   }
 
   // Expires the orders still waiting for payment after their hold, and

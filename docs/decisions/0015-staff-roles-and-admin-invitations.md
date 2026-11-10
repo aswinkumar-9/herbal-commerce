@@ -5,6 +5,7 @@
 - Updated: 2026-10-31 (part 3B-5: listing, disabling, removing and inviting again, see ADR 0016)
 - Updated: 2026-11-01 (part 3B-6: the staff sign-in question decided, see ADR 0017)
 - Updated: 2026-11-03 (part 4A: the Admins' first work, product categories, and `@SuperUserOnly()` on a single handler, see ADR 0020)
+- Updated: 2026-11-10 (part 9: Admins pack, ship and deliver orders, and only Super Users cancel them, see ADR 0028)
 
 ## Context
 
@@ -115,7 +116,7 @@ Admin management was too big for one part, so it was split:
   - deleting every entry from the phone locked a Super User out until their MFA setup ran again.
 
   The README's troubleshooting covers both.
-- **Admins can sign in, but have nothing to do yet.** Their features come with the catalog, orders and the admin console. Part 4A gave them the first: they create, change, activate and deactivate product categories, and only deleting one is for Super Users (ADR 0020). That delete is the first `@SuperUserOnly()` on a single handler, inside a `@StaffOnly()` controller.
+- **Admins can sign in, but have nothing to do yet.** Their features come with the catalog, orders and the admin console. Part 4A gave them the first: they create, change, activate and deactivate product categories, and only deleting one is for Super Users (ADR 0020). That delete is the first `@SuperUserOnly()` on a single handler, inside a `@StaffOnly()` controller. Part 9 gave them orders: they see every order, without its payment, and mark it packed, shipped and delivered. Only Super Users cancel one (ADR 0028).
 - **The invitation link carries the token in its URL,** like the customer links. The admin console must post it to the API at once and keep it out of its logs and analytics (`docs/security.md`).
 - The smoke test checks on every run that a customer token cannot invite Admins and that a made-up invitation link gets `400`. The full invitation needs a signed-in Super User with a phone, so it is tested by hand (README).
 - Part 3B-5 added managing Admins: list, disable and enable with their sessions ended, remove, invite again (ADR 0016). Part 3B-6 added the Super Users' view of the audit log and audited staff sign-ins (ADR 0017).

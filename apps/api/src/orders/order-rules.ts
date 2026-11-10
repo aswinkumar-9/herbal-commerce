@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import type { OrderStatus } from '../generated/prisma/enums';
 
 // The rules of an order (ADR 0026). Money is in whole rupees, like the
 // catalog's (ADR 0022): the GST too, rounded to the nearest rupee.
@@ -13,8 +14,15 @@ export const DELIVERY_CHARGE_RUPEES = 49;
 export const MAX_OPEN_ORDERS = 3;
 
 export const CART_EMPTY = 'The cart is empty.';
-export const NOT_CANCELLABLE =
-  'Only an order waiting for payment can be cancelled.';
+// An order may be cancelled until it ships: while it waits for payment, and
+// once paid, until staff hand it to the courier. A paid order's payment
+// then goes back in full (ADR 0028).
+export const CANCELLABLE = [
+  'PENDING_PAYMENT',
+  'PAID',
+  'PACKED',
+] as const satisfies readonly OrderStatus[];
+export const NOT_CANCELLABLE = 'This order can no longer be cancelled.';
 export const TOO_MANY_OPEN = `You have ${MAX_OPEN_ORDERS} orders waiting for payment. Pay for one or cancel it first.`;
 export const TOTAL_CHANGED =
   'The total has changed. Check the cart and try again.';
@@ -25,6 +33,33 @@ export const PAYMENTS_UNAVAILABLE =
   'Payments are not available right now. Please try again in a minute.';
 export const PAYMENT_NOT_STARTED = 'Start paying for this order first.';
 export const PAYMENT_NOT_VERIFIED = 'The payment could not be verified.';
+
+// The steps staff take once an order is paid (ADR 0028): the status an
+// order must have for each, and what staff are told when it doesn't, or when
+// the step is done already.
+export const ORDER_STEPS = {
+  PACKED: {
+    from: 'PAID',
+    notReady: 'Only a paid order can be packed.',
+    done: 'This order is packed already.',
+  },
+  SHIPPED: {
+    from: 'PACKED',
+    notReady: 'Only a packed order can be shipped.',
+    done: 'This order has shipped already.',
+  },
+  DELIVERED: {
+    from: 'SHIPPED',
+    notReady: 'Only a shipped order can be marked delivered.',
+    done: 'This order is delivered already.',
+  },
+} as const satisfies Record<
+  string,
+  { from: OrderStatus; notReady: string; done: string }
+>;
+export type OrderStep = keyof typeof ORDER_STEPS;
+export const NOT_ON_ITS_WAY =
+  'Only an order on its way can have its courier or tracking number corrected.';
 export const notReady = (skus: string[]) =>
   `These packs can't be ordered now: ${skus.join(', ')}. Change or remove them first.`;
 export const notEnoughStock = (sku: string) =>
@@ -108,3 +143,9 @@ export function newOrderReference(
     .map((byte) => REFERENCE_ALPHABET[byte % REFERENCE_ALPHABET.length])
     .join('');
 }
+
+// An order reference as newOrderReference makes it: what staff look an
+// order up by when a customer quotes it.
+export const ORDER_REFERENCE = new RegExp(
+  `^[${REFERENCE_ALPHABET}]{${REFERENCE_LENGTH}}$`,
+);

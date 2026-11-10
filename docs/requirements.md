@@ -32,10 +32,10 @@ An independent e-commerce platform for our own herbal products. Customers browse
 | Products and categories | View | Create, edit, activate/deactivate | Full, including delete |
 | Prices and offers | View | Set and change | Full, approve large changes |
 | Inventory and stock | n/a | Adjust, view movements | Full |
-| Orders | Own only | View, confirm, pack, ship, cancel (before payment capture) | Full |
-| Delivery and shipments | Track own | Manage | Full |
+| Orders | Own only. Since part 9, cancel until shipped (owner, 2026-11-09) | View, confirm, pack, ship, cancel (before payment capture). Built in part 9: view, pack, ship and mark delivered. Cancelling went to Super Users only (owner, 2026-11-09). | Full. Since part 9, cancel until shipped, with the payment back in full |
+| Delivery and shipments | Track own: since part 9, the steps, courier and tracking number | Manage: since part 9, the courier and tracking number typed in by staff (owner, 2026-11-09) | Full |
 | Returns | Request | Review and approve/reject | Full |
-| Refunds (money movement) | Request via return | **No** (can recommend) | Execute |
+| Refunds (money movement) | Request via return. Since part 9, cancelling a paid order before it ships gives the payment back on its own. | **No** (can recommend) | Execute. Since part 9, see every refund (ADR 0028) |
 | Invoices | View own | **No access** | Full |
 | Payments and reconciliation | Pay | **No access** | Full |
 | Customer records | Own only | Limited view (name, phone, address for fulfilment) | Full |
@@ -66,7 +66,7 @@ Assumptions to confirm: Admin handles delivery and return approval but never mon
 - Search and filters (PostgreSQL full-text first)
 - Cart, checkout, delivery charge and tax, order confirmation
 - Payments through a gateway (sandbox first), server-verified, idempotent. Razorpay, chosen by the owner on 2026-11-08 (ADR 0027)
-- Order lifecycle, cancellations, returns, refunds
+- Order lifecycle, cancellations, returns, refunds. Since part 9: packed, shipped and delivered, typed in by staff, and cancelling until shipped with the payment back in full, by the owner's choices on 2026-11-09 (ADR 0028). Returns are still to come.
 - GST invoices (system-generated, sequential per financial year)
 - Admin console: catalog, prices, stock, orders, returns, customers (limited)
 - Super User console sections: admin management, invoices, payments, audit log, settings
@@ -99,4 +99,4 @@ GST (HSN codes, invoices), FSSAI/AYUSH licence numbers on products, Legal Metrol
 5. Region-wise pricing and visibility, or one national catalog for the MVP?
 6. API style: REST + OpenAPI (leaning) or GraphQL.
 7. Who is the business owner in the role model: a Super User or an Admin?
-8. Confirm the permission matrix in section 4.
+8. Confirm the permission matrix in section 4. For orders, delivery and refunds, the owner decided part 9's share on 2026-11-09 (ADR 0028).

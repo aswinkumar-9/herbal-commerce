@@ -10,6 +10,8 @@ import { StaffStockController } from '../inventory/staff-stock.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
 import { StaffVariantsController } from '../catalog/staff-variants.controller';
 import { OrdersController } from '../orders/orders.controller';
+import { StaffOrdersController } from '../orders/staff-orders.controller';
+import { StaffRefundsController } from '../payments/staff-refunds.controller';
 import { RazorpayWebhooksController } from '../orders/razorpay-webhooks.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
 import { StaffAuditLogController } from '../staff/staff-audit-log.controller';
@@ -66,6 +68,9 @@ describe('public routes', () => {
     expect(publicHandlers(OrdersController)).toEqual([]);
     // Part 8: Razorpay has no token; its signature proves its webhooks.
     expect(publicHandlers(RazorpayWebhooksController)).toEqual(['receive']);
+    // Part 9: orders and refunds for staff.
+    expect(publicHandlers(StaffOrdersController)).toEqual([]);
+    expect(publicHandlers(StaffRefundsController)).toEqual([]);
     // Parts 4A and 4B: customers browse the shop before they sign in.
     expect(publicHandlers(CategoriesController)).toEqual([
       'list',

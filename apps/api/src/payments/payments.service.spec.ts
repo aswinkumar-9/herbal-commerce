@@ -300,6 +300,158 @@ describe('PaymentsService', () => {
     });
   });
 
+  describe('refundInFull', () => {
+    it("saves the paid order's payment as going back in full, for the reason given", async () => {
+      const { service, tx, txMock } = setup();
+      txMock.payment.findUniqueOrThrow.mockResolvedValueOnce({
+        id: PAYMENT_ID,
+        razorpayPaymentId: 'pay_G3P9vcIhRs3NV4',
+        amountRupees: 498,
+      });
+
+      await expect(
+        service.refundInFull(tx, ORDER.orderId, 'CANCELLED_BY_CUSTOMER'),
+      ).resolves.toBe(REFUND_ID);
+      expect(txMock.payment.findUniqueOrThrow).toHaveBeenCalledWith({
+        where: { orderId: ORDER.orderId },
+        select: { id: true, razorpayPaymentId: true, amountRupees: true },
+      });
+      expect(txMock.refund.create).toHaveBeenCalledWith({
+        data: {
+          paymentId: PAYMENT_ID,
+          razorpayPaymentId: 'pay_G3P9vcIhRs3NV4',
+          amountRupees: 498,
+          reason: 'CANCELLED_BY_CUSTOMER',
+        },
+        select: { id: true },
+      });
+    });
+
+    it('refuses an order that was never paid, saving nothing', async () => {
+      const { service, tx, txMock } = setup();
+      txMock.payment.findUniqueOrThrow.mockResolvedValueOnce({
+        id: PAYMENT_ID,
+        razorpayPaymentId: null,
+        amountRupees: 498,
+      });
+
+      await expect(
+        service.refundInFull(tx, ORDER.orderId, 'CANCELLED_BY_STAFF'),
+      ).rejects.toThrow('The order was never paid');
+      expect(txMock.refund.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('staffPaymentFor', () => {
+    it("shows a Super User the payment with Razorpay's IDs, and every refund oldest first", async () => {
+      const { service, prisma } = setup();
+      const payment = { razorpayOrderId: 'order_RB58MiP5SPFYyM', refunds: [] };
+      prisma.payment.findUnique.mockResolvedValueOnce(payment);
+
+      await expect(service.staffPaymentFor(ORDER.orderId)).resolves.toBe(
+        payment,
+      );
+      expect(prisma.payment.findUnique).toHaveBeenCalledWith({
+        where: { orderId: ORDER.orderId },
+        select: {
+          razorpayOrderId: true,
+          razorpayPaymentId: true,
+          amountRupees: true,
+          paidAt: true,
+          createdAt: true,
+          refunds: {
+            orderBy: { createdAt: 'asc' },
+            select: {
+              id: true,
+              razorpayPaymentId: true,
+              razorpayRefundId: true,
+              amountRupees: true,
+              reason: true,
+              status: true,
+              createdAt: true,
+              updatedAt: true,
+            },
+          },
+        },
+      });
+    });
+
+    it('answers null before paying starts', async () => {
+      const { service } = setup();
+
+      await expect(service.staffPaymentFor(ORDER.orderId)).resolves.toBeNull();
+    });
+  });
+
+  describe('listRefunds', () => {
+    const refund = (id: string, orderId: string) => ({
+      id,
+      razorpayPaymentId: 'pay_Late00000001',
+      razorpayRefundId: null,
+      amountRupees: 498,
+      reason: 'ORDER_CANCELLED',
+      status: 'FAILED',
+      createdAt: NOW,
+      updatedAt: NOW,
+      payment: { orderId },
+    });
+
+    it('lists the refunds in one status, the newest first, each naming its order, with the next page', async () => {
+      const { service, prisma } = setup();
+      prisma.refund.findMany.mockResolvedValueOnce([
+        refund('r3', 'order-3'),
+        refund('r2', 'order-2'),
+        refund('r1', 'order-1'),
+      ]);
+
+      const page = await service.listRefunds({
+        limit: 2,
+        after: REFUND_ID,
+        status: 'FAILED',
+      });
+
+      expect(page.refunds.map((r) => [r.id, r.orderId])).toEqual([
+        ['r3', 'order-3'],
+        ['r2', 'order-2'],
+      ]);
+      expect(page.refunds[0]).not.toHaveProperty('payment');
+      expect(page.nextAfter).toBe('r2');
+      expect(prisma.refund.findMany).toHaveBeenCalledWith({
+        where: { status: 'FAILED' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 3,
+        cursor: { id: REFUND_ID },
+        skip: 1,
+        select: {
+          id: true,
+          razorpayPaymentId: true,
+          razorpayRefundId: true,
+          amountRupees: true,
+          reason: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
+          payment: { select: { orderId: true } },
+        },
+      });
+    });
+
+    it('lists every refund from the first page when nothing is asked, and knows a full last page', async () => {
+      const { service, prisma } = setup();
+      prisma.refund.findMany.mockResolvedValueOnce([refund('r1', 'order-1')]);
+
+      const page = await service.listRefunds({ limit: 1 });
+
+      expect(page.nextAfter).toBeNull();
+      expect(page.refunds).toHaveLength(1);
+      const query = prisma.refund.findMany.mock.calls[0][0];
+      expect(query.where).toEqual({ status: undefined });
+      expect(query.take).toBe(2);
+      expect(query).not.toHaveProperty('cursor');
+      expect(query).not.toHaveProperty('skip');
+    });
+  });
+
   it("asks the gateway whether a webhook is Razorpay's", () => {
     const { service, razorpay } = setup();
     const body = Buffer.from('{}');

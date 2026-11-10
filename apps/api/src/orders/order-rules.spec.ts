@@ -1,4 +1,5 @@
 import {
+  CANCELLABLE,
   CART_EMPTY,
   DELIVERY_CHARGE_RUPEES,
   deliveryChargeRupees,
@@ -11,9 +12,12 @@ import {
   MAX_OPEN_ORDERS,
   newOrderReference,
   NOT_CANCELLABLE,
+  NOT_ON_ITS_WAY,
   NOT_PAYABLE,
   notEnoughStock,
   notReady,
+  ORDER_REFERENCE,
+  ORDER_STEPS,
   orderTotals,
   PAYMENT_NOT_STARTED,
   PAYMENT_NOT_VERIFIED,
@@ -36,9 +40,8 @@ describe("the owner's numbers", () => {
 
   it('are explained in the messages', () => {
     expect(CART_EMPTY).toBe('The cart is empty.');
-    expect(NOT_CANCELLABLE).toBe(
-      'Only an order waiting for payment can be cancelled.',
-    );
+    expect(NOT_CANCELLABLE).toBe('This order can no longer be cancelled.');
+    expect(CANCELLABLE).toEqual(['PENDING_PAYMENT', 'PAID', 'PACKED']);
     expect(TOO_MANY_OPEN).toBe(
       'You have 3 orders waiting for payment. Pay for one or cancel it first.',
     );
@@ -54,6 +57,26 @@ describe("the owner's numbers", () => {
     );
     expect(PAYMENT_NOT_STARTED).toBe('Start paying for this order first.');
     expect(PAYMENT_NOT_VERIFIED).toBe('The payment could not be verified.');
+    expect(ORDER_STEPS).toEqual({
+      PACKED: {
+        from: 'PAID',
+        notReady: 'Only a paid order can be packed.',
+        done: 'This order is packed already.',
+      },
+      SHIPPED: {
+        from: 'PACKED',
+        notReady: 'Only a packed order can be shipped.',
+        done: 'This order has shipped already.',
+      },
+      DELIVERED: {
+        from: 'SHIPPED',
+        notReady: 'Only a shipped order can be marked delivered.',
+        done: 'This order is delivered already.',
+      },
+    });
+    expect(NOT_ON_ITS_WAY).toBe(
+      'Only an order on its way can have its courier or tracking number corrected.',
+    );
     expect(notReady(['ASH-CAP-60', 'TULSI-100'])).toBe(
       "These packs can't be ordered now: ASH-CAP-60, TULSI-100. Change or remove them first.",
     );
@@ -150,5 +173,19 @@ describe('newOrderReference', () => {
     expect(first).toMatch(/^[A-HJ-NP-Z2-9]{10}$/);
     expect(second).toMatch(/^[A-HJ-NP-Z2-9]{10}$/);
     expect(first).not.toBe(second);
+  });
+
+  it('is what ORDER_REFERENCE accepts, and nothing else', () => {
+    expect(ORDER_REFERENCE.test(newOrderReference())).toBe(true);
+    expect(ORDER_REFERENCE.test('7KQ2M9XDPA')).toBe(true);
+    for (const wrong of [
+      '7KQ2M9XDP',
+      '7KQ2M9XDPAB',
+      '7KQ2M9XDPI',
+      '7kq2m9xdpa',
+      '7KQ2M9XDP0',
+    ]) {
+      expect([wrong, ORDER_REFERENCE.test(wrong)]).toEqual([wrong, false]);
+    }
   });
 });

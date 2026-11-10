@@ -1073,11 +1073,13 @@ async function main() {
         strangerView.status === 404),
   );
   check(
-    'cancelling gives the stock back: 200 and CANCELLED, then 409, and the pack is in stock again',
+    'cancelling gives the stock back: 200 and CANCELLED, then 409 as it can no longer be cancelled, and the pack is in stock again',
     !packInStock ||
       (cancelled.status === 200 &&
         cancelled.body.status === 'CANCELLED' &&
         cancelledAgain.status === 409 &&
+        cancelledAgain.body?.message ===
+          'This order can no longer be cancelled.' &&
         packAgain?.inStock === true),
   );
   check(
@@ -1151,6 +1153,42 @@ async function main() {
   check(
     'a webhook signed with the webhook secret is taken (200), even an event the API has no use for, or about a refund it does not know',
     signedUnused.status === 200 && signedRefund.status === 200,
+  );
+
+  // Orders for staff (part 9): staff take an order through its steps, which
+  // is tried by hand with a phone. Its customer sees how far it has come.
+  const steps = ['packedAt', 'shippedAt', 'courierName', 'trackingNumber', 'deliveredAt'];
+  check(
+    'an order shows its customer how far it has come: not packed, shipped or delivered yet, so no courier or tracking number',
+    !packInStock || steps.every((step) => unpaidView.body?.[step] === null),
+  );
+  const staffOrderRoutes = [
+    ['GET', '/v1/staff/orders'],
+    ['GET', `/v1/staff/orders/${anyId}`],
+    ['POST', `/v1/staff/orders/${anyId}/packed`],
+    [
+      'POST',
+      `/v1/staff/orders/${anyId}/shipped`,
+      { courierName: 'Smoke Courier', trackingNumber: 'SMOKE1234' },
+    ],
+    ['PATCH', `/v1/staff/orders/${anyId}/shipment`, { trackingNumber: 'SMOKE1234' }],
+    ['POST', `/v1/staff/orders/${anyId}/delivered`],
+    ['POST', `/v1/staff/orders/${anyId}/cancel`],
+    ['GET', '/v1/staff/refunds'],
+  ];
+  // The customer's token still works on their own orders, so each 401 below
+  // is a staff route refusing it.
+  const ownOrders = await call('GET', ordersPath, { token: ownerToken });
+  const staffOrderAnswers = [];
+  for (const [method, path, json] of staffOrderRoutes) {
+    const withoutToken = await call(method, path, { json });
+    const asCustomer = await call(method, path, { json, token: ownerToken });
+    staffOrderAnswers.push(withoutToken.status, asCustomer.status);
+  }
+  check(
+    'without a token, or with a customer access token, no one sees orders or refunds as staff, or packs, ships, delivers or cancels an order (401)',
+    ownOrders.status === 200 &&
+      staffOrderAnswers.every((status) => status === 401),
   );
   console.log(
     failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`,
