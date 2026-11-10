@@ -105,6 +105,7 @@ const totals = {
   totalRupees: 1_546,
 };
 const input = { addressId: ADDRESS, totalRupees: 1_546 };
+
 // A new order: not packed, shipped or delivered yet.
 const noSteps = {
   packedAt: null,
