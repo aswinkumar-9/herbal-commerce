@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 8)
 - Date: 2026-11-09
+- Updated: 2026-11-10 (part 9: a paid order cancelled before it ships gets its payment back, and Super Users see payments and refunds, see ADR 0028; the owner chose Razorpay for every payment method, UPI included)
 
 ## Context
 
@@ -79,7 +80,7 @@ Then, in **one transaction, with the order locked** (a conditional update of its
 - **Always the whole payment.** A refund moves `REQUESTED` → `PENDING` → `PROCESSED`, or `FAILED`, and never backwards.
 - **Not taken yet:** if Razorpay can't be reached, the refund stays `REQUESTED`. The job asks again a minute after it was made, then every minute, the oldest first, at most 50 a run.
 - **A lost answer:** if our request reached Razorpay but its answer didn't reach us, Razorpay refuses the same receipt again. The API then lists the payment's refunds, and finds ours by its receipt.
-- **Refused outright** (`400`, and not among the payment's refunds): the refund becomes `FAILED`, and the API logs `Razorpay refused a refund: staff must give the money back`. Staff give it back by hand: there is no admin console yet.
+- **Refused outright** (`400`, and not among the payment's refunds): the refund becomes `FAILED`, and the API logs `Razorpay refused a refund: staff must give the money back`. Staff give it back by hand: there is no admin console yet. Since part 9, Super Users list them with `GET /v1/staff/refunds?status=FAILED` (ADR 0028).
 - **Razorpay's refund webhooks** move a refund forward. It is found by Razorpay's refund ID, or by its receipt when Razorpay's first answer never reached us.
 - **The normal speed:** no refund fee. But Razorpay keeps the fee it took on the payment, checked in Razorpay's documentation on 2026-11-09. **So each automatic refund costs the shop Razorpay's fee and the GST on it,** about 2.36% of the order. Instant refunds would cost more.
 
@@ -119,7 +120,7 @@ Each part has its own error handling, so one failing part never stops the others
   - `paymentId`: with a foreign key `ON DELETE RESTRICT`;
   - `razorpayPaymentId`: unique, so a Razorpay payment is given back at most once;
   - `amountRupees`: the whole payment;
-  - `reason`, the enum `RefundReason`: `ORDER_EXPIRED`, `ORDER_CANCELLED` or `ALREADY_PAID`;
+  - `reason`, the enum `RefundReason`: `ORDER_EXPIRED`, `ORDER_CANCELLED` or `ALREADY_PAID`, and since part 9 `CANCELLED_BY_CUSTOMER` or `CANCELLED_BY_STAFF`, for a paid order cancelled before it ships (ADR 0028);
   - `status`, the enum `RefundStatus`: `REQUESTED`, `PENDING`, `PROCESSED` or `FAILED`;
   - `razorpayRefundId`: unique, once Razorpay has taken it;
   - an index on `(status, createdAt)` for the job.
@@ -130,9 +131,9 @@ Each part has its own error handling, so one failing part never stops the others
 - `refunds_details_chk`: the same for a refund, which names Razorpay's refund once Razorpay has taken it;
 - `payments_match_their_order`: a payment is made only for an order waiting for payment, and for its total;
 - `payments_keep_what_was_agreed`: a payment is never deleted, what it is for never changes, and once paid it stays paid by the same Razorpay payment;
-- `refunds_match_their_payment`: a refund gives back the whole payment;
+- `refunds_match_their_payment`: a refund gives back the whole payment. Since part 9, a `CANCELLED_BY_*` refund is made only for the payment that paid an order that is paid or packed (ADR 0028);
 - `refunds_move_forward`: a refund is never deleted, its amount never changes, it keeps its Razorpay refund, and its status only moves forward;
-- `orders_status_moves_forward`: an order moves only from `PENDING_PAYMENT` to `PAID`, `CANCELLED` or `EXPIRED`, or from `EXPIRED` to `PAID`. It is `PAID` only once its payment is.
+- `orders_status_moves_forward`: an order moves only from `PENDING_PAYMENT` to `PAID`, `CANCELLED` or `EXPIRED`, or from `EXPIRED` to `PAID`. It is `PAID` only once its payment is. Since part 9, a paid order moves on to `PACKED`, `SHIPPED` and `DELIVERED`, and a paid or packed one becomes `CANCELLED` only with its payment going back in full (ADR 0028).
 
 Payments and refunds are never deleted, like orders (ADR 0011).
 
@@ -174,6 +175,14 @@ The `payments` module (`src/payments`) owns its two tables and Razorpay. The ord
 - **Authorizing first and capturing later,** once the stock is sure. Not now: the stock is held while the customer pays, and a late payment's stock is checked when it is settled. Automatic capture is simpler.
 - **A table of webhook events,** to handle each event once. Not needed: handling is safe to repeat. Revisit if an event ever has to act exactly once with nothing else to guard it.
 - **A queue for refunds.** Not now: the minute job asks again, like the expiry of orders.
+- **UPI without a gateway,** to save Razorpay's fee on UPI payments. On 2026-11-10 the owner asked about YouPI-PG, an open-source project. It shows a UPI link or QR code for the shop's own UPI ID. It then decides that a payment came by reading the bank's SMS, app notifications or emails, matching only the amount and the time. Rejected, and the owner chose Razorpay for every payment method:
+  - such a payment can't be proven: a message can be late or faked, or be about someone else's payment. This ADR pays an order only on the gateway's word;
+  - it gives no refunds, which cancelling a paid order needs (ADR 0028);
+  - only one customer at a time can pay to one UPI ID;
+  - it uses person-to-person payments, which would need the company's current account anyway;
+  - its own documents call it experimental, and not approved for real money.
+
+  Razorpay's page already opens the customer's UPI app on a phone, and shows a QR code on a computer. Once the company is registered, UPI could cost less: compare or negotiate gateway prices, or use a bank's UPI collection service with signed callbacks and refunds.
 
 ## Consequences
 
@@ -206,7 +215,7 @@ The `payments` module (`src/payments`) owns its two tables and Razorpay. The ord
 - **Still open:**
   - **going live:** Razorpay's KYC with the business's PAN, live keys, and the webhook on the deployed API's HTTPS address;
   - **for the chartered accountant:** booking Razorpay's fee and the GST on it, the fee lost on each automatic refund, and what a refunded payment for an order never delivered needs on paper. GST invoices for paid orders are still to come (ADR 0026);
-  - **staff seeing payments and refunds,** and giving back a `FAILED` refund by hand (the admin console; payments are for Super Users only, `docs/requirements.md`, section 4);
+  - **staff seeing payments and refunds:** done in part 9, for Super Users (ADR 0028). Recording that staff gave a `FAILED` refund back by hand is still to come, with the admin console;
   - **a job that asks Razorpay about old `PENDING` refunds,** if their webhooks were lost for longer than Razorpay's 24 hours of retries;
   - emails confirming a payment and a refund;
   - returns, and refunds a customer asks for;

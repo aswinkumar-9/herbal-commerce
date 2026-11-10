@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.19.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.20.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -678,6 +678,7 @@ The signed-in customer's own orders (ADR 0026). These endpoints need a **custome
 - **It keeps a copy** of its lines, their prices and the delivery address. What the customer agreed to never changes, and an order is never deleted.
 - **It takes its stock at once and holds it for 15 minutes,** until `holdExpiresAt`, while the customer pays (see "Paying for an order"). An order not paid by then expires within about a minute, and its stock comes back.
 - **At most 3 orders wait for payment** per customer.
+- **Once paid, the shop packs it, ships it and delivers it** (ADR 0028), and the order shows each step, with the courier and its tracking number. It may be cancelled until it ships, and a paid order's payment then goes back in full.
 - **Money is whole rupees.** GST is **inside** the prices, never added: `gstRupees` and `itemsGstRupees` say how much of an amount is GST, rounded to the nearest rupee. Delivery costs ₹49 while the items come to less than ₹499, and is free from ₹499. The total is the items plus delivery.
 
 An order, as `POST /v1/me/orders`, `GET /v1/me/orders/:id` and the cancel return it:
@@ -688,6 +689,11 @@ An order, as `POST /v1/me/orders`, `GET /v1/me/orders/:id` and the cancel return
   "status": "PENDING_PAYMENT",
   "holdExpiresAt": "2026-11-07T14:57:38.771Z",
   "createdAt": "2026-11-07T14:42:38.771Z",
+  "packedAt": null,
+  "shippedAt": null,
+  "courierName": null,
+  "trackingNumber": null,
+  "deliveredAt": null,
   "itemsTotalRupees": 1347,
   "itemsGstRupees": 64,
   "deliveryChargeRupees": 0,
@@ -722,8 +728,10 @@ An order, as `POST /v1/me/orders`, `GET /v1/me/orders/:id` and the cancel return
 | Field | Meaning |
 |---|---|
 | `reference` | 10 letters and digits, without `I`, `O`, `0` or `1`. Show it to the customer: support asks for it. It is random, never a running number. |
-| `status` | `PENDING_PAYMENT`: waiting for payment, and holding its stock. `PAID`: paid. `CANCELLED`: cancelled by the customer. `EXPIRED`: not paid in time. An expired order can still become `PAID` if a late payment finds its stock free (see "Paying for an order"). |
+| `status` | `PENDING_PAYMENT`: waiting for payment, and holding its stock. `PAID`: paid. `PACKED`: packed by the shop. `SHIPPED`: on its way with the courier. `DELIVERED`: delivered. `CANCELLED`: cancelled before it shipped, by the customer or by the shop. `EXPIRED`: not paid in time. An expired order can still become `PAID` if a late payment finds its stock free (see "Paying for an order"). |
 | `holdExpiresAt` | Until when the order holds its stock: 15 minutes after `createdAt` |
+| `packedAt`, `shippedAt`, `deliveredAt` | When the shop packed it, handed it to the courier and marked it delivered, or `null` until then (ADR 0028). A packed order that was cancelled keeps its `packedAt`. |
+| `courierName`, `trackingNumber` | The courier and its tracking number, from when the order ships, or `null` until then. Show them, so the customer can follow the parcel on the courier's site. |
 | `itemsTotalRupees` | The lines added up |
 | `itemsGstRupees` | The GST inside `itemsTotalRupees`: the lines' `gstRupees` added up. **It is not added to the total.** |
 | `deliveryChargeRupees` | `49` while the items come to less than ₹499, otherwise `0` |
@@ -843,9 +851,9 @@ Errors: `400` (the ID is not a UUID); `401`; `404 Order not found`, also for ano
 
 ### POST `/v1/me/orders/:id/cancel`
 
-Cancels an order waiting for payment, and gives its stock back at once, in one transaction.
+Cancels the customer's order until it ships: while it waits for payment, and once paid, while it is `PAID` or `PACKED` (ADR 0028). Its stock comes back at once, in one transaction. **A paid order's payment goes back in full:** a refund with the reason `CANCELLED_BY_CUSTOMER` is saved in the same transaction, and asked of Razorpay just after.
 
-Response `200`: the order, now `CANCELLED`.
+Response `200`: the order, now `CANCELLED`. A paid one shows its refund in `payment.refunds`: `PENDING` once Razorpay has taken it, or `REQUESTED` while the API asks again (see "Paying for an order").
 
 Errors:
 
@@ -854,7 +862,7 @@ Errors:
 | `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
 | `401` | see "Authentication errors on protected endpoints" | No valid customer access token, or a staff token |
 | `404` | `Order not found` | No such order, or another customer's |
-| `409` | `Only an order waiting for payment can be cancelled.` | The order is paid, cancelled or expired |
+| `409` | `This order can no longer be cancelled.` | The order has shipped, or it is delivered, cancelled or expired |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
 ## Paying for an order
@@ -888,6 +896,8 @@ Money going back shows in the order's `payment.refunds`:
   ]
 }
 ```
+
+Cancelling a paid order before it ships gives its payment back too: `CANCELLED_BY_CUSTOMER`, or `CANCELLED_BY_STAFF` when the shop cancelled it (ADR 0028).
 
 | Refund `status` | Meaning |
 |---|---|
@@ -1808,6 +1818,241 @@ Errors:
 | `409` | `Not enough stock: this batch holds 118.` | The change would take the batch below 0 |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
+## Handling orders (staff)
+
+Every order, for staff to pack, ship and deliver (ADR 0028). These endpoints need a **staff** access token: an Admin's or a Super User's. A customer token, or none, gets `401`. **Only a Super User** sees an order's payment and cancels an order: an Admin gets `403 Only a Super User may do this.` on the cancel. Every step is written to the audit log in the same transaction, with the staff member, the client IP and the request ID. Reading is not audited.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/staff/orders` | Every order, one page at a time |
+| `GET /v1/staff/orders/:id` | One order, to pack and ship it |
+| `POST /v1/staff/orders/:id/packed` | A paid order is packed |
+| `POST /v1/staff/orders/:id/shipped` | A packed order is handed to the courier |
+| `PATCH /v1/staff/orders/:id/shipment` | Corrects the courier or tracking number of an order on its way |
+| `POST /v1/staff/orders/:id/delivered` | A shipped order is delivered |
+| `POST /v1/staff/orders/:id/cancel` | **Super Users only.** Cancels an order until it ships |
+
+An order, as these endpoints return it to a Super User:
+```json
+{
+  "id": "4f7c2a9e-3b1d-4e8a-9c6f-2d5b8e1a7c30",
+  "reference": "7KQ2M9XDPA",
+  "status": "SHIPPED",
+  "createdAt": "2026-11-09T05:10:12.408Z",
+  "holdExpiresAt": "2026-11-09T05:25:12.408Z",
+  "packedAt": "2026-11-09T06:02:41.117Z",
+  "shippedAt": "2026-11-09T09:30:05.902Z",
+  "courierName": "Delhivery",
+  "trackingNumber": "EE149081123456",
+  "deliveredAt": null,
+  "itemsTotalRupees": 449,
+  "itemsGstRupees": 21,
+  "deliveryChargeRupees": 49,
+  "totalRupees": 498,
+  "items": [
+    {
+      "sku": "ASH-CAP-60",
+      "productName": "Ashwagandha Capsules",
+      "quantity": 60,
+      "unit": "CAPSULES",
+      "packs": 1,
+      "mrpRupees": 500,
+      "priceRupees": 449,
+      "lineTotalRupees": 449,
+      "gstRate": 5,
+      "gstRupees": 21,
+      "hsnCode": "300490"
+    }
+  ],
+  "delivery": {
+    "fullName": "Asha K",
+    "phone": "9845012345",
+    "line1": "12, 3rd Cross, Indiranagar",
+    "line2": null,
+    "city": "Bengaluru",
+    "state": "Karnataka",
+    "pincode": "560038"
+  },
+  "payment": {
+    "razorpayOrderId": "order_RB58MiP5SPFYyM",
+    "razorpayPaymentId": "pay_G3P9vcIhRs3NV4",
+    "amountRupees": 498,
+    "paidAt": "2026-11-09T05:12:30.514Z",
+    "createdAt": "2026-11-09T05:11:02.233Z",
+    "refunds": []
+  }
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `status` | `PAID`, then `PACKED`, `SHIPPED` and `DELIVERED`. The others are as in "Checkout and orders". |
+| `packedAt`, `shippedAt`, `deliveredAt` | When staff took each step, or `null` until then. A packed order that was cancelled keeps its `packedAt`. |
+| `courierName`, `trackingNumber` | Set when the order ships, or `null` until then |
+| `items` | As the customer sees them, with each product's `hsnCode` |
+| `delivery` | Where it goes: the name, phone and address the customer chose. The customer's email and account are not shown. |
+| `payment` | **Super Users only:** an Admin's answer has no `payment` field. `null` before paying starts. Otherwise Razorpay's order ID, the ID of the payment that paid it (`null` until paid), the amount, when it was paid, when paying started, and every refund, the oldest first, as `GET /v1/staff/refunds` shows them but without `orderId`. |
+
+### GET `/v1/staff/orders`
+
+Every order, **one page at a time**, the newest first unless asked otherwise.
+
+Query parameters, all optional:
+
+| Parameter | Rules | Meaning |
+|---|---|---|
+| `limit` | Whole number, 1 to 100, default 50 | Orders per page |
+| `after` | UUID | The `nextAfter` of the previous page: continue just after it |
+| `status` | An order status, such as `PAID`, else `Use an order status, such as PAID or PACKED` | Only orders in this status |
+| `reference` | 10 letters and digits, small letters too, else `An order reference has 10 letters and digits` | Only the order a customer quoted |
+| `sort` | `newest` (the default) or `oldest`, else `Use newest or oldest` | By when the order was placed |
+
+The filters combine, and any other parameter is ignored. `?status=PAID&sort=oldest` is the work to pack, in turn.
+
+Response `200`:
+```json
+{
+  "orders": [
+    {
+      "id": "4f7c2a9e-3b1d-4e8a-9c6f-2d5b8e1a7c30",
+      "reference": "7KQ2M9XDPA",
+      "status": "PAID",
+      "totalRupees": 498,
+      "deliveryName": "Asha K",
+      "deliveryCity": "Bengaluru",
+      "deliveryState": "Karnataka",
+      "createdAt": "2026-11-09T05:10:12.408Z"
+    }
+  ],
+  "nextAfter": null
+}
+```
+`nextAfter` is `null` on the last page.
+
+Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401`; `429` (the 600 per minute limit).
+
+### GET `/v1/staff/orders/:id`
+
+Response `200`: the order, with its payment for a Super User.
+
+Errors: `400` (the ID is not a UUID); `401`; `404 Order not found`; `429` (the 600 per minute limit).
+
+### POST `/v1/staff/orders/:id/packed`
+
+Marks a paid order packed. No body. Written to the audit log as `order.packed`.
+
+Response `200`: the order, now `PACKED`, with `packedAt`.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `401` | see "Authentication errors on protected endpoints" | No valid staff access token, or a customer token |
+| `404` | `Order not found` | No such order |
+| `409` | `This order is packed already.` | It was packed before, maybe by someone else. Nothing changed. |
+| `409` | `Only a paid order can be packed.` | The order is in another status |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### POST `/v1/staff/orders/:id/shipped`
+
+Marks a packed order shipped, once the courier has it. Written to the audit log as `order.shipped`, with the courier and the tracking number.
+
+Request:
+```json
+{ "courierName": "Delhivery", "trackingNumber": "ee 1490 8112 3456" }
+```
+
+| Field | Rules |
+|---|---|
+| `courierName` | The courier staff booked: 2 to 60 characters, else `Name the courier in 2 to 60 characters`. Spaces at the ends are dropped, and each run of spaces becomes one. |
+| `trackingNumber` | 4 to 40 letters, digits or hyphens, starting with a letter or digit, else `A tracking number has 4 to 40 letters, digits or hyphens`. Spaces are dropped and letters made capitals: `ee 1490 8112 3456` is stored as `EE149081123456`. |
+
+Response `200`: the order, now `SHIPPED`, with `shippedAt`, `courierName` and `trackingNumber`.
+
+Errors: as for `packed`, with `400 Validation failed` for a missing or wrong field, and `409 This order has shipped already.` or `409 Only a packed order can be shipped.`
+
+### PATCH `/v1/staff/orders/:id/shipment`
+
+Corrects a typing mistake in the courier, the tracking number or both, while the order is `SHIPPED`. Send only what changes, by the same rules. The order is locked meanwhile, so two corrections take turns. Written to the audit log as `order.shipment_corrected`, with only the fields that changed. A correction that changes nothing writes no entry.
+
+Response `200`: the order as it is now.
+
+Errors: `400 Validation failed`, also with `Nothing to change` for an empty body; `401`; `404 Order not found`; `409 Only an order on its way can have its courier or tracking number corrected.` (it hasn't shipped yet, or it is delivered or cancelled); `429` (the 600 per minute limit).
+
+### POST `/v1/staff/orders/:id/delivered`
+
+Marks a shipped order delivered, once the courier says so. No body. Written to the audit log as `order.delivered`.
+
+Response `200`: the order, now `DELIVERED`, with `deliveredAt`.
+
+Errors: as for `packed`, with `409 This order is delivered already.` or `409 Only a shipped order can be marked delivered.`
+
+### POST `/v1/staff/orders/:id/cancel`
+
+**Super Users only.** Cancels an order until it ships: while it waits for payment, is paid or is packed. In one transaction, its stock comes back, and a paid order's payment goes back in full: a refund with the reason `CANCELLED_BY_STAFF` is saved, and asked of Razorpay just after. Written to the audit log as `order.cancelled`, with the status before, and the refund's ID for a paid order.
+
+Response `200`: the order, now `CANCELLED`. A paid one shows its refund in `payment.refunds`: `PENDING` once Razorpay has taken it, or `REQUESTED` while the API asks again.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `401` | see "Authentication errors on protected endpoints" | No valid staff access token, or a customer token |
+| `403` | `Only a Super User may do this.` | Called by an Admin |
+| `404` | `Order not found` | No such order |
+| `409` | `This order can no longer be cancelled.` | The order has shipped, or it is delivered, cancelled or expired |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+- **A packed order's packs go back into stock at once:** staff unpack it, and put the packs back on the shelf.
+- **Each refund costs Razorpay's fee,** about 2.36% of the order (ADR 0027).
+
+## Refunds (Super Users only)
+
+### GET `/v1/staff/refunds`
+
+Every refund, **newest first, one page at a time**, each naming its order (ADR 0028). Needs a **Super User's** staff access token: an Admin gets `403 Only a Super User may do this.` Reading is not audited.
+
+Query parameters, all optional:
+
+| Parameter | Rules | Meaning |
+|---|---|---|
+| `limit` | Whole number, 1 to 100, default 50 | Refunds per page |
+| `after` | UUID | The `nextAfter` of the previous page: continue just after it |
+| `status` | `REQUESTED`, `PENDING`, `PROCESSED` or `FAILED`, else `Use REQUESTED, PENDING, PROCESSED or FAILED` | Only refunds in this status |
+
+Response `200`:
+```json
+{
+  "refunds": [
+    {
+      "id": "c3d2e1f0-9a8b-4c7d-8e6f-5a4b3c2d1e0f",
+      "razorpayPaymentId": "pay_G3P9vcIhRs3NV4",
+      "razorpayRefundId": "rfnd_RCe7Qm0LhZ2xYw",
+      "amountRupees": 498,
+      "reason": "CANCELLED_BY_STAFF",
+      "status": "PENDING",
+      "createdAt": "2026-11-10T17:08:32.294Z",
+      "updatedAt": "2026-11-10T17:08:33.010Z",
+      "orderId": "4f7c2a9e-3b1d-4e8a-9c6f-2d5b8e1a7c30"
+    }
+  ],
+  "nextAfter": null
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `reason` | `ORDER_EXPIRED`, `ORDER_CANCELLED` or `ALREADY_PAID`: a payment that couldn't be kept (see "Paying for an order"). `CANCELLED_BY_CUSTOMER` or `CANCELLED_BY_STAFF`: a paid order cancelled before it shipped. |
+| `status` | As in "Paying for an order". **`FAILED` means Razorpay refused it:** staff give the money back by hand, in the Razorpay dashboard. |
+| `razorpayRefundId` | Razorpay's refund ID, once Razorpay has taken the refund, else `null` |
+| `orderId` | The order it belongs to: see it with `GET /v1/staff/orders/:id` |
+
+`?status=FAILED` lists the refunds to give back by hand. `nextAfter` is `null` on the last page.
+
+Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401`; `403 Only a Super User may do this.` (an Admin); `429` (the 600 per minute limit).
+
 ## Audit log (Super Users only)
 
 ### GET `/v1/staff/audit-log`
@@ -1822,7 +2067,7 @@ Query parameters, all optional:
 | `before` | UUID | The `nextBefore` of the previous page: continue just after it |
 | `action` | Like `thing.verb`, for example `admin.removed` | Only this action |
 | `actorId` | UUID | Only what this account did |
-| `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's, a category's, a product's, a pack's, an image's or a batch's ID |
+| `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's, a category's, a product's, a pack's, an image's, a batch's or an order's ID |
 
 The filters combine. Any other parameter is ignored.
 
@@ -1853,7 +2098,7 @@ Response `200`:
 - `before` and `after`: the relevant fields before and after the change, never a password, secret or token.
 - `nextBefore`: send it as `?before=` to get the next, older page. It is `null` on the last page.
 
-Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way, since part 4C `variant.created`, `variant.updated` and `variant.deleted` for pack sizes, since part 4D `image.created`, `image.updated` and `image.deleted` for product images, and since part 5 `batch.received`, `batch.updated` and `stock.changed` for stock (with the quantity before and after, the change, the reason and the note). A price change is a `variant.updated` with the old and new price. A `product.deleted` entry also keeps the product's packs and images, in `before.variants` and `before.images`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
+Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way, since part 4C `variant.created`, `variant.updated` and `variant.deleted` for pack sizes, since part 4D `image.created`, `image.updated` and `image.deleted` for product images, since part 5 `batch.received`, `batch.updated` and `stock.changed` for stock (with the quantity before and after, the change, the reason and the note), and since part 9 `order.packed`, `order.shipped` (with the courier and tracking number), `order.delivered`, `order.shipment_corrected` (with only the fields that changed) and `order.cancelled` (with the status before, and the refund's ID for a paid order) for orders. A price change is a `variant.updated` with the old and new price. A `product.deleted` entry also keeps the product's packs and images, in `before.variants` and `before.images`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
 
 Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` and `403` (as for the Admin endpoints); `429` (the 600 per minute limit).
 
@@ -1863,4 +2108,4 @@ Rules for clients:
 
 ## Not yet implemented
 
-Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: search. Of orders: GST invoices, emails confirming them and their payments, returns and refunds a customer asks for, and staff seeing and handling them, their payments and refunds. Of stock: a list of batches near their expiry. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0027 and `docs/security.md`.
+Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: search. Of orders: GST invoices, emails about them and their payments, returns and their refunds, recording a `FAILED` refund that staff gave back by hand, and a courier integration. Of stock: a list of batches near their expiry. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0028 and `docs/security.md`.
