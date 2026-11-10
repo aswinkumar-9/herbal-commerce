@@ -93,6 +93,21 @@ describe('staff routes', () => {
     }
   });
 
+  // Part 9: cancelling an order gives money back, so only Super Users may;
+  // the other order routes are for Admins too.
+  it('let only Super Users cancel an order', () => {
+    const handlers = StaffOrdersController.prototype as unknown as Record<
+      string,
+      () => unknown
+    >;
+    const superUserOnly = Object.getOwnPropertyNames(handlers).filter(
+      (name) =>
+        name !== 'constructor' &&
+        reflector.get(SUPER_USER_ONLY, handlers[name]) === true,
+    );
+    expect(superUserOnly).toEqual(['cancel']);
+  });
+
   // Part 4D: the one exception. Replacing a photo is everyday work, so
   // Admins delete images too (ADR 0023).
   it('let Admins delete images too', () => {

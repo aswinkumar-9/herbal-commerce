@@ -21,6 +21,7 @@ import type {
 } from './orders.schemas';
 import {
   ORDER_NOT_FOUND,
+  OrdersService,
   type OrderLine,
   type OrderView,
 } from './orders.service';
@@ -130,12 +131,14 @@ type StaffOrderRow = Prisma.OrderGetPayload<{
 // Orders for staff (ADR 0028). Admins and Super Users see every order, and
 // take it through its steps: packed, shipped, delivered. Each step is
 // audited in the same transaction. Only Super Users see an order's payment
-// and refunds, with Razorpay's IDs: Admins never handle money.
+// and refunds, with Razorpay's IDs, and cancel an order that has been paid:
+// Admins never handle money.
 @Injectable()
 export class StaffOrdersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly payments: PaymentsService,
+    private readonly orders: OrdersService,
     private readonly audit: AuditService,
     @InjectPinoLogger(StaffOrdersService.name)
     private readonly logger: PinoLogger,
@@ -229,6 +232,42 @@ export class StaffOrdersService {
       context,
       viewer,
     );
+  }
+
+  // Cancels an order that hasn't shipped, for a Super User: its stock comes
+  // back, and a paid order's payment goes back in full, asked of Razorpay
+  // once the cancel and its audit entry are saved.
+  async cancel(
+    id: string,
+    context: AuditContext,
+    viewer: StaffViewer,
+    now = new Date(),
+  ): Promise<StaffOrderView> {
+    const { from, refundId } = await this.prisma.$transaction(async (tx) => {
+      const cancelled = await this.orders.cancelLocked(
+        tx,
+        { id },
+        'CANCELLED_BY_STAFF',
+        now,
+      );
+      await this.audit.record(tx, {
+        ...context,
+        action: 'order.cancelled',
+        targetType: 'order',
+        targetId: id,
+        before: { status: cancelled.from },
+        after: { status: 'CANCELLED', refundId: cancelled.refundId },
+      });
+      return cancelled;
+    });
+    if (refundId) {
+      await this.payments.requestRefund(refundId);
+    }
+    this.logger.info(
+      { orderId: id, actorId: context.actorId, from },
+      'Order cancelled by staff',
+    );
+    return this.view(id, viewer);
   }
 
   // Corrects the courier or the tracking number of an order on its way,

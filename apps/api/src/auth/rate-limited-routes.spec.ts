@@ -154,6 +154,7 @@ describe('rate-limited routes', () => {
       markShipped: undefined,
       correctShipment: undefined,
       markDelivered: undefined,
+      cancel: undefined,
     });
     expect(routeLimits(StaffRefundsController)).toStrictEqual({
       list: undefined,

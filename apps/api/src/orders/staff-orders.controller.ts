@@ -15,6 +15,7 @@ import { CurrentAuditContext } from '../audit/audit-context.decorator';
 import type { AuthUser } from '../auth/auth-user';
 import { CurrentUser } from '../auth/current-user.decorator';
 import { StaffOnly } from '../auth/staff-only.decorator';
+import { SuperUserOnly } from '../auth/super-user-only.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import {
   shipmentCorrectionSchema,
@@ -31,7 +32,8 @@ import { StaffOrdersService, type StaffViewer } from './staff-orders.service';
 // Orders for staff (ADR 0028). Admins and Super Users see every order, and
 // mark it packed, shipped and delivered; every step is written to the audit
 // log. Only Super Users see an order's payment and refunds, with Razorpay's
-// IDs: Admins never handle money. Reading is not audited.
+// IDs, and cancel an order: Admins never handle money. Reading is not
+// audited.
 @StaffOnly()
 @Controller('staff/orders')
 export class StaffOrdersController {
@@ -100,6 +102,19 @@ export class StaffOrdersController {
     @CurrentAuditContext() context: AuditContext,
   ) {
     return this.orders.markDelivered(id, context, viewerOf(user));
+  }
+
+  // Cancels an order that hasn't shipped. A paid order's money goes back
+  // in full, so only a Super User may: Admins get 403.
+  @SuperUserOnly()
+  @Post(':id/cancel')
+  @HttpCode(HttpStatus.OK)
+  cancel(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: AuthUser,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.orders.cancel(id, context, viewerOf(user));
   }
 }
 

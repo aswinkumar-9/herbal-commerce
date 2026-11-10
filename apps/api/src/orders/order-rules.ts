@@ -14,8 +14,15 @@ export const DELIVERY_CHARGE_RUPEES = 49;
 export const MAX_OPEN_ORDERS = 3;
 
 export const CART_EMPTY = 'The cart is empty.';
-export const NOT_CANCELLABLE =
-  'Only an order waiting for payment can be cancelled.';
+// An order may be cancelled until it ships: while it waits for payment, and
+// once paid, until staff hand it to the courier. A paid order's payment
+// then goes back in full (ADR 0028).
+export const CANCELLABLE = [
+  'PENDING_PAYMENT',
+  'PAID',
+  'PACKED',
+] as const satisfies readonly OrderStatus[];
+export const NOT_CANCELLABLE = 'This order can no longer be cancelled.';
 export const TOO_MANY_OPEN = `You have ${MAX_OPEN_ORDERS} orders waiting for payment. Pay for one or cancel it first.`;
 export const TOTAL_CHANGED =
   'The total has changed. Check the cart and try again.';

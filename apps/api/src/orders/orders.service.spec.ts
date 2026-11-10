@@ -28,6 +28,7 @@ const V60 = 'b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1';
 const TEA = 'b3b3b3b3-b3b3-4b3b-8b3b-b3b3b3b3b3b3';
 // 7 November 2026, 11:30 in India.
 const NOW = new Date('2026-11-07T06:00:00.000Z');
+const REFUND = 'f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f101';
 
 const address = {
   fullName: 'Asha K',
@@ -131,6 +132,10 @@ function setup() {
       create: jest.fn().mockResolvedValue({ id: ORDER }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findFirst: jest.fn().mockResolvedValue({ id: ORDER }),
+      findUniqueOrThrow: jest
+        .fn()
+        .mockResolvedValue({ status: 'PENDING_PAYMENT' }),
+      update: jest.fn().mockResolvedValue({}),
     },
   };
   const prisma = {
@@ -152,7 +157,11 @@ function setup() {
     take: jest.fn().mockResolvedValue(undefined),
     release: jest.fn().mockResolvedValue(undefined),
   };
-  const payments = { summaryFor: jest.fn().mockResolvedValue(null) };
+  const payments = {
+    summaryFor: jest.fn().mockResolvedValue(null),
+    refundInFull: jest.fn().mockResolvedValue(REFUND),
+    requestRefund: jest.fn().mockResolvedValue(undefined),
+  };
   const orders = new OrdersService(
     prisma as unknown as PrismaService,
     addresses as unknown as AddressesService,
@@ -472,31 +481,70 @@ describe('OrdersService.list', () => {
 });
 
 describe('OrdersService.cancel', () => {
-  it('cancels an order waiting for payment and gives its stock back, in one transaction', async () => {
-    const { orders, tx, stock } = setup();
+  it('cancels an order waiting for payment, with the order locked, and gives its stock back, without a refund', async () => {
+    const { orders, tx, stock, payments } = setup();
 
-    await expect(orders.cancel(USER, ORDER)).resolves.toMatchObject({
+    await expect(orders.cancel(USER, ORDER, NOW)).resolves.toMatchObject({
       id: ORDER,
     });
     expect(tx.order.updateMany).toHaveBeenCalledWith({
-      where: { id: ORDER, userId: USER, status: 'PENDING_PAYMENT' },
+      where: {
+        id: ORDER,
+        userId: USER,
+        status: { in: ['PENDING_PAYMENT', 'PAID', 'PACKED'] },
+      },
+      data: { updatedAt: NOW },
+    });
+    expect(tx.order.update).toHaveBeenCalledWith({
+      where: { id: ORDER },
       data: { status: 'CANCELLED' },
     });
     expect(stock.release).toHaveBeenCalledWith(tx, ORDER);
+    expect(payments.refundInFull).not.toHaveBeenCalled();
+    expect(payments.requestRefund).not.toHaveBeenCalled();
   });
 
-  it('refuses an order no longer waiting for payment, and gives nothing back', async () => {
-    const { orders, tx, stock } = setup();
+  it('cancels a paid or packed order: the refund saved before the status, the stock back, and Razorpay asked after the transaction', async () => {
+    for (const status of ['PAID', 'PACKED']) {
+      const { orders, prisma, tx, stock, payments } = setup();
+      tx.order.findUniqueOrThrow.mockResolvedValueOnce({ status });
+
+      await orders.cancel(USER, ORDER, NOW);
+
+      expect(payments.refundInFull).toHaveBeenCalledWith(
+        tx,
+        ORDER,
+        'CANCELLED_BY_CUSTOMER',
+      );
+      expect(
+        payments.refundInFull.mock.invocationCallOrder[0] <
+          tx.order.update.mock.invocationCallOrder[0],
+      ).toBe(true);
+      expect(stock.release).toHaveBeenCalledWith(tx, ORDER);
+      expect(payments.requestRefund).toHaveBeenCalledWith(REFUND);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(
+        stock.release.mock.invocationCallOrder[0] <
+          payments.requestRefund.mock.invocationCallOrder[0],
+      ).toBe(true);
+    }
+  });
+
+  it('refuses an order that has shipped, or ended, and changes nothing', async () => {
+    const { orders, tx, stock, payments } = setup();
     tx.order.updateMany.mockResolvedValue({ count: 0 });
 
-    await expect(orders.cancel(USER, ORDER)).rejects.toThrow(
+    await expect(orders.cancel(USER, ORDER, NOW)).rejects.toThrow(
       new ConflictException(NOT_CANCELLABLE),
     );
     expect(tx.order.findFirst).toHaveBeenCalledWith({
       where: { id: ORDER, userId: USER },
       select: { id: true },
     });
+    expect(tx.order.update).not.toHaveBeenCalled();
     expect(stock.release).not.toHaveBeenCalled();
+    expect(payments.refundInFull).not.toHaveBeenCalled();
+    expect(payments.requestRefund).not.toHaveBeenCalled();
   });
 
   it("answers 404 for an unknown order or someone else's", async () => {
@@ -504,10 +552,53 @@ describe('OrdersService.cancel', () => {
     tx.order.updateMany.mockResolvedValue({ count: 0 });
     tx.order.findFirst.mockResolvedValue(null);
 
-    await expect(orders.cancel(USER, ORDER)).rejects.toThrow(
+    await expect(orders.cancel(USER, ORDER, NOW)).rejects.toThrow(
       new NotFoundException(ORDER_NOT_FOUND),
     );
     expect(stock.release).not.toHaveBeenCalled();
+  });
+});
+
+describe('OrdersService.cancelLocked', () => {
+  it("cancels anyone's order for staff, for the reason given, and answers what it had", async () => {
+    const { orders, tx, payments } = setup();
+    tx.order.findUniqueOrThrow.mockResolvedValueOnce({ status: 'PACKED' });
+
+    await expect(
+      orders.cancelLocked(
+        tx as never,
+        { id: ORDER },
+        'CANCELLED_BY_STAFF',
+        NOW,
+      ),
+    ).resolves.toEqual({ from: 'PACKED', refundId: REFUND });
+    expect(tx.order.updateMany.mock.calls[0][0].where).toStrictEqual({
+      id: ORDER,
+      status: { in: ['PENDING_PAYMENT', 'PAID', 'PACKED'] },
+    });
+    expect(tx.order.findUniqueOrThrow).toHaveBeenCalledWith({
+      where: { id: ORDER },
+      select: { status: true },
+    });
+    expect(payments.refundInFull).toHaveBeenCalledWith(
+      tx,
+      ORDER,
+      'CANCELLED_BY_STAFF',
+    );
+    expect(payments.requestRefund).not.toHaveBeenCalled();
+  });
+
+  it('answers no refund for an order that was never paid', async () => {
+    const { orders, tx } = setup();
+
+    await expect(
+      orders.cancelLocked(
+        tx as never,
+        { id: ORDER },
+        'CANCELLED_BY_STAFF',
+        NOW,
+      ),
+    ).resolves.toEqual({ from: 'PENDING_PAYMENT', refundId: null });
   });
 });
 

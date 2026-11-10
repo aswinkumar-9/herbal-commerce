@@ -1,4 +1,5 @@
 import {
+  CANCELLABLE,
   CART_EMPTY,
   DELIVERY_CHARGE_RUPEES,
   deliveryChargeRupees,
@@ -39,9 +40,8 @@ describe("the owner's numbers", () => {
 
   it('are explained in the messages', () => {
     expect(CART_EMPTY).toBe('The cart is empty.');
-    expect(NOT_CANCELLABLE).toBe(
-      'Only an order waiting for payment can be cancelled.',
-    );
+    expect(NOT_CANCELLABLE).toBe('This order can no longer be cancelled.');
+    expect(CANCELLABLE).toEqual(['PENDING_PAYMENT', 'PAID', 'PACKED']);
     expect(TOO_MANY_OPEN).toBe(
       'You have 3 orders waiting for payment. Pay for one or cancel it first.',
     );

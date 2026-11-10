@@ -18,6 +18,7 @@ function setup() {
     markShipped: jest.fn().mockResolvedValue({ id: ORDER_ID }),
     correctShipment: jest.fn().mockResolvedValue({ id: ORDER_ID }),
     markDelivered: jest.fn().mockResolvedValue({ id: ORDER_ID }),
+    cancel: jest.fn().mockResolvedValue({ id: ORDER_ID }),
   };
   const controller = new StaffOrdersController(
     orders as unknown as StaffOrdersService,
@@ -88,6 +89,16 @@ describe('StaffOrdersController', () => {
       { withPayment: true },
     );
     expect(orders.markDelivered).toHaveBeenCalledWith(ORDER_ID, CONTEXT, {
+      withPayment: true,
+    });
+  });
+
+  it('cancels with the audit context, answering a Super User the order with its payment', async () => {
+    const { controller, orders } = setup();
+
+    await controller.cancel(ORDER_ID, staff('SUPER_USER'), CONTEXT);
+
+    expect(orders.cancel).toHaveBeenCalledWith(ORDER_ID, CONTEXT, {
       withPayment: true,
     });
   });

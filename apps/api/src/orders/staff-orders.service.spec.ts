@@ -3,6 +3,7 @@ import type { PinoLogger } from 'nestjs-pino';
 import type { AuditService } from '../audit/audit.service';
 import type { PaymentsService } from '../payments/payments.service';
 import type { PrismaService } from '../prisma/prisma.service';
+import type { OrdersService } from './orders.service';
 import { StaffOrdersService } from './staff-orders.service';
 
 const ORDER_ID = '4f7c2a9e-3b1d-4e8a-9c6f-2d5b8e1a7c30';
@@ -58,6 +59,7 @@ const PAYMENT = {
 };
 
 const CONTEXT = { actorId: 'staff-1', ip: '127.0.0.1', requestId: 'req-1' };
+const REFUND_ID = 'f1f1f1f1-f1f1-4f1f-8f1f-f1f1f1f1f101';
 const ADMIN = { withPayment: false };
 
 function setup() {
@@ -81,16 +83,23 @@ function setup() {
   };
   const payments = {
     staffPaymentFor: jest.fn().mockResolvedValue(PAYMENT),
+    requestRefund: jest.fn().mockResolvedValue(undefined),
+  };
+  const orders = {
+    cancelLocked: jest
+      .fn()
+      .mockResolvedValue({ from: 'PAID', refundId: REFUND_ID }),
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const logger = { info: jest.fn() };
   const service = new StaffOrdersService(
     prisma as unknown as PrismaService,
     payments as unknown as PaymentsService,
+    orders as unknown as OrdersService,
     audit as unknown as AuditService,
     logger as unknown as PinoLogger,
   );
-  return { service, prisma, tx, payments, audit, logger };
+  return { service, prisma, tx, payments, orders, audit, logger };
 }
 
 // What a refused call throws.
@@ -402,6 +411,76 @@ describe('StaffOrdersService steps', () => {
     expect(error).toBeInstanceOf(NotFoundException);
     expect(error.message).toBe('Order not found');
     expect(audit.record).not.toHaveBeenCalled();
+  });
+});
+
+describe('StaffOrdersService.cancel', () => {
+  it('cancels a paid order for a Super User, audited with its refund, and asks Razorpay after the transaction', async () => {
+    const { service, tx, orders, audit, payments, logger } = setup();
+
+    const view = await service.cancel(
+      ORDER_ID,
+      CONTEXT,
+      { withPayment: true },
+      NOW,
+    );
+
+    expect(orders.cancelLocked).toHaveBeenCalledWith(
+      tx,
+      { id: ORDER_ID },
+      'CANCELLED_BY_STAFF',
+      NOW,
+    );
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...CONTEXT,
+      action: 'order.cancelled',
+      targetType: 'order',
+      targetId: ORDER_ID,
+      before: { status: 'PAID' },
+      after: { status: 'CANCELLED', refundId: REFUND_ID },
+    });
+    expect(payments.requestRefund).toHaveBeenCalledWith(REFUND_ID);
+    expect(
+      audit.record.mock.invocationCallOrder[0] <
+        payments.requestRefund.mock.invocationCallOrder[0],
+    ).toBe(true);
+    expect(logger.info).toHaveBeenCalledWith(
+      { orderId: ORDER_ID, actorId: 'staff-1', from: 'PAID' },
+      'Order cancelled by staff',
+    );
+    expect(view.payment).toBe(PAYMENT);
+  });
+
+  it('cancels an unpaid order without a refund', async () => {
+    const { service, orders, audit, payments } = setup();
+    orders.cancelLocked.mockResolvedValueOnce({
+      from: 'PENDING_PAYMENT',
+      refundId: null,
+    });
+
+    await service.cancel(ORDER_ID, CONTEXT, ADMIN, NOW);
+
+    expect(audit.record.mock.calls[0][1]).toMatchObject({
+      before: { status: 'PENDING_PAYMENT' },
+      after: { status: 'CANCELLED', refundId: null },
+    });
+    expect(payments.requestRefund).not.toHaveBeenCalled();
+  });
+
+  it('audits, refunds and logs nothing when the order cannot be cancelled', async () => {
+    const { service, orders, audit, payments, logger } = setup();
+    orders.cancelLocked.mockRejectedValueOnce(
+      new ConflictException('This order can no longer be cancelled.'),
+    );
+
+    const error = await refusal(service.cancel(ORDER_ID, CONTEXT, ADMIN, NOW));
+
+    expect(error).toEqual(
+      new ConflictException('This order can no longer be cancelled.'),
+    );
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(payments.requestRefund).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
   });
 });
 

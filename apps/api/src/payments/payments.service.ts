@@ -376,6 +376,34 @@ export class PaymentsService {
     return saved.id;
   }
 
+  // Records that a paid order's payment goes back in full, when the order
+  // is cancelled before it ships (ADR 0028). In the cancelling transaction;
+  // Razorpay is asked only after it, by requestRefund.
+  async refundInFull(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    reason: Extract<
+      RefundReason,
+      'CANCELLED_BY_CUSTOMER' | 'CANCELLED_BY_STAFF'
+    >,
+  ): Promise<string> {
+    const payment = await tx.payment.findUniqueOrThrow({
+      where: { orderId },
+      select: { id: true, razorpayPaymentId: true, amountRupees: true },
+    });
+    // The database pays an order only once its payment is, so this never
+    // happens.
+    if (!payment.razorpayPaymentId) {
+      throw new Error('The order was never paid');
+    }
+    return this.recordRefund(tx, {
+      paymentId: payment.id,
+      razorpayPaymentId: payment.razorpayPaymentId,
+      amountRupees: payment.amountRupees,
+      reason,
+    });
+  }
+
   // Asks Razorpay to give a recorded refund back, with our refund's ID as
   // its receipt, so a second request can never refund twice. If Razorpay
   // can't take it now, the refund stays REQUESTED and is asked again later.
