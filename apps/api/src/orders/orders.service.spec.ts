@@ -105,6 +105,14 @@ const totals = {
   totalRupees: 1_546,
 };
 const input = { addressId: ADDRESS, totalRupees: 1_546 };
+// A new order: not packed, shipped or delivered yet.
+const noSteps = {
+  packedAt: null,
+  shippedAt: null,
+  courierName: null,
+  trackingNumber: null,
+  deliveredAt: null,
+};
 
 // The order as the query returns it.
 const orderRow = {
@@ -113,6 +121,7 @@ const orderRow = {
   status: 'PENDING_PAYMENT',
   holdExpiresAt: new Date('2026-11-07T06:15:00.000Z'),
   createdAt: NOW,
+  ...noSteps,
   deliveryName: 'Asha K',
   deliveryPhone: '9845012345',
   deliveryLine1: '12, 3rd Cross, Indiranagar',
@@ -380,6 +389,7 @@ describe('OrdersService.view', () => {
       status: 'PENDING_PAYMENT',
       holdExpiresAt: new Date('2026-11-07T06:15:00.000Z'),
       createdAt: NOW,
+      ...noSteps,
       delivery: address,
       ...totals,
       items: [ashLine, teaLine],
@@ -397,6 +407,24 @@ describe('OrdersService.view', () => {
     expect(Object.keys(query.select.items.select).sort()).toEqual(
       Object.keys(ashLine).sort(),
     );
+    expect(Object.keys(query.select).sort()).toEqual(
+      Object.keys(orderRow).sort(),
+    );
+  });
+
+  it('shows how far it has come: packed, then shipped with the courier and its tracking number', async () => {
+    const { orders, prisma } = setup();
+    const shipped = {
+      status: 'SHIPPED',
+      packedAt: new Date('2026-11-08T05:00:00.000Z'),
+      shippedAt: new Date('2026-11-08T09:30:00.000Z'),
+      courierName: 'Delhivery',
+      trackingNumber: 'EE149081123456',
+      deliveredAt: null,
+    };
+    prisma.order.findFirst.mockResolvedValueOnce({ ...orderRow, ...shipped });
+
+    await expect(orders.view(USER, ORDER)).resolves.toMatchObject(shipped);
   });
 
   it('shows its payment: when it was paid, and any money given back', async () => {

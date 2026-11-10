@@ -70,6 +70,14 @@ export interface OrderView extends Quote {
   status: OrderStatus;
   holdExpiresAt: Date;
   createdAt: Date;
+  // How far it has come (ADR 0028): when it was packed, shipped and
+  // delivered, and the courier with its tracking number. Each is null until
+  // then.
+  packedAt: Date | null;
+  shippedAt: Date | null;
+  courierName: string | null;
+  trackingNumber: string | null;
+  deliveredAt: Date | null;
   delivery: {
     fullName: string;
     phone: string;
@@ -120,6 +128,11 @@ const ORDER_FIELDS = {
   status: true,
   holdExpiresAt: true,
   createdAt: true,
+  packedAt: true,
+  shippedAt: true,
+  courierName: true,
+  trackingNumber: true,
+  deliveredAt: true,
   deliveryName: true,
   deliveryPhone: true,
   deliveryLine1: true,
