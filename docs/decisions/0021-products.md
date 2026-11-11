@@ -5,6 +5,7 @@
 - Updated: 2026-11-05 (part 4C: going live also needs the HSN code and GST rate, and the shop shows pack sizes and prices, see ADR 0022)
 - Updated: 2026-11-06 (part 4D: going live also needs an image, a deleted product takes its images along, and the shop shows them, see ADR 0023)
 - Updated: 2026-11-06 (part 5: a product that still holds stock cannot be deleted, and its page says which packs are in stock, see ADR 0024)
+- Updated: 2026-11-11 (part 11: the shop can be searched by words in a product's name, summary and description, and filtered by category, type and price, see ADR 0030)
 
 ## Context
 
@@ -125,7 +126,7 @@ The foreign key's `RESTRICT` makes Postgres refuse it. The API turns that refusa
 
 - **Every detail required from the start.** Rejected by the owner: staff must be able to start a product before the papers are at hand.
 - **The details optional even for live products.** Rejected by the owner: a product page without its licence breaks the labelling rules.
-- **Ingredients as a list** (one row per ingredient with an amount). Rejected by the owner for now. The text matches the printed label exactly, and full-text search (later) can still find an ingredient.
+- **Ingredients as a list** (one row per ingredient with an amount). Rejected by the owner for now. The text matches the printed label exactly, and full-text search (later) can still find an ingredient. Since part 11, the search looks in the name, summary and description only, by the owner's choice (ADR 0030).
 - **Checking the rule in the API only.** Rejected: a future bug or a manual SQL change could put an unlicensed product online. The check constraint costs one SQL statement.
 - **Checking only the fields a change sends.** Rejected: removing the licence of a live product would pass. The rule must see the product as it will be.
 - **Product IDs in the shop's URLs and paging.** Rejected: slugs are readable and say nothing about the database.
@@ -153,4 +154,4 @@ The foreign key's `RESTRICT` makes Postgres refuse it. The API turns that refusa
   - legal review of the label fields;
   - the rules on curative claims, which are about the description text, so staff must review what they write;
   - net quantity and MRP (part 4C), batch and expiry (part 5, ADR 0024), both done since;
-  - search (later).
+  - search: done in part 11 (ADR 0030).

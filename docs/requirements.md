@@ -63,7 +63,7 @@ Assumptions to confirm: Admin handles delivery and return approval but never mon
 - Customer sign-up, login, profile, addresses (phone OTP; verification method to be chosen)
 - Product catalog: categories, variants, images, ingredients, usage, batch and expiry
 - Inventory with reservations
-- Search and filters (PostgreSQL full-text first)
+- Search and filters (PostgreSQL full-text first). Since part 11: by words in the name, summary and description, forgiving parts of words and typos (PostgreSQL's `pg_trgm`), and by category, type and price, with products in stock first, by the owner's choices on 2026-11-11 (ADR 0030)
 - Cart, checkout, delivery charge and tax, order confirmation. Since part 10, the confirmation is also emailed once the order is paid (ADR 0029)
 - Payments through a gateway (sandbox first), server-verified, idempotent. Razorpay, chosen by the owner on 2026-11-08 (ADR 0027)
 - Order lifecycle, cancellations, returns, refunds. Since part 9: packed, shipped and delivered, typed in by staff, and cancelling until shipped with the payment back in full, by the owner's choices on 2026-11-09 (ADR 0028). Returns are still to come.
