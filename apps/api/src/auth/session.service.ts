@@ -19,7 +19,7 @@ import { generateToken, hashToken } from './token.util';
 const HOUR_MS = 60 * 60 * 1000;
 // How long a sign-in lasts in total. After that the password is needed again,
 // and for staff a code too. Staff access is powerful, so it lasts one working day.
-const SESSION_TTL_MS: Record<Audience, number> = {
+export const SESSION_TTL_MS: Record<Audience, number> = {
   customer: 30 * 24 * HOUR_MS,
   staff: 12 * HOUR_MS,
 };
@@ -31,7 +31,7 @@ const ROLES: Record<Audience, UserRole[]> = {
 };
 const INVALID_CREDENTIALS = 'Invalid email or password';
 // The same answer for every failed refresh; the reason goes to the log only.
-const INVALID_REFRESH_TOKEN = 'Invalid refresh token';
+export const INVALID_REFRESH_TOKEN = 'Invalid refresh token';
 
 type LoginFailure =
   | 'unknown_account'
@@ -76,9 +76,7 @@ function liveUser(audience: Audience): Prisma.UserWhereInput {
     role: { in: ROLES[audience] },
     status: 'ACTIVE',
   };
-  return audience === 'staff'
-    ? { ...user, mfaEnabledAt: { not: null } }
-    : user;
+  return audience === 'staff' ? { ...user, mfaEnabledAt: { not: null } } : user;
 }
 
 @Injectable()
@@ -184,7 +182,12 @@ export class SessionService {
             expiresAt: true,
             revokedAt: true,
             user: {
-              select: { id: true, role: true, status: true, mfaEnabledAt: true },
+              select: {
+                id: true,
+                role: true,
+                status: true,
+                mfaEnabledAt: true,
+              },
             },
           },
         },

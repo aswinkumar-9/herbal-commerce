@@ -7,6 +7,7 @@ import { StaffAdminsController } from './staff-admins.controller';
 import { StaffAuditLogController } from './staff-audit-log.controller';
 import { StaffAuthController } from './staff-auth.controller';
 import { StaffAuthService } from './staff-auth.service';
+import { StaffBrowserSession } from './staff-browser-session';
 import { StaffMeController } from './staff-me.controller';
 import { StaffMfaService } from './staff-mfa.service';
 
@@ -24,6 +25,7 @@ import { StaffMfaService } from './staff-mfa.service';
   ],
   providers: [
     StaffAuthService,
+    StaffBrowserSession,
     StaffMfaService,
     AdminInvitationService,
     AdminsService,

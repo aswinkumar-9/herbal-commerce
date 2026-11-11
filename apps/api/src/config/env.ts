@@ -34,7 +34,9 @@ const strongSecret = z
   );
 
 const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  NODE_ENV: z
+    .enum(['development', 'test', 'production'])
+    .default('development'),
   API_PORT: z.coerce.number().int().min(1).max(65535).default(3000),
   // Proxies allowed to report the client IP (X-Forwarded-For), comma separated.
   // Empty, the default: trust none, so nobody can fake their IP.
@@ -74,6 +76,21 @@ const envSchema = z.object({
     .regex(/^https?:\/\/[^/]/, 'must be an http or https address')
     .default('http://127.0.0.1:3000/media')
     .transform((url) => url.replace(/\/+$/, '')),
+  // Where the admin console is served from (ADR 0031): only requests with
+  // this Origin get the staff session cookie. On a laptop, Vite's dev
+  // server. A final "/" is dropped.
+  ADMIN_ORIGIN: z
+    .string()
+    .transform((origin) => origin.replace(/\/+$/, ''))
+    .pipe(
+      z
+        .string()
+        .regex(
+          /^https?:\/\/[^/?#]+$/,
+          'must be an origin, such as https://admin.example.com, with no path',
+        ),
+    )
+    .default('http://localhost:5173'),
   DATABASE_URL: z.string().min(1).startsWith('postgresql://'),
   VALKEY_URL: z.string().min(1).startsWith('redis://'),
   // Signs access tokens. Generate it with the command in .env.example.
@@ -143,6 +160,10 @@ function productionProblems(env: Env): string[] {
   }
   if (!env.MEDIA_BASE_URL.startsWith('https://')) {
     problems.push('MEDIA_BASE_URL: must use https in production');
+  }
+  // The staff cookie is Secure only over https.
+  if (!env.ADMIN_ORIGIN.startsWith('https://')) {
+    problems.push('ADMIN_ORIGIN: must use https in production');
   }
   // With a test key, Razorpay's test cards would pay for real orders.
   if (!env.RAZORPAY_KEY_ID.startsWith('rzp_live_')) {
