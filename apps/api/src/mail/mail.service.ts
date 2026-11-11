@@ -1,8 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { MAIL_TRANSPORT } from './mail.types';
-import type { MailTransport } from './mail.types';
+import type { MailMessage, MailTransport } from './mail.types';
 
-function escapeHtml(value: string): string {
+// Also for the order emails (ADR 0029).
+export function escapeHtml(value: string): string {
   return value
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -16,6 +17,12 @@ export class MailService {
   constructor(
     @Inject(MAIL_TRANSPORT) private readonly transport: MailTransport,
   ) {}
+
+  // Sends an email written elsewhere: the order emails (ADR 0029), whose
+  // words are in notifications/order-emails.ts.
+  async send(message: MailMessage): Promise<void> {
+    await this.transport.send(message);
+  }
 
   async sendVerificationEmail(
     to: string,

@@ -183,7 +183,17 @@ function setup() {
     payments as unknown as PaymentsService,
     notifications as unknown as NotificationsService,
   );
-  return { orders, prisma, tx, addresses, cart, packs, stock, payments, notifications };
+  return {
+    orders,
+    prisma,
+    tx,
+    addresses,
+    cart,
+    packs,
+    stock,
+    payments,
+    notifications,
+  };
 }
 
 describe('OrdersService.quote', () => {
@@ -513,7 +523,7 @@ describe('OrdersService.list', () => {
 });
 
 describe('OrdersService.cancel', () => {
-    it('cancels an order waiting for payment, with the order locked, and gives its stock back, without a refund', async () => {
+  it('cancels an order waiting for payment, with the order locked, and gives its stock back, without a refund', async () => {
     const { orders, tx, stock, payments, notifications } = setup();
 
     await expect(orders.cancel(USER, ORDER, NOW)).resolves.toMatchObject({
