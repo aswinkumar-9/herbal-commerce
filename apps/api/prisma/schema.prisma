@@ -472,11 +472,13 @@ model Order {
   updatedAt            DateTime    @updatedAt
 
   // A customer with orders is never deleted.
-  user      User            @relation(fields: [userId], references: [id], onDelete: Restrict)
-  items     OrderItem[]
-  movements StockMovement[]
+  user          User            @relation(fields: [userId], references: [id], onDelete: Restrict)
+  items         OrderItem[]
+  movements     StockMovement[]
   // The Razorpay order its customer pays (ADR 0027).
-  payment   Payment?
+  payment       Payment?
+  // The emails about it (ADR 0029).
+  notifications Notification[]
 
   @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])
@@ -578,10 +580,74 @@ model Refund {
   updatedAt         DateTime     @updatedAt
 
   // Never deleted either.
-  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
-
+  payment       Payment        @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  // The emails about it (ADR 0029).
+  notifications Notification[]
   @@index([paymentId])
   // For the job that asks Razorpay again.
   @@index([status, createdAt])
   @@map("refunds")
+}
+
+// What an email about an order tells (ADR 0029).
+enum NotificationKind {
+  // To the customer: the order is paid, with everything in it.
+  ORDER_PAID
+  // To the customer: packed, for the courier.
+  ORDER_PACKED
+  // To the customer: handed to the courier, with its tracking number.
+  ORDER_SHIPPED
+  // To the customer: staff corrected the courier or the tracking number.
+  SHIPMENT_CORRECTED
+  // To the customer: delivered.
+  ORDER_DELIVERED
+  // To the customer: cancelled, and a paid order's money is going back.
+  ORDER_CANCELLED
+  // To the customer: Razorpay gave the money back.
+  REFUND_PROCESSED
+  // To the Super Users: Razorpay could not give the money back, so staff
+  // must.
+  REFUND_FAILED
+}
+
+enum NotificationStatus {
+  // To be sent at nextAttemptAt.
+  WAITING
+  // Sent.
+  SENT
+  // Not sent after every try. The log says so.
+  FAILED
+}
+
+// An email to send about an order (ADR 0029). It is saved in the same
+// transaction as the change it tells of, so none is lost, and none tells of
+// a change that never happened. It holds only what the email is about: the
+// email is written when it is sent, so no copy of a name or an address is
+// kept here. Never deleted, like its order.
+model Notification {
+  id            String             @id @default(uuid()) @db.Uuid
+  kind          NotificationKind
+  orderId       String             @db.Uuid
+  // The refund it tells of, for REFUND_PROCESSED and REFUND_FAILED only.
+  refundId      String?            @db.Uuid
+  status        NotificationStatus @default(WAITING)
+  // How many times sending it has started.
+  attempts      Int                @default(0)
+  // When it is sent, or tried again: at once when saved, later after a
+  // failed try, and a few minutes on while a sender has it.
+  nextAttemptAt DateTime           @default(now())
+  sentAt        DateTime?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+
+  order  Order   @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  refund Refund? @relation(fields: [refundId], references: [id], onDelete: Restrict)
+
+  // Each step of an order is told once. Corrections may come again.
+  @@unique([orderId, kind], map: "notifications_once_per_order", where: { refundId: null, kind: { not: "SHIPMENT_CORRECTED" } })
+  // And what happened to each refund, once.
+  @@unique([refundId, kind])
+  // For the sender: the waiting ones, the most due first.
+  @@index([status, nextAttemptAt])
+  @@map("notifications")
 }
