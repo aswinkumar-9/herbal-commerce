@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 9)
 - Date: 2026-11-10
+- Updated: 2026-11-11 (part 10: the customer is emailed at each step, when the shipment is corrected, and when an order is cancelled, see ADR 0029)
 
 ## Context
 
@@ -168,7 +169,7 @@ Before they were applied:
 - **Showing staff the customer's email or account.** Not needed to pack and ship: the delivery name, phone and address are enough, as the matrix's "limited view" for fulfilment proposes.
 - **A row lock in raw SQL** (`SELECT … FOR UPDATE`). Not needed: an ordinary update of `updatedAt`, with the status in its filter, locks the order and checks its status at once (ADR 0027).
 - **Cancelling part of an order.** Not now: the whole order and the whole payment, as every refund (ADR 0027).
-- **Emails at each step.** Not yet: orders send no emails so far (ADR 0026, "Still open").
+- **Emails at each step.** Not yet: orders send no emails so far (ADR 0026, "Still open"). Done in part 10 (ADR 0029).
 
 ## Consequences
 
@@ -196,7 +197,7 @@ Before they were applied:
 - **Still open:**
   - returns, after delivery, and their refunds;
   - recording in the API that staff gave a `FAILED` refund back by hand;
-  - emails to the customer when an order ships, with its tracking number, when it is delivered, and when it is cancelled;
+  - emails to the customer when an order ships, with its tracking number, when it is delivered, and when it is cancelled: done in part 10 (ADR 0029);
   - a courier integration;
   - the admin console that uses these routes;
   - a note from staff on why they cancelled an order;
