@@ -149,12 +149,18 @@ function setup() {
       update: jest.fn().mockResolvedValue({}),
     },
   };
+  // Called as each transaction is saved, so a test can tell what came after.
+  const committed = jest.fn();
   const prisma = {
     order: {
       findFirst: jest.fn().mockResolvedValue(orderRow),
       findMany: jest.fn().mockResolvedValue([]),
     },
-    $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)),
+    $transaction: jest.fn(async (run: (client: typeof tx) => unknown) => {
+      const result = await run(tx);
+      committed();
+      return result;
+    }),
   };
   const addresses = { deliveryAddress: jest.fn().mockResolvedValue(address) };
   const cart = {
@@ -173,7 +179,10 @@ function setup() {
     refundInFull: jest.fn().mockResolvedValue(REFUND),
     requestRefund: jest.fn().mockResolvedValue(undefined),
   };
-  const notifications = { queue: jest.fn().mockResolvedValue(undefined) };
+  const notifications = {
+    queue: jest.fn().mockResolvedValue(undefined),
+    wake: jest.fn(),
+  };
   const orders = new OrdersService(
     prisma as unknown as PrismaService,
     addresses as unknown as AddressesService,
@@ -193,6 +202,7 @@ function setup() {
     stock,
     payments,
     notifications,
+    committed,
   };
 }
 
@@ -524,7 +534,7 @@ describe('OrdersService.list', () => {
 
 describe('OrdersService.cancel', () => {
   it('cancels an order waiting for payment, with the order locked, and gives its stock back, without a refund', async () => {
-    const { orders, tx, stock, payments, notifications } = setup();
+    const { orders, tx, stock, payments, notifications, committed } = setup();
 
     await expect(orders.cancel(USER, ORDER, NOW)).resolves.toMatchObject({
       id: ORDER,
@@ -553,11 +563,17 @@ describe('OrdersService.cancel', () => {
       tx.order.update.mock.invocationCallOrder[0] <
         notifications.queue.mock.invocationCallOrder[0],
     ).toBe(true);
+    // Sent once the transaction is saved (ADR 0029).
+    expect(notifications.wake).toHaveBeenCalledTimes(1);
+    expect(
+      committed.mock.invocationCallOrder[0] <
+        notifications.wake.mock.invocationCallOrder[0],
+    ).toBe(true);
   });
 
   it('cancels a paid or packed order: the refund saved before the status, the stock back, and Razorpay asked after the transaction', async () => {
     for (const status of ['PAID', 'PACKED']) {
-      const { orders, prisma, tx, stock, payments } = setup();
+      const { orders, prisma, tx, stock, payments, notifications } = setup();
       tx.order.findUniqueOrThrow.mockResolvedValueOnce({ status });
 
       await orders.cancel(USER, ORDER, NOW);
@@ -576,6 +592,12 @@ describe('OrdersService.cancel', () => {
       expect(prisma.$transaction).toHaveBeenCalledTimes(1);
       expect(
         stock.release.mock.invocationCallOrder[0] <
+          payments.requestRefund.mock.invocationCallOrder[0],
+      ).toBe(true);
+      // The email first: a slow Razorpay never holds it up.
+      expect(notifications.wake).toHaveBeenCalledTimes(1);
+      expect(
+        notifications.wake.mock.invocationCallOrder[0] <
           payments.requestRefund.mock.invocationCallOrder[0],
       ).toBe(true);
     }
@@ -597,6 +619,7 @@ describe('OrdersService.cancel', () => {
     expect(payments.refundInFull).not.toHaveBeenCalled();
     expect(payments.requestRefund).not.toHaveBeenCalled();
     expect(notifications.queue).not.toHaveBeenCalled();
+    expect(notifications.wake).not.toHaveBeenCalled();
   });
 
   it("answers 404 for an unknown order or someone else's", async () => {
@@ -642,6 +665,8 @@ describe('OrdersService.cancelLocked', () => {
       kind: 'ORDER_CANCELLED',
       orderId: ORDER,
     });
+    // Sent by the caller, once the transaction is saved.
+    expect(notifications.wake).not.toHaveBeenCalled();
   });
 
   it('answers no refund for an order that was never paid', async () => {

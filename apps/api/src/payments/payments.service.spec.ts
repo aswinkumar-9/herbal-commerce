@@ -43,9 +43,15 @@ function setup() {
     $transaction: jest.fn(),
   };
   // A refund's move and its email are one transaction: here, on the same
-  // client, so the moves are seen on prisma.refund.
+  // client, so the moves are seen on prisma.refund. Each is marked once
+  // saved, so a test can tell what came after.
+  const committed = jest.fn();
   prisma.$transaction.mockImplementation(
-    (work: (client: typeof prisma) => unknown) => work(prisma),
+    async (work: (client: typeof prisma) => unknown) => {
+      const result = await work(prisma);
+      committed();
+      return result;
+    },
   );
   const tx = {
     payment: {
@@ -75,7 +81,10 @@ function setup() {
       status: 'pending',
     }),
   };
-  const notifications = { queue: jest.fn().mockResolvedValue(undefined) };
+  const notifications = {
+    queue: jest.fn().mockResolvedValue(undefined),
+    wake: jest.fn(),
+  };
   const logger = { warn: jest.fn(), error: jest.fn() };
   const service = new PaymentsService(
     prisma as unknown as PrismaService,
@@ -91,6 +100,7 @@ function setup() {
     razorpay,
     notifications,
     logger,
+    committed,
   };
 }
 
@@ -1014,6 +1024,34 @@ describe('PaymentsService', () => {
       expect(moved.notifications.queue).not.toHaveBeenCalled();
     });
 
+    it('is sent once its move is saved, and never when nothing was saved', async () => {
+      for (const said of ['processed', 'failed'] as const) {
+        const { service, razorpay, notifications, committed } = setup();
+        razorpay.refund.mockResolvedValueOnce(answer(said));
+
+        await service.requestRefund(REFUND_ID);
+
+        expect(notifications.wake).toHaveBeenCalledTimes(1);
+        expect(
+          committed.mock.invocationCallOrder[0] <
+            notifications.wake.mock.invocationCallOrder[0],
+        ).toBe(true);
+      }
+
+      for (const [said, count] of [
+        ['pending', 1],
+        ['processed', 0],
+      ] as const) {
+        const { service, prisma, razorpay, notifications } = setup();
+        razorpay.refund.mockResolvedValueOnce(answer(said));
+        prisma.refund.updateMany.mockResolvedValueOnce({ count });
+
+        await service.requestRefund(REFUND_ID);
+
+        expect(notifications.wake).not.toHaveBeenCalled();
+      }
+    });
+
     it('tells the Super Users of a refund Razorpay refuses outright', async () => {
       const { service, prisma, razorpay, notifications } = setup();
       razorpay.refund.mockRejectedValueOnce(
@@ -1100,6 +1138,8 @@ describe('PaymentsService', () => {
       const refused = new Error('the database refused the email');
       notifications.queue.mockRejectedValueOnce(refused);
       await expect(service.refundChanged(change)).rejects.toBe(refused);
+      // Only the one saved is sent.
+      expect(notifications.wake).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -75,12 +75,18 @@ function setup() {
       update: jest.fn().mockResolvedValue({}),
     },
   };
+  // Called as each transaction is saved, so a test can tell what came after.
+  const committed = jest.fn();
   const prisma = {
     order: {
       findMany: jest.fn().mockResolvedValue([]),
       findUnique: jest.fn().mockResolvedValue(ROW),
     },
-    $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
+    $transaction: jest.fn(async (work: (client: typeof tx) => unknown) => {
+      const result = await work(tx);
+      committed();
+      return result;
+    }),
   };
   const payments = {
     staffPaymentFor: jest.fn().mockResolvedValue(PAYMENT),
@@ -92,7 +98,10 @@ function setup() {
       .mockResolvedValue({ from: 'PAID', refundId: REFUND_ID }),
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
-  const notifications = { queue: jest.fn().mockResolvedValue(undefined) };
+  const notifications = {
+    queue: jest.fn().mockResolvedValue(undefined),
+    wake: jest.fn(),
+  };
   const logger = { info: jest.fn() };
   const service = new StaffOrdersService(
     prisma as unknown as PrismaService,
@@ -111,6 +120,7 @@ function setup() {
     audit,
     notifications,
     logger,
+    committed,
   };
 }
 
@@ -277,7 +287,8 @@ describe('StaffOrdersService.view', () => {
 
 describe('StaffOrdersService steps', () => {
   it('packs a paid order: the status and its time in one guarded update, audited, and answers the order', async () => {
-    const { service, prisma, tx, audit, notifications, logger } = setup();
+    const { service, prisma, tx, audit, notifications, logger, committed } =
+      setup();
 
     const view = await service.markPacked(ORDER_ID, CONTEXT, ADMIN, NOW);
 
@@ -301,6 +312,12 @@ describe('StaffOrdersService steps', () => {
       { orderId: ORDER_ID, actorId: 'staff-1', status: 'PACKED' },
       'Order moved to its next step',
     );
+    // Sent once the step and its audit entry are saved (ADR 0029).
+    expect(notifications.wake).toHaveBeenCalledTimes(1);
+    expect(
+      committed.mock.invocationCallOrder[0] <
+        notifications.wake.mock.invocationCallOrder[0],
+    ).toBe(true);
     expect(view.reference).toBe('7KQ2M9XDPA');
     expect(view).not.toHaveProperty('payment');
     expect(prisma.order.findUnique).toHaveBeenCalledWith(
@@ -333,6 +350,7 @@ describe('StaffOrdersService steps', () => {
       kind: 'ORDER_SHIPPED',
       orderId: ORDER_ID,
     });
+    expect(notifications.wake).toHaveBeenCalledTimes(1);
   });
 
   it('marks a shipped order delivered, and shows a Super User its payment', async () => {
@@ -420,6 +438,7 @@ describe('StaffOrdersService steps', () => {
       ]);
       expect(audit.record).not.toHaveBeenCalled();
       expect(notifications.queue).not.toHaveBeenCalled();
+      expect(notifications.wake).not.toHaveBeenCalled();
       expect(logger.info).not.toHaveBeenCalled();
     }
   });
@@ -441,7 +460,16 @@ describe('StaffOrdersService steps', () => {
 
 describe('StaffOrdersService.cancel', () => {
   it('cancels a paid order for a Super User, audited with its refund, and asks Razorpay after the transaction', async () => {
-    const { service, tx, orders, audit, payments, logger } = setup();
+    const {
+      service,
+      tx,
+      orders,
+      audit,
+      payments,
+      notifications,
+      logger,
+      committed,
+    } = setup();
 
     const view = await service.cancel(
       ORDER_ID,
@@ -469,6 +497,16 @@ describe('StaffOrdersService.cancel', () => {
       audit.record.mock.invocationCallOrder[0] <
         payments.requestRefund.mock.invocationCallOrder[0],
     ).toBe(true);
+    // The email once saved, before Razorpay is asked (ADR 0029).
+    expect(notifications.wake).toHaveBeenCalledTimes(1);
+    expect(
+      committed.mock.invocationCallOrder[0] <
+        notifications.wake.mock.invocationCallOrder[0],
+    ).toBe(true);
+    expect(
+      notifications.wake.mock.invocationCallOrder[0] <
+        payments.requestRefund.mock.invocationCallOrder[0],
+    ).toBe(true);
     expect(logger.info).toHaveBeenCalledWith(
       { orderId: ORDER_ID, actorId: 'staff-1', from: 'PAID' },
       'Order cancelled by staff',
@@ -477,7 +515,7 @@ describe('StaffOrdersService.cancel', () => {
   });
 
   it('cancels an unpaid order without a refund', async () => {
-    const { service, orders, audit, payments } = setup();
+    const { service, orders, audit, payments, notifications } = setup();
     orders.cancelLocked.mockResolvedValueOnce({
       from: 'PENDING_PAYMENT',
       refundId: null,
@@ -490,10 +528,11 @@ describe('StaffOrdersService.cancel', () => {
       after: { status: 'CANCELLED', refundId: null },
     });
     expect(payments.requestRefund).not.toHaveBeenCalled();
+    expect(notifications.wake).toHaveBeenCalledTimes(1);
   });
 
   it('audits, refunds and logs nothing when the order cannot be cancelled', async () => {
-    const { service, orders, audit, payments, logger } = setup();
+    const { service, orders, audit, payments, notifications, logger } = setup();
     orders.cancelLocked.mockRejectedValueOnce(
       new ConflictException('This order can no longer be cancelled.'),
     );
@@ -505,13 +544,14 @@ describe('StaffOrdersService.cancel', () => {
     );
     expect(audit.record).not.toHaveBeenCalled();
     expect(payments.requestRefund).not.toHaveBeenCalled();
+    expect(notifications.wake).not.toHaveBeenCalled();
     expect(logger.info).not.toHaveBeenCalled();
   });
 });
 
 describe('StaffOrdersService.correctShipment', () => {
   it('locks the order on its way, changes only what differs, audits it, and tells the customer', async () => {
-    const { service, tx, audit, notifications, logger } = setup();
+    const { service, tx, audit, notifications, logger, committed } = setup();
 
     const view = await service.correctShipment(
       ORDER_ID,
@@ -545,6 +585,11 @@ describe('StaffOrdersService.correctShipment', () => {
       { orderId: ORDER_ID, actorId: 'staff-1' },
       'Order shipment corrected',
     );
+    expect(notifications.wake).toHaveBeenCalledTimes(1);
+    expect(
+      committed.mock.invocationCallOrder[0] <
+        notifications.wake.mock.invocationCallOrder[0],
+    ).toBe(true);
     expect(view.reference).toBe('7KQ2M9XDPA');
   });
 
@@ -586,6 +631,7 @@ describe('StaffOrdersService.correctShipment', () => {
     expect(tx.order.update).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
     expect(notifications.queue).not.toHaveBeenCalled();
+    expect(notifications.wake).not.toHaveBeenCalled();
     expect(logger.info).not.toHaveBeenCalled();
     expect(view.reference).toBe('7KQ2M9XDPA');
   });
@@ -624,5 +670,6 @@ describe('StaffOrdersService.correctShipment', () => {
     expect(tx.order.update).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
     expect(notifications.queue).not.toHaveBeenCalled();
+    expect(notifications.wake).not.toHaveBeenCalled();
   });
 });

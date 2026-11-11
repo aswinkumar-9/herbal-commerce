@@ -51,12 +51,18 @@ function setup() {
         .mockResolvedValue({ status: 'PENDING_PAYMENT', items }),
     },
   };
+  // Called as each transaction is saved, so a test can tell what came after.
+  const committed = jest.fn();
   const prisma = {
     order: {
       findFirst: jest.fn().mockResolvedValue(order),
       findMany: jest.fn().mockResolvedValue([]),
     },
-    $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
+    $transaction: jest.fn(async (work: (client: typeof tx) => unknown) => {
+      const result = await work(tx);
+      committed();
+      return result;
+    }),
   };
   const payments = {
     keyId: 'rzp_test_FakeKey0123',
@@ -78,7 +84,10 @@ function setup() {
   const orders = {
     view: jest.fn().mockResolvedValue({ id: ORDER_ID, status: 'PAID' }),
   };
-  const notifications = { queue: jest.fn().mockResolvedValue(undefined) };
+  const notifications = {
+    queue: jest.fn().mockResolvedValue(undefined),
+    wake: jest.fn(),
+  };
   const logger = { error: jest.fn(), warn: jest.fn() };
   const service = new OrderPaymentsService(
     prisma as unknown as PrismaService,
@@ -97,6 +106,7 @@ function setup() {
     orders,
     notifications,
     logger,
+    committed,
   };
 }
 
@@ -386,7 +396,8 @@ describe('OrderPaymentsService.confirm', () => {
 
 describe('OrderPaymentsService.settle', () => {
   it('pays an order waiting for payment: the order locked first, the payment before the order', async () => {
-    const { service, prisma, tx, payments, stock, notifications } = setup();
+    const { service, prisma, tx, payments, stock, notifications, committed } =
+      setup();
 
     await expect(service.settle(captured.id, NOW)).resolves.toEqual({
       kind: 'PAID',
@@ -442,6 +453,12 @@ describe('OrderPaymentsService.settle', () => {
     expect(stock.take).not.toHaveBeenCalled();
     expect(payments.recordRefund).not.toHaveBeenCalled();
     expect(payments.requestRefund).not.toHaveBeenCalled();
+    // Sent once the transaction is saved (ADR 0029).
+    expect(notifications.wake).toHaveBeenCalledTimes(1);
+    expect(
+      committed.mock.invocationCallOrder[0] <
+        notifications.wake.mock.invocationCallOrder[0],
+    ).toBe(true);
   });
 
   it('changes nothing for a payment that is not captured', async () => {
@@ -554,6 +571,7 @@ describe('OrderPaymentsService.settle', () => {
       kind: 'ORDER_PAID',
       orderId: ORDER_ID,
     });
+    expect(notifications.wake).toHaveBeenCalledTimes(1);
   });
 
   it('gives a late payment back in full when the stock is gone, and asks Razorpay only after saving', async () => {
@@ -582,6 +600,7 @@ describe('OrderPaymentsService.settle', () => {
     expect(tx.order.updateMany).toHaveBeenCalledTimes(1);
     // No email for a payment given back (the owner's choice, ADR 0029).
     expect(notifications.queue).not.toHaveBeenCalled();
+    expect(notifications.wake).not.toHaveBeenCalled();
     expect(payments.requestRefund).toHaveBeenCalledWith(REFUND_ID);
     const saved = await prisma.$transaction.mock.results[0].value;
     expect(saved).toMatchObject({ kind: 'REFUNDING' });
@@ -679,6 +698,7 @@ describe('OrderPaymentsService.settle', () => {
       'The order changed while it was locked',
     );
     expect(notifications.queue).not.toHaveBeenCalled();
+    expect(notifications.wake).not.toHaveBeenCalled();
   });
 
   it("passes Razorpay's failure on, before deciding anything", async () => {

@@ -245,7 +245,8 @@ export class StaffOrdersService {
 
   // Cancels an order that hasn't shipped, for a Super User: its stock comes
   // back, and a paid order's payment goes back in full, asked of Razorpay
-  // once the cancel and its audit entry are saved.
+  // once the cancel and its audit entry are saved. The email that tells the
+  // customer is sent before that (ADR 0029).
   async cancel(
     id: string,
     context: AuditContext,
@@ -269,6 +270,7 @@ export class StaffOrdersService {
       });
       return cancelled;
     });
+    this.notifications.wake();
     if (refundId) {
       await this.payments.requestRefund(refundId);
     }
@@ -281,7 +283,8 @@ export class StaffOrdersService {
 
   // Corrects the courier or the tracking number of an order on its way,
   // with the order locked, so two corrections take turns. One that changes
-  // nothing writes no audit entry.
+  // something sends the customer the new details once saved (ADR 0029); one
+  // that changes nothing writes no audit entry and sends no email.
   async correctShipment(
     id: string,
     correction: ShipmentCorrection,
@@ -339,6 +342,7 @@ export class StaffOrdersService {
       return true;
     });
     if (changed) {
+      this.notifications.wake();
       this.logger.info(
         { orderId: id, actorId: context.actorId },
         'Order shipment corrected',
@@ -350,7 +354,8 @@ export class StaffOrdersService {
   // Takes one step, guarded by the order's status: only an order in the
   // step's status moves on, so a double click, or two staff at once, move
   // it once. The step, its audit entry and the email that tells the
-  // customer (ADR 0029) are one transaction.
+  // customer (ADR 0029) are one transaction; the email is sent once it is
+  // saved.
   private async takeStep(
     id: string,
     to: OrderStep,
@@ -390,6 +395,7 @@ export class StaffOrdersService {
         after: { status: to, ...details },
       });
     });
+    this.notifications.wake();
     this.logger.info(
       { orderId: id, actorId: context.actorId, status: to },
       'Order moved to its next step',

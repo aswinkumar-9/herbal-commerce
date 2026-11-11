@@ -188,8 +188,9 @@ export class OrderPaymentsService {
   //   owner's rule);
   // - a cancelled one gives the payment back;
   // - a second payment for an order already paid goes back.
-  // The same payment settled again changes nothing. Razorpay is asked for a
-  // refund only once the transaction is saved.
+  // The same payment settled again changes nothing. Only once the
+  // transaction is saved, the email that tells of a paid order is sent
+  // (ADR 0029), and Razorpay is asked for a refund.
   async settle(
     razorpayPaymentId: string,
     now = new Date(),
@@ -212,6 +213,9 @@ export class OrderPaymentsService {
     const settlement = await this.prisma.$transaction((tx) =>
       this.settleLocked(tx, record, paid.id, now),
     );
+    if (settlement.kind === 'PAID') {
+      this.notifications.wake();
+    }
     if (settlement.kind === 'REFUNDING') {
       await this.payments.requestRefund(settlement.refundId);
     }

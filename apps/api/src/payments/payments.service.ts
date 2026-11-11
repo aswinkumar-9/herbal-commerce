@@ -516,13 +516,14 @@ export class PaymentsService {
 
   // Moves a refund on from the status it was read in, unless it has moved
   // already. When the money is back, or Razorpay could not give it back, the
-  // email that tells of it is saved in the same transaction (ADR 0029).
+  // email that tells of it is saved in the same transaction (ADR 0029), and
+  // sent once it is saved.
   private async moveRefund(
     refundId: string,
     from: RefundStatus,
     data: { status: RefundStatus; razorpayRefundId?: string },
   ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
+    const queued = await this.prisma.$transaction(async (tx) => {
       const { count } = await tx.refund.updateMany({
         where: { id: refundId, status: from },
         data,
@@ -538,8 +539,13 @@ export class PaymentsService {
           orderId: payment.orderId,
           refundId,
         });
+        return true;
       }
+      return false;
     });
+    if (queued) {
+      this.notifications.wake();
+    }
   }
 
   // Razorpay refuses a second order with the same receipt. Then the first
