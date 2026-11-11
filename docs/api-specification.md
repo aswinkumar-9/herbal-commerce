@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.21.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.22.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -476,6 +476,54 @@ Errors:
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
 ## Products
+
+### GET `/v1/products`
+
+**Public.** The shop's search (ADR 0030): live products, active and in an active category, found by words in their name, summary or description, and filtered by category, type and price. Words may be part of a word, or misspelt: "ashwa" and "ashwaganda" both find Ashwagandha. Without words, it lists every live product.
+
+Query parameters, all optional:
+
+| Parameter | Rules | Meaning |
+|---|---|---|
+| `q` | 2 to 100 characters, after trimming; each run of spaces becomes one; empty means none | The search words |
+| `category` | A category's slug | Only that category. A hidden or unknown one finds nothing. |
+| `type` | `AYURVEDIC_MEDICINE`, `FOOD_OR_SUPPLEMENT` or `COSMETIC` | Only that type |
+| `minPriceRupees`, `maxPriceRupees` | Whole numbers, 0 to 1000000; the lowest not above the highest | The product's lowest price on sale is within them. A product with no pack on sale is then never found. |
+| `sort` | `relevance`, `price-asc`, `price-desc` or `name` | Default: `relevance` with words, `name` without. `relevance` needs words. |
+| `page` | Whole number, 1 to 100, default 1 | The page |
+| `limit` | Whole number, 1 to 50, default 20 | Products per page |
+
+**Products in stock always come first,** then by the sort asked for, then by name, then by slug, so the same search answers in the same order every time. By price, a product with no pack on sale comes last.
+
+Response `200`:
+```json
+{
+  "products": [
+    {
+      "name": "Ashwagandha Capsules",
+      "slug": "ashwagandha-capsules",
+      "summary": "For calm and strength",
+      "fromPriceRupees": 400,
+      "imageUrl": "http://127.0.0.1:3000/media/products/32d470e1-c036-42a5-95c3-1b17c172e8e5-small.webp",
+      "inStock": true
+    }
+  ],
+  "total": 1,
+  "page": 1,
+  "nextPage": null
+}
+```
+- Each product has exactly these six fields: those of a category page's card, and `inStock`, true when any of its packs on sale is in stock.
+- `total`: how many products were found. `nextPage`: the next page's number, or `null` on the last page.
+- Up to 500 products are weighed for one search (ADR 0030).
+- The search words are never stored, and the request log shows them as `q=[REDACTED]`.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | A parameter breaks its rule. Each error names it: `Search with at least 2 characters`, `Search with at most 100 characters`, `Give a price in whole rupees`, `The lowest price is above the highest`, `Sorting by relevance needs search words`, and so on. |
+| `429` | `code: "RATE_LIMITED"` | 120 searches per minute per IP, or the 600 per minute limit |
 
 ### GET `/v1/products/:slug`
 

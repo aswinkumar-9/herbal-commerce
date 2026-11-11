@@ -232,6 +232,12 @@ model Product {
   images   ProductImage[]
 
   @@index([categoryId])
+  // The search (ADR 0030): trigram indexes, so a part of a word, or a word
+  // with a typo, in the name, the summary or the description still finds
+  // the product.
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_name_trgm_idx")
+  @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_summary_trgm_idx")
+  @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_description_trgm_idx")
   @@map("products")
 }
 

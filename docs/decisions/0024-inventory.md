@@ -6,6 +6,7 @@
 - Updated: 2026-11-08 (part 7: orders take stock from the batch that expires first and give it back, and deleting a written-off product stays allowed, by the owner's choice, see ADR 0026)
 - Updated: 2026-11-09 (part 8: an expired order paid late takes its stock again, see ADR 0027)
 - Updated: 2026-11-10 (part 9: a paid or packed order cancelled before it ships gives its stock back, see ADR 0028)
+- Updated: 2026-11-11 (part 11: the search asks the inventory which packs are in stock, and puts products in stock first, see ADR 0030)
 
 ## Context
 

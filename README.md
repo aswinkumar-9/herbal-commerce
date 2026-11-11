@@ -91,6 +91,7 @@ It first clears the local rate-limit counters, so it can run again at once. Then
   - every pack on a product page shows only its SKU, size, prices and whether it is in stock, never a price above its MRP, and each card's lowest price matches its product page;
   - every product page shows at least one image, each with only its addresses, size and description, and each card's image is the small file of its product's main photo;
   - every image file, large and small, is served as WebP for any site to show, and the image folders are never listed;
+- search: a 1-letter word, relevance without words, a lowest price above the highest, and more than 50 at once are refused; searching without words lists every live product once, those in stock first, each card agreeing with its category card and product page; and a live product is found by the start of a word in its name, by that word with a typo, and by its category, type and price;
 - the cart: it needs a customer token and starts empty, refuses an unknown pack size and more than 4 packs, puts a pack in stock into one customer's cart only (with today's price and no IDs), and answers `204` when a pack is removed or the cart emptied;
 - orders: the checkout needs a customer token, an empty cart can be neither checked out nor ordered, and an order needs an `Idempotency-Key` and a valid body. With a pack in stock, an order is placed at the checkout's total, holds its stock for 15 minutes and empties the cart; the same key answers the same order, which a second customer can't see; cancelling gives the stock back, the customer is emailed at once that the order is cancelled, and cancelling again answers `409 This order can no longer be cancelled.`; and the order shows its customer that it isn't packed, shipped or delivered yet. Orders are never deleted, so each such run leaves one cancelled order behind;
 - paying: with a pack in stock, starting to pay for that order answers in rupees only, with a Razorpay test key and the same Razorpay order every time; only its owner can pay for it; a wrong or missing confirmation is refused; the order shows its payment without Razorpay's IDs; and once cancelled it can no longer be paid. This calls Razorpay's test mode, so the smoke test needs the internet, and each run leaves a test order in the Razorpay dashboard;
@@ -587,6 +588,38 @@ Dates are written like `2028-09-30` (year, month, day), and "today" is India's d
 - **A pack size or product that still holds stock cannot be deleted.** Write its batches off to 0 first, then delete it.
 - Every change is in the audit log: `batch.received`, `batch.updated` (with only what changed) and `stock.changed` (with the quantity before and after). Read a batch's story with `?targetId=$batchId` (see "Read the audit log").
 
+## Search the shop
+
+Anyone may search the shop, signed in or not (ADR 0030). A search looks in each live product's name, summary and description, and forgives part of a word or a typo: "ashwa" and "ashwaganda" both find Ashwagandha. Products in stock come first, and the rest are marked `"inStock": false`.
+
+```powershell
+$api = 'http://localhost:3000/v1'
+(Invoke-RestMethod "$api/products?q=ashwa").products | Format-Table name, fromPriceRupees, inStock
+```
+
+Add filters and an order, with or without words:
+
+| Parameter | Example | Meaning |
+|---|---|---|
+| `q` | `q=tulsi tea` | The search words, 2 to 100 characters |
+| `category` | `category=herbal-teas` | One category, by its slug |
+| `type` | `type=COSMETIC` | `AYURVEDIC_MEDICINE`, `FOOD_OR_SUPPLEMENT` or `COSMETIC` |
+| `minPriceRupees`, `maxPriceRupees` | `maxPriceRupees=300` | The product's lowest price on sale, in whole rupees |
+| `sort` | `sort=price-asc` | `relevance` (with words only, and their default), `price-asc`, `price-desc` or `name` (the default without words) |
+| `page`, `limit` | `page=2&limit=50` | Up to 50 a page; the answer's `nextPage` is the next one, or empty |
+
+```powershell
+$page = Invoke-RestMethod "$api/products?category=herbal-supplements&sort=price-asc&limit=50"
+$page | Format-List total, page, nextPage
+$page.products | Format-Table name, fromPriceRupees, inStock
+Remove-Variable api, page
+```
+
+- **Only live products in active categories are found,** as on the category pages. A hidden or unknown category finds nothing.
+- **The ingredients are not searched,** by the owner's choice: a word only on the label's ingredients finds nothing.
+- **A search has its own limit:** 120 per minute per IP (`429` after that).
+- **The API's log hides the search words:** the request shows `q=[REDACTED]`, because a search may tell of someone's health.
+
 ## Use the cart
 
 A signed-in customer keeps a cart on the server (ADR 0025). It holds pack sizes and how many packs of each: **at most 4 packs of one product, all its pack sizes together,** and at most 50 pack sizes. It keeps no prices: it always shows today's. It holds no stock either: stock is held when an order is placed (see "Place an order"). Only customers have carts: a staff token gets `401`. There are no apps yet, so the cart is tried by hand, with a throwaway customer.
@@ -904,6 +937,8 @@ Each email is saved with the change it tells of, and sent within a second of it.
 - **After paying, the order still waits for payment:** Razorpay hasn't captured the payment. Check in the dashboard that payments are captured automatically, Razorpay's default.
 - **The authenticator app says "illegal character":** a `0`, `1`, `8` or `9` was typed. The key only has `A`–`Z` and `2`–`7`, so type the letters O, I or B instead.
 - **The setup command refuses every code:** the key in the app differs from the one shown (often `0` for O), or the entry is not **Time based**, or the phone's clock is off. Set the phone's time automatically, delete the app entry and run the command again.
+- **A product isn't found by the search:** check that it is live, in an active category (see "Manage products"). A word only in its ingredients, usage or maker isn't searched. A spelling that shares too little with the name, such as "tulasi" for "Tulsi", isn't found either.
+- **The search answers `400 Validation failed`:** the `errors` list names the parameter. Words need 2 to 100 characters, `sort=relevance` needs words, and the lowest price can't be above the highest.
 - **`429 Too Many Requests` while testing by hand:** you used up a rate limit (the `Retry-After` header says for how long). Wait, or run `pnpm api:limits:clear`.
 - **The staff login answers `401`:** find `Staff sign-in failed` in the API log. Its `reason` says why, without the email, password or code:
   - `wrong_code` (the password was right): usually the app shows codes from an **older** key. After a second setup, only the newest key works. Delete the old entries from the app, or run `pnpm api:setup-staff-mfa` again if you're unsure which one is right. Also check that the code comes from the entry with **this** account's email.
