@@ -798,6 +798,141 @@ async function main() {
     'the image folders are never listed',
     mediaFolders.every((status) => status === 404),
   );
+  // Search (part 11): anyone may search the shop, by words and filters.
+  // Words of 1 letter, relevance without words, and a lowest price above
+  // the highest are refused.
+  const searchRefusals = [];
+  for (const [query, field] of [
+    ['q=a', 'q'],
+    ['sort=relevance', 'sort'],
+    ['minPriceRupees=500&maxPriceRupees=100', 'minPriceRupees'],
+    ['limit=51', 'limit'],
+  ]) {
+    const answer = await call('GET', `/v1/products?${query}`);
+    searchRefusals.push(
+      answer.status === 400 && answer.body?.errors?.[0]?.field === field,
+    );
+  }
+  check(
+    'the search refuses 1-letter words, relevance without words, a lowest price above the highest, and more than 50 at once (400)',
+    searchRefusals.every(Boolean),
+  );
+  // Every live product, page by page, as the search lists it without words.
+  const searched = [];
+  let searchPages = 0;
+  let searchTotal = 0;
+  for (let page = 1; page && searchPages < 100; searchPages += 1) {
+    const answer = await call('GET', `/v1/products?limit=50&page=${page}`);
+    searched.push(...(answer.body?.products ?? []));
+    searchTotal = answer.body?.total ?? -1;
+    page = answer.status === 200 ? answer.body.nextPage : null;
+  }
+  const firstOutOfStock = searched.findIndex((product) => !product.inStock);
+  const shopCards = new Map(
+    productPages.map(({ card, page }) => [card.slug, { card, page }]),
+  );
+  check(
+    'searching without words lists every live product once, each with only its name, slug, summary, from-price, image and whether it is in stock, those in stock first',
+    searchTotal === searched.length &&
+      new Set(searched.map((product) => product.slug)).size ===
+        searched.length &&
+      searched.every(
+        (product) =>
+          Object.keys(product).sort().join() ===
+            'fromPriceRupees,imageUrl,inStock,name,slug,summary' &&
+          typeof product.inStock === 'boolean',
+      ) &&
+      (firstOutOfStock === -1 ||
+        searched.slice(firstOutOfStock).every((product) => !product.inStock)) &&
+      [...shopCards.keys()].every((slug) =>
+        searched.some((product) => product.slug === slug),
+      ),
+  );
+  check(
+    "each product's search card has the same from-price and image as its category card, and is in stock exactly when a pack on its page is",
+    searched.every((product) => {
+      const shown = shopCards.get(product.slug);
+      return (
+        !shown ||
+        (product.fromPriceRupees === shown.card.fromPriceRupees &&
+          product.imageUrl === shown.card.imageUrl &&
+          product.inStock ===
+            (shown.page.body?.variants ?? []).some((pack) => pack.inStock))
+      );
+    }),
+  );
+  // A live product is found by part of the longest word in its name, and
+  // by that word with a letter missing. With an empty shop there is
+  // nothing to find.
+  const named = productPages
+    .map(({ card }) => ({
+      slug: card.slug,
+      word: card.name
+        .toLowerCase()
+        .split(/[^a-z]+/)
+        .sort((a, b) => b.length - a.length)[0],
+    }))
+    .find(({ word }) => word && word.length >= 8);
+  const foundBy = async (words) =>
+    (
+      await call('GET', `/v1/products?limit=50&q=${encodeURIComponent(words)}`)
+    ).body?.products?.some((product) => product.slug === named.slug) ?? false;
+  check(
+    'a live product is found by the start of a word in its name, and by the word with a typo',
+    !named ||
+      ((await foundBy(named.word.slice(0, 5))) &&
+        (await foundBy(named.word.slice(0, -2) + named.word.slice(-1)))),
+  );
+  // The filters: a category, a type, and a price.
+  const filterChecks = [];
+  const [firstShown] = productPages;
+  if (firstShown) {
+    const categorySlug = categoryPages.find((page) =>
+      page.body.products.some(
+        (product) => product.slug === firstShown.card.slug,
+      ),
+    ).body.category.slug;
+    const inCategory = await call(
+      'GET',
+      `/v1/products?limit=50&category=${categorySlug}`,
+    );
+    const ofType = await call(
+      'GET',
+      `/v1/products?limit=50&type=${firstShown.page.body.type}`,
+    );
+    const price = firstShown.card.fromPriceRupees;
+    const atPrice =
+      price === null
+        ? null
+        : await call(
+            'GET',
+            `/v1/products?limit=50&minPriceRupees=${price}&maxPriceRupees=${price}`,
+          );
+    const categoryPage = categoryPages.find(
+      (page) => page.body.category.slug === categorySlug,
+    );
+    filterChecks.push(
+      inCategory.body.products.some((p) => p.slug === firstShown.card.slug) &&
+        inCategory.body.products.every(
+          (p) =>
+            categoryPage.body.products.some((shown) => shown.slug === p.slug) ||
+            categoryPage.body.nextAfter !== null,
+        ),
+      ofType.body.products.some((p) => p.slug === firstShown.card.slug) &&
+        ofType.body.products.every(
+          (p) =>
+            !shopCards.has(p.slug) ||
+            shopCards.get(p.slug).page.body.type === firstShown.page.body.type,
+        ),
+      atPrice === null ||
+        (atPrice.body.products.some((p) => p.slug === firstShown.card.slug) &&
+          atPrice.body.products.every((p) => p.fromPriceRupees === price)),
+    );
+  }
+  check(
+    "filtering by a product's category, type or from-price finds it, and only products that match",
+    filterChecks.every(Boolean),
+  );
   const productRoutes = [
     ['GET', '/v1/staff/products'],
     ['POST', '/v1/staff/products', { categoryId: anyId, name: 'Smoke Product' }],
