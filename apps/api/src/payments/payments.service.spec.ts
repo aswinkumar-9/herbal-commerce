@@ -1,5 +1,6 @@
 import type { PinoLogger } from 'nestjs-pino';
 import type { Prisma } from '../generated/prisma/client';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import { PaymentsService } from './payments.service';
 import { RazorpayError, type RazorpayGateway } from './razorpay.gateway';
@@ -35,8 +36,17 @@ function setup() {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       findFirst: jest.fn().mockResolvedValue(null),
       findMany: jest.fn().mockResolvedValue([]),
+      findUniqueOrThrow: jest
+        .fn()
+        .mockResolvedValue({ payment: { orderId: ORDER.orderId } }),
     },
+    $transaction: jest.fn(),
   };
+  // A refund's move and its email are one transaction: here, on the same
+  // client, so the moves are seen on prisma.refund.
+  prisma.$transaction.mockImplementation(
+    (work: (client: typeof prisma) => unknown) => work(prisma),
+  );
   const tx = {
     payment: {
       findUniqueOrThrow: jest
@@ -65,10 +75,12 @@ function setup() {
       status: 'pending',
     }),
   };
+  const notifications = { queue: jest.fn().mockResolvedValue(undefined) };
   const logger = { warn: jest.fn(), error: jest.fn() };
   const service = new PaymentsService(
     prisma as unknown as PrismaService,
     razorpay as unknown as RazorpayGateway,
+    notifications as unknown as NotificationsService,
     logger as unknown as PinoLogger,
   );
   return {
@@ -77,6 +89,7 @@ function setup() {
     tx: tx as unknown as Prisma.TransactionClient,
     txMock: tx,
     razorpay,
+    notifications,
     logger,
   };
 }
@@ -948,6 +961,145 @@ describe('PaymentsService', () => {
         notTaken: 0,
       });
       expect(razorpay.refund).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('the email that tells of a refund (ADR 0029)', () => {
+    const answer = (status: 'pending' | 'processed' | 'failed') => ({
+      id: 'rfnd_FP8QHiV938haTz',
+      paymentId: 'pay_Late00000001',
+      amountRupees: 498,
+      status,
+    });
+
+    it('is saved with the move when Razorpay answers that the money is back, or cannot be', async () => {
+      for (const [said, kind] of [
+        ['processed', 'REFUND_PROCESSED'],
+        ['failed', 'REFUND_FAILED'],
+      ] as const) {
+        const { service, prisma, razorpay, notifications } = setup();
+        razorpay.refund.mockResolvedValueOnce(answer(said));
+
+        await service.requestRefund(REFUND_ID);
+
+        expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+        expect(prisma.refund.findUniqueOrThrow).toHaveBeenCalledWith({
+          where: { id: REFUND_ID },
+          select: { payment: { select: { orderId: true } } },
+        });
+        expect(notifications.queue).toHaveBeenCalledWith(prisma, {
+          kind,
+          orderId: ORDER.orderId,
+          refundId: REFUND_ID,
+        });
+        expect(
+          prisma.refund.updateMany.mock.invocationCallOrder[0] <
+            notifications.queue.mock.invocationCallOrder[0],
+        ).toBe(true);
+      }
+    });
+
+    it('is not saved while the money is still on its way, or when the refund had moved already', async () => {
+      const pending = setup();
+      pending.razorpay.refund.mockResolvedValueOnce(answer('pending'));
+      await pending.service.requestRefund(REFUND_ID);
+      expect(pending.prisma.refund.updateMany).toHaveBeenCalledTimes(1);
+      expect(pending.prisma.refund.findUniqueOrThrow).not.toHaveBeenCalled();
+      expect(pending.notifications.queue).not.toHaveBeenCalled();
+
+      const moved = setup();
+      moved.razorpay.refund.mockResolvedValueOnce(answer('processed'));
+      moved.prisma.refund.updateMany.mockResolvedValueOnce({ count: 0 });
+      await moved.service.requestRefund(REFUND_ID);
+      expect(moved.notifications.queue).not.toHaveBeenCalled();
+    });
+
+    it('tells the Super Users of a refund Razorpay refuses outright', async () => {
+      const { service, prisma, razorpay, notifications } = setup();
+      razorpay.refund.mockRejectedValueOnce(
+        new RazorpayError(400, 'BAD_REQUEST_ERROR', 'Refund not allowed'),
+      );
+
+      await service.requestRefund(REFUND_ID);
+
+      expect(notifications.queue).toHaveBeenCalledWith(prisma, {
+        kind: 'REFUND_FAILED',
+        orderId: ORDER.orderId,
+        refundId: REFUND_ID,
+      });
+    });
+
+    it('tells what a webhook reports: given back or failed, and nothing while pending', async () => {
+      for (const [stored, said, kind] of [
+        ['PENDING', 'processed', 'REFUND_PROCESSED'],
+        ['PENDING', 'failed', 'REFUND_FAILED'],
+        ['REQUESTED', 'pending', null],
+      ] as const) {
+        const { service, prisma, notifications } = setup();
+        prisma.refund.findFirst.mockResolvedValueOnce({
+          id: REFUND_ID,
+          status: stored,
+          razorpayRefundId: null,
+        });
+
+        await service.refundChanged({
+          razorpayRefundId: 'rfnd_FP8QHiV938haTz',
+          receipt: REFUND_ID,
+          status: said,
+        });
+
+        if (kind) {
+          expect(notifications.queue).toHaveBeenCalledWith(prisma, {
+            kind,
+            orderId: ORDER.orderId,
+            refundId: REFUND_ID,
+          });
+        } else {
+          expect(notifications.queue).not.toHaveBeenCalled();
+        }
+      }
+    });
+
+    it('moves the refund inside the transaction, and fails the webhook when the email is refused, so Razorpay sends it again', async () => {
+      const { service, prisma, notifications } = setup();
+      const tx = {
+        refund: {
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          findUniqueOrThrow: jest
+            .fn()
+            .mockResolvedValue({ payment: { orderId: ORDER.orderId } }),
+        },
+      };
+      prisma.$transaction.mockImplementation(
+        (work: (client: typeof tx) => unknown) => work(tx),
+      );
+      prisma.refund.findFirst.mockResolvedValue({
+        id: REFUND_ID,
+        status: 'PENDING',
+        razorpayRefundId: 'rfnd_FP8QHiV938haTz',
+      });
+      const change = {
+        razorpayRefundId: 'rfnd_FP8QHiV938haTz',
+        receipt: REFUND_ID,
+        status: 'processed' as const,
+      };
+
+      await service.refundChanged(change);
+
+      expect(tx.refund.updateMany).toHaveBeenCalledWith({
+        where: { id: REFUND_ID, status: 'PENDING' },
+        data: { status: 'PROCESSED', razorpayRefundId: 'rfnd_FP8QHiV938haTz' },
+      });
+      expect(prisma.refund.updateMany).not.toHaveBeenCalled();
+      expect(notifications.queue).toHaveBeenCalledWith(tx, {
+        kind: 'REFUND_PROCESSED',
+        orderId: ORDER.orderId,
+        refundId: REFUND_ID,
+      });
+
+      const refused = new Error('the database refused the email');
+      notifications.queue.mockRejectedValueOnce(refused);
+      await expect(service.refundChanged(change)).rejects.toBe(refused);
     });
   });
 });

@@ -1,6 +1,7 @@
 import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { PinoLogger } from 'nestjs-pino';
 import type { AuditService } from '../audit/audit.service';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type { PaymentsService } from '../payments/payments.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { OrdersService } from './orders.service';
@@ -91,15 +92,26 @@ function setup() {
       .mockResolvedValue({ from: 'PAID', refundId: REFUND_ID }),
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
+  const notifications = { queue: jest.fn().mockResolvedValue(undefined) };
   const logger = { info: jest.fn() };
   const service = new StaffOrdersService(
     prisma as unknown as PrismaService,
     payments as unknown as PaymentsService,
     orders as unknown as OrdersService,
     audit as unknown as AuditService,
+    notifications as unknown as NotificationsService,
     logger as unknown as PinoLogger,
   );
-  return { service, prisma, tx, payments, orders, audit, logger };
+  return {
+    service,
+    prisma,
+    tx,
+    payments,
+    orders,
+    audit,
+    notifications,
+    logger,
+  };
 }
 
 // What a refused call throws.
@@ -265,7 +277,7 @@ describe('StaffOrdersService.view', () => {
 
 describe('StaffOrdersService steps', () => {
   it('packs a paid order: the status and its time in one guarded update, audited, and answers the order', async () => {
-    const { service, prisma, tx, audit, logger } = setup();
+    const { service, prisma, tx, audit, notifications, logger } = setup();
 
     const view = await service.markPacked(ORDER_ID, CONTEXT, ADMIN, NOW);
 
@@ -281,6 +293,10 @@ describe('StaffOrdersService steps', () => {
       before: { status: 'PAID' },
       after: { status: 'PACKED' },
     });
+    expect(notifications.queue).toHaveBeenCalledWith(tx, {
+      kind: 'ORDER_PACKED',
+      orderId: ORDER_ID,
+    });
     expect(logger.info).toHaveBeenCalledWith(
       { orderId: ORDER_ID, actorId: 'staff-1', status: 'PACKED' },
       'Order moved to its next step',
@@ -293,7 +309,7 @@ describe('StaffOrdersService steps', () => {
   });
 
   it('ships a packed order with its courier and tracking number, which the audit entry keeps', async () => {
-    const { service, tx, audit } = setup();
+    const { service, tx, audit, notifications } = setup();
     const shipment = {
       courierName: 'Delhivery',
       trackingNumber: '1490811234567',
@@ -313,10 +329,14 @@ describe('StaffOrdersService steps', () => {
       before: { status: 'PACKED' },
       after: { status: 'SHIPPED', ...shipment },
     });
+    expect(notifications.queue).toHaveBeenCalledWith(tx, {
+      kind: 'ORDER_SHIPPED',
+      orderId: ORDER_ID,
+    });
   });
 
   it('marks a shipped order delivered, and shows a Super User its payment', async () => {
-    const { service, tx, audit, payments } = setup();
+    const { service, tx, audit, payments, notifications } = setup();
 
     const view = await service.markDelivered(
       ORDER_ID,
@@ -336,6 +356,10 @@ describe('StaffOrdersService steps', () => {
     });
     expect(view.payment).toBe(PAYMENT);
     expect(payments.staffPaymentFor).toHaveBeenCalledWith(ORDER_ID);
+    expect(notifications.queue).toHaveBeenCalledWith(tx, {
+      kind: 'ORDER_DELIVERED',
+      orderId: ORDER_ID,
+    });
   });
 
   it('refuses a step the order is not ready for, or has taken already (409), and audits nothing', async () => {
@@ -372,7 +396,7 @@ describe('StaffOrdersService steps', () => {
       },
     ] as const;
     for (const { status, step, message } of cases) {
-      const { service, tx, audit, logger } = setup();
+      const { service, tx, audit, notifications, logger } = setup();
       tx.order.updateMany.mockResolvedValueOnce({ count: 0 });
       tx.order.findUnique.mockResolvedValueOnce({ status, id: ORDER_ID });
 
@@ -395,6 +419,7 @@ describe('StaffOrdersService steps', () => {
         new ConflictException(message),
       ]);
       expect(audit.record).not.toHaveBeenCalled();
+      expect(notifications.queue).not.toHaveBeenCalled();
       expect(logger.info).not.toHaveBeenCalled();
     }
   });
@@ -485,8 +510,8 @@ describe('StaffOrdersService.cancel', () => {
 });
 
 describe('StaffOrdersService.correctShipment', () => {
-  it('locks the order on its way, changes only what differs, and audits it', async () => {
-    const { service, tx, audit, logger } = setup();
+  it('locks the order on its way, changes only what differs, audits it, and tells the customer', async () => {
+    const { service, tx, audit, notifications, logger } = setup();
 
     const view = await service.correctShipment(
       ORDER_ID,
@@ -511,6 +536,10 @@ describe('StaffOrdersService.correctShipment', () => {
       targetId: ORDER_ID,
       before: { trackingNumber: '1490811234567' },
       after: { trackingNumber: '1490811234568' },
+    });
+    expect(notifications.queue).toHaveBeenCalledWith(tx, {
+      kind: 'SHIPMENT_CORRECTED',
+      orderId: ORDER_ID,
     });
     expect(logger.info).toHaveBeenCalledWith(
       { orderId: ORDER_ID, actorId: 'staff-1' },
@@ -543,8 +572,8 @@ describe('StaffOrdersService.correctShipment', () => {
     });
   });
 
-  it('changes nothing, and audits nothing, when the values are the same', async () => {
-    const { service, tx, audit, logger } = setup();
+  it('changes nothing, audits nothing and tells nobody, when the values are the same', async () => {
+    const { service, tx, audit, notifications, logger } = setup();
 
     const view = await service.correctShipment(
       ORDER_ID,
@@ -556,12 +585,13 @@ describe('StaffOrdersService.correctShipment', () => {
 
     expect(tx.order.update).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
+    expect(notifications.queue).not.toHaveBeenCalled();
     expect(logger.info).not.toHaveBeenCalled();
     expect(view.reference).toBe('7KQ2M9XDPA');
   });
 
   it('refuses an order that is not on its way (409), and an unknown one (404)', async () => {
-    const { service, tx, audit } = setup();
+    const { service, tx, audit, notifications } = setup();
     tx.order.updateMany.mockResolvedValue({ count: 0 });
     tx.order.findUnique.mockResolvedValueOnce({ id: ORDER_ID });
 
@@ -593,5 +623,6 @@ describe('StaffOrdersService.correctShipment', () => {
     expect(unknown).toBeInstanceOf(NotFoundException);
     expect(tx.order.update).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
+    expect(notifications.queue).not.toHaveBeenCalled();
   });
 });

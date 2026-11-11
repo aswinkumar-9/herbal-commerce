@@ -4,6 +4,7 @@ import type { CartService } from '../cart/cart.service';
 import type { ShopPacksService } from '../catalog/shop-packs.service';
 import { NotEnoughStockError } from '../inventory/stock.service';
 import type { StockService } from '../inventory/stock.service';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type { PaymentsService } from '../payments/payments.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import {
@@ -172,6 +173,7 @@ function setup() {
     refundInFull: jest.fn().mockResolvedValue(REFUND),
     requestRefund: jest.fn().mockResolvedValue(undefined),
   };
+  const notifications = { queue: jest.fn().mockResolvedValue(undefined) };
   const orders = new OrdersService(
     prisma as unknown as PrismaService,
     addresses as unknown as AddressesService,
@@ -179,8 +181,9 @@ function setup() {
     packs as unknown as ShopPacksService,
     stock as unknown as StockService,
     payments as unknown as PaymentsService,
+    notifications as unknown as NotificationsService,
   );
-  return { orders, prisma, tx, addresses, cart, packs, stock, payments };
+  return { orders, prisma, tx, addresses, cart, packs, stock, payments, notifications };
 }
 
 describe('OrdersService.quote', () => {
@@ -510,8 +513,8 @@ describe('OrdersService.list', () => {
 });
 
 describe('OrdersService.cancel', () => {
-  it('cancels an order waiting for payment, with the order locked, and gives its stock back, without a refund', async () => {
-    const { orders, tx, stock, payments } = setup();
+    it('cancels an order waiting for payment, with the order locked, and gives its stock back, without a refund', async () => {
+    const { orders, tx, stock, payments, notifications } = setup();
 
     await expect(orders.cancel(USER, ORDER, NOW)).resolves.toMatchObject({
       id: ORDER,
@@ -531,6 +534,15 @@ describe('OrdersService.cancel', () => {
     expect(stock.release).toHaveBeenCalledWith(tx, ORDER);
     expect(payments.refundInFull).not.toHaveBeenCalled();
     expect(payments.requestRefund).not.toHaveBeenCalled();
+    // The email that tells the customer, saved once the order is cancelled.
+    expect(notifications.queue).toHaveBeenCalledWith(tx, {
+      kind: 'ORDER_CANCELLED',
+      orderId: ORDER,
+    });
+    expect(
+      tx.order.update.mock.invocationCallOrder[0] <
+        notifications.queue.mock.invocationCallOrder[0],
+    ).toBe(true);
   });
 
   it('cancels a paid or packed order: the refund saved before the status, the stock back, and Razorpay asked after the transaction', async () => {
@@ -560,7 +572,7 @@ describe('OrdersService.cancel', () => {
   });
 
   it('refuses an order that has shipped, or ended, and changes nothing', async () => {
-    const { orders, tx, stock, payments } = setup();
+    const { orders, tx, stock, payments, notifications } = setup();
     tx.order.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(orders.cancel(USER, ORDER, NOW)).rejects.toThrow(
@@ -574,6 +586,7 @@ describe('OrdersService.cancel', () => {
     expect(stock.release).not.toHaveBeenCalled();
     expect(payments.refundInFull).not.toHaveBeenCalled();
     expect(payments.requestRefund).not.toHaveBeenCalled();
+    expect(notifications.queue).not.toHaveBeenCalled();
   });
 
   it("answers 404 for an unknown order or someone else's", async () => {
@@ -590,7 +603,7 @@ describe('OrdersService.cancel', () => {
 
 describe('OrdersService.cancelLocked', () => {
   it("cancels anyone's order for staff, for the reason given, and answers what it had", async () => {
-    const { orders, tx, payments } = setup();
+    const { orders, tx, payments, notifications } = setup();
     tx.order.findUniqueOrThrow.mockResolvedValueOnce({ status: 'PACKED' });
 
     await expect(
@@ -615,6 +628,10 @@ describe('OrdersService.cancelLocked', () => {
       'CANCELLED_BY_STAFF',
     );
     expect(payments.requestRefund).not.toHaveBeenCalled();
+    expect(notifications.queue).toHaveBeenCalledWith(tx, {
+      kind: 'ORDER_CANCELLED',
+      orderId: ORDER,
+    });
   });
 
   it('answers no refund for an order that was never paid', async () => {
