@@ -44,6 +44,9 @@ export const RATE_LIMITS = {
   startPayment: { points: 60, duration: HOUR },
   // Confirming a payment asks Razorpay about it (ADR 0027).
   confirmPayment: { points: 60, duration: HOUR },
+  // Each search weighs every live product (ADR 0030). Apps search as the
+  // customer types, after a pause.
+  search: { points: 120, duration: MINUTE },
   // Failed logins only. A successful login clears the first one.
   loginFailuresByEmailAndIp: {
     points: 5,

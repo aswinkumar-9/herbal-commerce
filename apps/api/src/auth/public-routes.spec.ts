@@ -76,6 +76,7 @@ describe('public routes', () => {
       'list',
       'listProducts',
     ]);
-    expect(publicHandlers(ProductsController)).toEqual(['detail']);
+    // Part 11: customers search the shop before they sign in too.
+    expect(publicHandlers(ProductsController)).toEqual(['search', 'detail']);
   });
 });

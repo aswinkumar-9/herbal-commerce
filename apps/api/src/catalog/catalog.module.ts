@@ -11,6 +11,7 @@ import { CategoriesController } from './categories.controller';
 import { CategoriesService } from './categories.service';
 import { ImageUploadParser } from './image-upload';
 import { ImagesService } from './images.service';
+import { ProductSearchService } from './product-search.service';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 import { ShopPacksService } from './shop-packs.service';
@@ -23,7 +24,8 @@ import { VariantsService } from './variants.service';
 // The product catalog: categories (ADR 0020), products (ADR 0021), their
 // pack sizes with prices (ADR 0022), and their images (ADR 0023). The shop
 // asks the inventory which packs are in stock (ADR 0024). Other modules,
-// such as the cart (ADR 0025), ask the catalog about pack sizes.
+// such as the cart (ADR 0025), ask the catalog about pack sizes. Customers
+// search the shop (ADR 0030).
 @Module({
   imports: [AuthModule, MediaModule, InventoryModule],
   controllers: [
@@ -37,6 +39,7 @@ import { VariantsService } from './variants.service';
   providers: [
     CategoriesService,
     ProductsService,
+    ProductSearchService,
     VariantsService,
     ImagesService,
     ImageUploadParser,

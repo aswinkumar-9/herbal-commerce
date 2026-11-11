@@ -26,7 +26,10 @@ function routeLimits(controller: { prototype: object }) {
   return Object.fromEntries(
     Object.getOwnPropertyNames(handlers)
       .filter((name) => name !== 'constructor')
-      .map((name) => [name, reflector.get<string[]>(RATE_LIMIT, handlers[name])]),
+      .map((name) => [
+        name,
+        reflector.get<string[]>(RATE_LIMIT, handlers[name]),
+      ]),
   );
 }
 
@@ -96,7 +99,9 @@ describe('rate-limited routes', () => {
       update: undefined,
       remove: undefined,
     });
+    // A search weighs every live product: it has its own limit.
     expect(routeLimits(ProductsController)).toStrictEqual({
+      search: ['search'],
       detail: undefined,
     });
     // Pack sizes too: a few small writes for each product.
