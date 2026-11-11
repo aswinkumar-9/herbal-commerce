@@ -9,6 +9,7 @@ import { RetryLaterException } from '../common/retry-later.exception';
 import type { Prisma } from '../generated/prisma/client';
 import type { RefundReason } from '../generated/prisma/enums';
 import { NotEnoughStockError, StockService } from '../inventory/stock.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   PaymentsService,
   type PaymentRecord,
@@ -76,6 +77,7 @@ export class OrderPaymentsService {
     private readonly payments: PaymentsService,
     private readonly stock: StockService,
     private readonly orders: OrdersService,
+    private readonly notifications: NotificationsService,
     @InjectPinoLogger(OrderPaymentsService.name)
     private readonly logger: PinoLogger,
   ) {}
@@ -186,8 +188,9 @@ export class OrderPaymentsService {
   //   owner's rule);
   // - a cancelled one gives the payment back;
   // - a second payment for an order already paid goes back.
-  // The same payment settled again changes nothing. Razorpay is asked for a
-  // refund only once the transaction is saved.
+  // The same payment settled again changes nothing. Only once the
+  // transaction is saved, the email that tells of a paid order is sent
+  // (ADR 0029), and Razorpay is asked for a refund.
   async settle(
     razorpayPaymentId: string,
     now = new Date(),
@@ -210,6 +213,9 @@ export class OrderPaymentsService {
     const settlement = await this.prisma.$transaction((tx) =>
       this.settleLocked(tx, record, paid.id, now),
     );
+    if (settlement.kind === 'PAID') {
+      this.notifications.wake();
+    }
     if (settlement.kind === 'REFUNDING') {
       await this.payments.requestRefund(settlement.refundId);
     }
@@ -333,6 +339,7 @@ export class OrderPaymentsService {
   }
 
   // The payment first: the database pays an order only once its payment is.
+  // Then the email that tells the customer (ADR 0029).
   private async markOrderPaid(
     tx: Prisma.TransactionClient,
     record: PaymentRecord,
@@ -348,6 +355,10 @@ export class OrderPaymentsService {
     if (count !== 1) {
       throw new Error('The order changed while it was locked');
     }
+    await this.notifications.queue(tx, {
+      kind: 'ORDER_PAID',
+      orderId: record.orderId,
+    });
   }
 
   // Razorpay unreachable or refusing: try again later. An order cancelled

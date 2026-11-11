@@ -3,6 +3,7 @@
 - Status: Accepted and implemented (part 8)
 - Date: 2026-11-09
 - Updated: 2026-11-10 (part 9: a paid order cancelled before it ships gets its payment back, and Super Users see payments and refunds, see ADR 0028; the owner chose Razorpay for every payment method, UPI included)
+- Updated: 2026-11-11 (part 10: the customer is emailed when an order is paid and when a refund is complete, and the Super Users when a refund fails, see ADR 0029)
 
 ## Context
 
@@ -80,7 +81,7 @@ Then, in **one transaction, with the order locked** (a conditional update of its
 - **Always the whole payment.** A refund moves `REQUESTED` → `PENDING` → `PROCESSED`, or `FAILED`, and never backwards.
 - **Not taken yet:** if Razorpay can't be reached, the refund stays `REQUESTED`. The job asks again a minute after it was made, then every minute, the oldest first, at most 50 a run.
 - **A lost answer:** if our request reached Razorpay but its answer didn't reach us, Razorpay refuses the same receipt again. The API then lists the payment's refunds, and finds ours by its receipt.
-- **Refused outright** (`400`, and not among the payment's refunds): the refund becomes `FAILED`, and the API logs `Razorpay refused a refund: staff must give the money back`. Staff give it back by hand: there is no admin console yet. Since part 9, Super Users list them with `GET /v1/staff/refunds?status=FAILED` (ADR 0028).
+- **Refused outright** (`400`, and not among the payment's refunds): the refund becomes `FAILED`, and the API logs `Razorpay refused a refund: staff must give the money back`. Staff give it back by hand: there is no admin console yet. Since part 9, Super Users list them with `GET /v1/staff/refunds?status=FAILED` (ADR 0028). Since part 10, every active Super User is emailed when a refund fails (ADR 0029).
 - **Razorpay's refund webhooks** move a refund forward. It is found by Razorpay's refund ID, or by its receipt when Razorpay's first answer never reached us.
 - **The normal speed:** no refund fee. But Razorpay keeps the fee it took on the payment, checked in Razorpay's documentation on 2026-11-09. **So each automatic refund costs the shop Razorpay's fee and the GST on it,** about 2.36% of the order. Instant refunds would cost more.
 
@@ -217,6 +218,6 @@ The `payments` module (`src/payments`) owns its two tables and Razorpay. The ord
   - **for the chartered accountant:** booking Razorpay's fee and the GST on it, the fee lost on each automatic refund, and what a refunded payment for an order never delivered needs on paper. GST invoices for paid orders are still to come (ADR 0026);
   - **staff seeing payments and refunds:** done in part 9, for Super Users (ADR 0028). Recording that staff gave a `FAILED` refund back by hand is still to come, with the admin console;
   - **a job that asks Razorpay about old `PENDING` refunds,** if their webhooks were lost for longer than Razorpay's 24 hours of retries;
-  - emails confirming a payment and a refund;
+  - emails confirming a payment and a refund: done in part 10 (ADR 0029). By the owner's choice, a late or second payment that goes back is told only once its refund is complete;
   - returns, and refunds a customer asks for;
   - matching Razorpay's settlements against our payments.

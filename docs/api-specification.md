@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.20.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.21.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -853,7 +853,7 @@ Errors: `400` (the ID is not a UUID); `401`; `404 Order not found`, also for ano
 
 Cancels the customer's order until it ships: while it waits for payment, and once paid, while it is `PAID` or `PACKED` (ADR 0028). Its stock comes back at once, in one transaction. **A paid order's payment goes back in full:** a refund with the reason `CANCELLED_BY_CUSTOMER` is saved in the same transaction, and asked of Razorpay just after.
 
-Response `200`: the order, now `CANCELLED`. A paid one shows its refund in `payment.refunds`: `PENDING` once Razorpay has taken it, or `REQUESTED` while the API asks again (see "Paying for an order").
+Response `200`: the order, now `CANCELLED`. A paid one shows its refund in `payment.refunds`: `PENDING` once Razorpay has taken it, or `REQUESTED` while the API asks again (see "Paying for an order"). The customer is emailed that the order is cancelled (see "Order emails").
 
 Errors:
 
@@ -905,6 +905,8 @@ Cancelling a paid order before it ships gives its payment back too: `CANCELLED_B
 | `PENDING` | Razorpay has taken it, and the money is on its way back. |
 | `PROCESSED` | The money is back with the customer. |
 | `FAILED` | Razorpay couldn't give it back. Staff give it back by hand. |
+
+The customer is emailed once the order is paid, and once a refund is `PROCESSED`. The Super Users are emailed when a refund is `FAILED` (see "Order emails").
 
 ### POST `/v1/me/orders/:id/payment`
 
@@ -991,6 +993,27 @@ Errors:
 | `400` | `The webhook could not be verified.` | No signature, or a wrong one |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 | `503` | `code: "PAYMENTS_UNAVAILABLE"` | Razorpay can't be asked about the payment now. Razorpay sends the webhook again later, for up to 24 hours. |
+
+## Order emails
+
+No endpoint sends these directly: the changes below each save an email in their own transaction, and the API sends it once that transaction is saved (ADR 0029). They are sent through the API's mail server (Mailpit in development).
+
+| The change | Who gets it | Subject |
+|---|---|---|
+| An order becomes `PAID`: a confirmation, a webhook, or the job before an order expires (see "Paying for an order") | The customer | `Your order 7KQ2M9XDPA is confirmed`, with each line, the totals with the GST included, the delivery charge and the delivery address |
+| `POST /v1/staff/orders/:id/packed` | The customer | `Your order 7KQ2M9XDPA is packed` |
+| `POST /v1/staff/orders/:id/shipped` | The customer | `Your order 7KQ2M9XDPA is on its way`, with the courier and tracking number |
+| `PATCH /v1/staff/orders/:id/shipment`, when it changes something | The customer | `New tracking details for your order 7KQ2M9XDPA` |
+| `POST /v1/staff/orders/:id/delivered` | The customer | `Your order 7KQ2M9XDPA is delivered` |
+| `POST /v1/me/orders/:id/cancel` or `POST /v1/staff/orders/:id/cancel` | The customer | `Your order 7KQ2M9XDPA is cancelled`, saying that a paid order's payment is going back in full |
+| A refund becomes `PROCESSED`: Razorpay's answer, or a `refund.processed` webhook | The customer | `Your refund for order 7KQ2M9XDPA is complete`, with the amount and why |
+| A refund becomes `FAILED`: Razorpay refuses it, or a `refund.failed` webhook | Every active Super User, in one email | `Action needed: a refund for order 7KQ2M9XDPA failed` |
+
+- **The answer never waits for the email,** and never fails because of it. An email that can't be sent is tried again, waiting 1, 2, 4 and so on up to 60 minutes, and given up on after 10 tries.
+- **Each step is told once.** A step done already (`409`), or a correction that changes nothing, sends nothing.
+- **An email is sent at least once:** rarely, twice.
+- **No email has a link.** Amounts are written like `Rs 1,299`.
+- **Nothing is emailed** when an order expires, or when a late or second payment is given back: the customer hears once the refund is complete.
 
 ## Staff authentication
 
@@ -1820,7 +1843,7 @@ Errors:
 
 ## Handling orders (staff)
 
-Every order, for staff to pack, ship and deliver (ADR 0028). These endpoints need a **staff** access token: an Admin's or a Super User's. A customer token, or none, gets `401`. **Only a Super User** sees an order's payment and cancels an order: an Admin gets `403 Only a Super User may do this.` on the cancel. Every step is written to the audit log in the same transaction, with the staff member, the client IP and the request ID. Reading is not audited.
+Every order, for staff to pack, ship and deliver (ADR 0028). These endpoints need a **staff** access token: an Admin's or a Super User's. A customer token, or none, gets `401`. **Only a Super User** sees an order's payment and cancels an order: an Admin gets `403 Only a Super User may do this.` on the cancel. Every step is written to the audit log in the same transaction, with the staff member, the client IP and the request ID. Reading is not audited. Since part 10, each step, a correction that changes something, and a cancel email the customer (see "Order emails").
 
 | Endpoint | Purpose |
 |---|---|

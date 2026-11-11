@@ -7,7 +7,8 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { AuditContext } from '../audit/audit-context';
 import { AuditService } from '../audit/audit.service';
 import type { Prisma } from '../generated/prisma/client';
-import type { OrderStatus } from '../generated/prisma/enums';
+import type { NotificationKind, OrderStatus } from '../generated/prisma/enums';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   PaymentsService,
   type StaffPayment,
@@ -128,6 +129,13 @@ type StaffOrderRow = Prisma.OrderGetPayload<{
   select: typeof STAFF_ORDER_FIELDS;
 }>;
 
+// The email each step sends the customer (ADR 0029).
+const STEP_EMAILS = {
+  PACKED: 'ORDER_PACKED',
+  SHIPPED: 'ORDER_SHIPPED',
+  DELIVERED: 'ORDER_DELIVERED',
+} as const satisfies Record<OrderStep, NotificationKind>;
+
 // Orders for staff (ADR 0028). Admins and Super Users see every order, and
 // take it through its steps: packed, shipped, delivered. Each step is
 // audited in the same transaction. Only Super Users see an order's payment
@@ -140,6 +148,7 @@ export class StaffOrdersService {
     private readonly payments: PaymentsService,
     private readonly orders: OrdersService,
     private readonly audit: AuditService,
+    private readonly notifications: NotificationsService,
     @InjectPinoLogger(StaffOrdersService.name)
     private readonly logger: PinoLogger,
   ) {}
@@ -236,7 +245,8 @@ export class StaffOrdersService {
 
   // Cancels an order that hasn't shipped, for a Super User: its stock comes
   // back, and a paid order's payment goes back in full, asked of Razorpay
-  // once the cancel and its audit entry are saved.
+  // once the cancel and its audit entry are saved. The email that tells the
+  // customer is sent before that (ADR 0029).
   async cancel(
     id: string,
     context: AuditContext,
@@ -260,6 +270,7 @@ export class StaffOrdersService {
       });
       return cancelled;
     });
+    this.notifications.wake();
     if (refundId) {
       await this.payments.requestRefund(refundId);
     }
@@ -272,7 +283,8 @@ export class StaffOrdersService {
 
   // Corrects the courier or the tracking number of an order on its way,
   // with the order locked, so two corrections take turns. One that changes
-  // nothing writes no audit entry.
+  // something sends the customer the new details once saved (ADR 0029); one
+  // that changes nothing writes no audit entry and sends no email.
   async correctShipment(
     id: string,
     correction: ShipmentCorrection,
@@ -323,9 +335,14 @@ export class StaffOrdersService {
         before,
         after,
       });
+      await this.notifications.queue(tx, {
+        kind: 'SHIPMENT_CORRECTED',
+        orderId: id,
+      });
       return true;
     });
     if (changed) {
+      this.notifications.wake();
       this.logger.info(
         { orderId: id, actorId: context.actorId },
         'Order shipment corrected',
@@ -336,7 +353,9 @@ export class StaffOrdersService {
 
   // Takes one step, guarded by the order's status: only an order in the
   // step's status moves on, so a double click, or two staff at once, move
-  // it once. The step and its audit entry are one transaction.
+  // it once. The step, its audit entry and the email that tells the
+  // customer (ADR 0029) are one transaction; the email is sent once it is
+  // saved.
   private async takeStep(
     id: string,
     to: OrderStep,
@@ -363,6 +382,10 @@ export class StaffOrdersService {
           order.status === to ? step.done : step.notReady,
         );
       }
+      await this.notifications.queue(tx, {
+        kind: STEP_EMAILS[to],
+        orderId: id,
+      });
       await this.audit.record(tx, {
         ...context,
         action: `order.${to.toLowerCase()}`,
@@ -372,6 +395,7 @@ export class StaffOrdersService {
         after: { status: to, ...details },
       });
     });
+    this.notifications.wake();
     this.logger.info(
       { orderId: id, actorId: context.actorId, status: to },
       'Order moved to its next step',

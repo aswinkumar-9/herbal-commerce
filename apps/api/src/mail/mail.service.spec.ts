@@ -7,6 +7,21 @@ describe('MailService', () => {
 
   beforeEach(() => send.mockReset().mockResolvedValue(undefined));
 
+  it('sends an email written elsewhere as it is, and passes on a failure', async () => {
+    const message = {
+      to: 'a@example.com',
+      subject: 'Your order 7KQ2M9XDPA is packed',
+      text: 'Hello',
+      html: '<p>Hello</p>',
+    };
+    await service.send(message);
+    expect(send).toHaveBeenCalledWith(message);
+
+    const failure = new Error('the mail server is down');
+    send.mockRejectedValueOnce(failure);
+    await expect(service.send(message)).rejects.toBe(failure);
+  });
+
   it('sends a verification email containing the link', async () => {
     await service.sendVerificationEmail(
       'a@example.com',

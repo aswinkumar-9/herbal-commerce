@@ -92,7 +92,7 @@ It first clears the local rate-limit counters, so it can run again at once. Then
   - every product page shows at least one image, each with only its addresses, size and description, and each card's image is the small file of its product's main photo;
   - every image file, large and small, is served as WebP for any site to show, and the image folders are never listed;
 - the cart: it needs a customer token and starts empty, refuses an unknown pack size and more than 4 packs, puts a pack in stock into one customer's cart only (with today's price and no IDs), and answers `204` when a pack is removed or the cart emptied;
-- orders: the checkout needs a customer token, an empty cart can be neither checked out nor ordered, and an order needs an `Idempotency-Key` and a valid body. With a pack in stock, an order is placed at the checkout's total, holds its stock for 15 minutes and empties the cart; the same key answers the same order, which a second customer can't see; cancelling gives the stock back, and cancelling again answers `409 This order can no longer be cancelled.`; and the order shows its customer that it isn't packed, shipped or delivered yet. Orders are never deleted, so each such run leaves one cancelled order behind;
+- orders: the checkout needs a customer token, an empty cart can be neither checked out nor ordered, and an order needs an `Idempotency-Key` and a valid body. With a pack in stock, an order is placed at the checkout's total, holds its stock for 15 minutes and empties the cart; the same key answers the same order, which a second customer can't see; cancelling gives the stock back, the customer is emailed at once that the order is cancelled, and cancelling again answers `409 This order can no longer be cancelled.`; and the order shows its customer that it isn't packed, shipped or delivered yet. Orders are never deleted, so each such run leaves one cancelled order behind;
 - paying: with a pack in stock, starting to pay for that order answers in rupees only, with a Razorpay test key and the same Razorpay order every time; only its owner can pay for it; a wrong or missing confirmation is refused; the order shows its payment without Razorpay's IDs; and once cancelled it can no longer be paid. This calls Razorpay's test mode, so the smoke test needs the internet, and each run leaves a test order in the Razorpay dashboard;
 - Razorpay's webhooks: one without a signature, with a wrong one, or re-spaced after signing is refused, and one signed with `RAZORPAY_WEBHOOK_SECRET` from `.env` is taken;
 - that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, cannot list, create, change or delete categories, products, pack sizes or images, cannot see or change stock, and cannot see orders or refunds as staff, or pack, ship, deliver or cancel an order there. Without a token, those order and refund routes answer `401` too;
@@ -715,13 +715,14 @@ The shop needs a live product with a pack in stock (see "Manage stock"). The API
    PASS  the order is paid
    PASS  Razorpay's webhook for the same payment is taken, and changes nothing
    ```
-4. **A refund:** `pnpm api:pay-test --cancel` cancels the order before you pay. The payment must then go back in full: `Refund of Rs 498 (ORDER_CANCELLED): PENDING`.
+   Mailpit shows the customer's `Your order … is confirmed` within a second (see "Order emails").
+4. **A refund:** `pnpm api:pay-test --cancel` cancels the order before you pay. The payment must then go back in full: `Refund of Rs 498 (ORDER_CANCELLED): PENDING`. Mailpit shows `Your order … is cancelled` as soon as it is cancelled.
 5. **A late payment:** run `pnpm api:pay-test`, open the page, and wait **more than 16 minutes** before paying. The order expires and gives its stock back. The payment then takes the stock again, and the order is paid late. If the stock is gone meanwhile, the payment goes back in full (`ORDER_EXPIRED`).
 6. **The Razorpay dashboard,** in Test Mode, shows the same payments and refunds.
 
 - **An order of one pack at ₹449 costs ₹498** with delivery, in test money.
 - **The API asks Razorpay about every payment.** The page's answer only names the payment, and Razorpay's signature on it must match the Razorpay order the API made for this order.
-- **On a laptop, a refund stays `PENDING`.** Razorpay reports a finished refund with a webhook, and Razorpay can't reach a laptop. Deployed, the webhook moves it to `PROCESSED`. The dashboard shows its real state.
+- **On a laptop, a refund stays `PENDING`.** Razorpay reports a finished refund with a webhook, and Razorpay can't reach a laptop. Deployed, the webhook moves it to `PROCESSED`, and the customer is emailed that the refund is complete. The dashboard shows its real state.
 - **Razorpay's own webhooks need a public HTTPS address,** on port 443 or 80. On a laptop, the smoke test and this script send webhooks signed with `RAZORPAY_WEBHOOK_SECRET` from `.env` instead. To receive Razorpay's own while developing, Razorpay suggests a tunnel such as zrok, and refuses ngrok addresses. ADR 0027 lists the URL and events to set in the dashboard.
 - **A refund made on its own costs Razorpay's fee:** Razorpay keeps the fee it took on the payment, about 2.36% of the order (ADR 0027).
 - **A paid order can be cancelled until it ships,** by its customer or by a Super User. Its payment goes back in full, as `CANCELLED_BY_CUSTOMER` or `CANCELLED_BY_STAFF` (see "Handle orders").
@@ -797,7 +798,37 @@ The shop needs a paid order: see "Pay for an order".
 - **Each refund costs Razorpay's fee,** about 2.36% of the order (ADR 0027). The owner accepted that for orders cancelled before they ship.
 - **The customer sees each step** on their order: `packedAt`, `shippedAt`, `courierName`, `trackingNumber` and `deliveredAt`.
 - **The audit log keeps every step:** `order.packed`, `order.shipped` (with the courier and tracking number), `order.shipment_corrected` (only what changed), `order.delivered` and `order.cancelled` (with the refund's ID).
+- **The customer is emailed** at each step, when the courier or tracking number is corrected, and when the order is cancelled (see "Order emails").
 - **The API's log** says `Order moved to its next step`, `Order shipment corrected` and `Order cancelled by staff`, with the order's and the staff member's IDs.
+
+## Order emails
+
+The API emails the customer when their order is paid, packed, shipped, delivered or cancelled, and when a refund is complete. It emails every active Super User when a refund fails (ADR 0029). In development, read them all in Mailpit at http://localhost:8025.
+
+| When | Who gets it | Subject |
+|---|---|---|
+| The order is paid | The customer | `Your order 7KQ2M9XDPA is confirmed`: each line, the totals with the GST included, the delivery charge and the delivery address |
+| Staff mark it packed | The customer | `Your order 7KQ2M9XDPA is packed` |
+| Staff mark it shipped | The customer | `Your order 7KQ2M9XDPA is on its way`, with the courier and tracking number |
+| Staff correct the courier or tracking number | The customer | `New tracking details for your order 7KQ2M9XDPA` |
+| Staff mark it delivered | The customer | `Your order 7KQ2M9XDPA is delivered` |
+| The customer or a Super User cancels it | The customer | `Your order 7KQ2M9XDPA is cancelled`: a paid order's payment is going back in full |
+| A refund is complete | The customer | `Your refund for order 7KQ2M9XDPA is complete` |
+| A refund fails | Every active Super User | `Action needed: a refund for order 7KQ2M9XDPA failed` |
+
+Each email is saved with the change it tells of, and sent within a second of it. One that can't be sent, for example while Mailpit is stopped, is tried again by a job every minute: after 1, 2, 4 and so on up to 60 minutes. After 10 tries, about 4 hours, it is given up on.
+
+**See the emails the API has saved,** the newest first, without changing anything. Use the database user and name from your `.env` (`herbal_app` and `herbal_dev` in `.env.example`):
+```powershell
+'BEGIN READ ONLY; SELECT kind, status, attempts, "nextAttemptAt", "sentAt" FROM notifications ORDER BY "createdAt" DESC LIMIT 10; ROLLBACK;' | docker exec -i herbal-postgres psql -U herbal_app -d herbal_dev
+```
+`WAITING` means not sent yet: its next try is at `nextAttemptAt`. `SENT` means sent, and `FAILED` means given up on.
+
+- **The emails have no links,** on purpose: customers can be told never to trust a link in an email from the shop. Amounts are written like `Rs 1,299`.
+- **An expired order sends nothing,** and nor does a late or second payment that goes back. The customer hears once the refund is complete.
+- **On a laptop, no refund email is sent:** refunds stay `PENDING` (see "Pay for an order"), and their emails wait for `PROCESSED` or `FAILED`.
+- **Rarely, an email is sent twice:** when the API stops between sending it and marking it sent.
+- **The API's log** says `Emails sent` with counts, `An email could not be sent: it is tried again later` as a warning, and `An email could not be sent, and is not tried again` as an error. Each names the email's ID and kind, never an address.
 
 ## Repository structure
 
@@ -823,6 +854,7 @@ The shop needs a paid order: see "Pay for an order".
 │           ├── retention/      hourly cleanup of data past its retention period
 │           ├── valkey/         the shared Valkey connection
 │           ├── mail/           email sending (SMTP; Mailpit in development)
+│           ├── notifications/  the order emails: saved with each change, written, sent right after and tried again every minute
 │           ├── media/          storing uploaded files, and serving them at /media
 │           ├── config/         environment validation
 │           └── health/, logging/, prisma/, common/
@@ -866,6 +898,8 @@ The shop needs a paid order: see "Pay for an order".
 - **The API refuses to start: `RAZORPAY_KEY_ID: ...`, `RAZORPAY_KEY_SECRET: ...` or `RAZORPAY_WEBHOOK_SECRET: ...`:** put your Razorpay test keys and your own webhook secret into `.env` (see First-time setup, step 1). The webhook secret must differ from `JWT_ACCESS_SECRET` and `MFA_ENCRYPTION_KEY`.
 - **Paying answers `503 PAYMENTS_UNAVAILABLE`:** find `Razorpay could not start a payment` (or `confirm`) in the API log. A `status` of `401` means the key ID or Key Secret in `.env` is wrong: copy them again from the dashboard, then restart the API. No status means Razorpay couldn't be reached: check the internet.
 - **`pnpm api:pay-test` says "no pack is in stock":** the shop has none. Make a live product with a pack in stock (see "Manage products" to "Manage stock").
+- **An order email didn't arrive:** look the email up (see "Order emails"). `WAITING` with a few tries: it couldn't be sent yet, so check that Mailpit is running (`docker compose up -d`); it is tried again at `nextAttemptAt`. `FAILED`: it was given up on after 10 tries, and the API's log says why, as `An email could not be sent, and is not tried again`. No row at all: the change wasn't saved, or it sends no email, such as an expired order.
+- **A refund-failed email keeps being tried again:** it goes to every active Super User, so check that at least one is active. Once one is, it goes out at its next try.
 - **`pnpm api:pay-test` says port 4400 is in use:** another payment test is still open. Stop it with Ctrl+C.
 - **After paying, the order still waits for payment:** Razorpay hasn't captured the payment. Check in the dashboard that payments are captured automatically, Razorpay's default.
 - **The authenticator app says "illegal character":** a `0`, `1`, `8` or `9` was typed. The key only has `A`–`Z` and `2`–`7`, so type the letters O, I or B instead.

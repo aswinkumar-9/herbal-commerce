@@ -987,6 +987,7 @@ async function main() {
   let strangerView;
   let cancelled;
   let cancelledAgain;
+  let cancelEmail;
   let packAgain;
   let payment;
   let paymentAgain;
@@ -1037,6 +1038,12 @@ async function main() {
     cancelledAgain = await call('POST', `${orderPath}/cancel`, {
       token: ownerToken,
     });
+    // The email that tells of it is sent at once (part 10), not by the job
+    // that runs every minute.
+    cancelEmail = await waitForEmail(
+      email,
+      `Your order ${placed.body?.reference} is cancelled`,
+    );
     paymentAfterCancel = await call('POST', payPath, { token: ownerToken });
     const { card } = productPages.find(({ page }) =>
       (page.body?.variants ?? []).some((pack) => pack === packInStock),
@@ -1081,6 +1088,10 @@ async function main() {
         cancelledAgain.body?.message ===
           'This order can no longer be cancelled.' &&
         packAgain?.inStock === true),
+  );
+  check(
+    'the customer is emailed at once that the order is cancelled',
+    !packInStock || cancelEmail === true,
   );
   check(
     'starting to pay answers 200 in rupees only, with a Razorpay test key, and the same Razorpay order every time',

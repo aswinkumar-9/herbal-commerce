@@ -3,6 +3,10 @@ import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { z } from 'zod';
 import type { Prisma } from '../generated/prisma/client';
 import type { RefundReason, RefundStatus } from '../generated/prisma/enums';
+import {
+  NotificationsService,
+  type RefundNotificationKind,
+} from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
 import type { RefundListQuery } from './payments.schemas';
 import {
@@ -103,6 +107,13 @@ const REFUND_STAGE = {
   FAILED: 2,
 } as const satisfies Record<RefundStatus, number>;
 
+// The email a refund's end sends (ADR 0029): the customer is told that the
+// money is back, and the Super Users that Razorpay could not give it back.
+const REFUND_EMAILS: Partial<Record<RefundStatus, RefundNotificationKind>> = {
+  PROCESSED: 'REFUND_PROCESSED',
+  FAILED: 'REFUND_FAILED',
+};
+
 // What a Razorpay webhook says about a refund.
 export interface RefundChange {
   razorpayRefundId: string;
@@ -119,6 +130,7 @@ export class PaymentsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly razorpay: RazorpayGateway,
+    private readonly notifications: NotificationsService,
     @InjectPinoLogger(PaymentsService.name)
     private readonly logger: PinoLogger,
   ) {}
@@ -218,9 +230,9 @@ export class PaymentsService {
     if (otherRefund || REFUND_STAGE[status] <= REFUND_STAGE[refund.status]) {
       return;
     }
-    await this.prisma.refund.updateMany({
-      where: { id: refund.id, status: refund.status },
-      data: { status, razorpayRefundId: change.razorpayRefundId },
+    await this.moveRefund(refund.id, refund.status, {
+      status,
+      razorpayRefundId: change.razorpayRefundId,
     });
   }
 
@@ -469,10 +481,7 @@ export class PaymentsService {
           return true;
         }
         if (error instanceof RazorpayError && error.status === 400) {
-          await this.prisma.refund.updateMany({
-            where: { id: refundId, status: 'REQUESTED' },
-            data: { status: 'FAILED' },
-          });
+          await this.moveRefund(refundId, 'REQUESTED', { status: 'FAILED' });
           this.logger.error(
             { refundId, code: error.code },
             'Razorpay refused a refund: staff must give the money back',
@@ -499,13 +508,44 @@ export class PaymentsService {
     refundId: string,
     taken: RazorpayRefund,
   ): Promise<void> {
-    await this.prisma.refund.updateMany({
-      where: { id: refundId, status: 'REQUESTED' },
-      data: {
-        status: REFUND_STATUS[taken.status],
-        razorpayRefundId: taken.id,
-      },
+    await this.moveRefund(refundId, 'REQUESTED', {
+      status: REFUND_STATUS[taken.status],
+      razorpayRefundId: taken.id,
     });
+  }
+
+  // Moves a refund on from the status it was read in, unless it has moved
+  // already. When the money is back, or Razorpay could not give it back, the
+  // email that tells of it is saved in the same transaction (ADR 0029), and
+  // sent once it is saved.
+  private async moveRefund(
+    refundId: string,
+    from: RefundStatus,
+    data: { status: RefundStatus; razorpayRefundId?: string },
+  ): Promise<void> {
+    const queued = await this.prisma.$transaction(async (tx) => {
+      const { count } = await tx.refund.updateMany({
+        where: { id: refundId, status: from },
+        data,
+      });
+      const kind = REFUND_EMAILS[data.status];
+      if (count === 1 && kind) {
+        const { payment } = await tx.refund.findUniqueOrThrow({
+          where: { id: refundId },
+          select: { payment: { select: { orderId: true } } },
+        });
+        await this.notifications.queue(tx, {
+          kind,
+          orderId: payment.orderId,
+          refundId,
+        });
+        return true;
+      }
+      return false;
+    });
+    if (queued) {
+      this.notifications.wake();
+    }
   }
 
   // Razorpay refuses a second order with the same receipt. Then the first

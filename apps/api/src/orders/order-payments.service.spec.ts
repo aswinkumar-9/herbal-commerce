@@ -9,6 +9,7 @@ import {
   NotEnoughStockError,
   type StockService,
 } from '../inventory/stock.service';
+import type { NotificationsService } from '../notifications/notifications.service';
 import type { PaymentsService } from '../payments/payments.service';
 import { RazorpayError } from '../payments/razorpay.gateway';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -50,12 +51,18 @@ function setup() {
         .mockResolvedValue({ status: 'PENDING_PAYMENT', items }),
     },
   };
+  // Called as each transaction is saved, so a test can tell what came after.
+  const committed = jest.fn();
   const prisma = {
     order: {
       findFirst: jest.fn().mockResolvedValue(order),
       findMany: jest.fn().mockResolvedValue([]),
     },
-    $transaction: jest.fn((work: (client: typeof tx) => unknown) => work(tx)),
+    $transaction: jest.fn(async (work: (client: typeof tx) => unknown) => {
+      const result = await work(tx);
+      committed();
+      return result;
+    }),
   };
   const payments = {
     keyId: 'rzp_test_FakeKey0123',
@@ -77,15 +84,30 @@ function setup() {
   const orders = {
     view: jest.fn().mockResolvedValue({ id: ORDER_ID, status: 'PAID' }),
   };
+  const notifications = {
+    queue: jest.fn().mockResolvedValue(undefined),
+    wake: jest.fn(),
+  };
   const logger = { error: jest.fn(), warn: jest.fn() };
   const service = new OrderPaymentsService(
     prisma as unknown as PrismaService,
     payments as unknown as PaymentsService,
     stock as unknown as StockService,
     orders as unknown as OrdersService,
+    notifications as unknown as NotificationsService,
     logger as unknown as PinoLogger,
   );
-  return { service, prisma, tx, payments, stock, orders, logger };
+  return {
+    service,
+    prisma,
+    tx,
+    payments,
+    stock,
+    orders,
+    notifications,
+    logger,
+    committed,
+  };
 }
 
 async function refusal(promise: Promise<unknown>): Promise<unknown> {
@@ -374,7 +396,8 @@ describe('OrderPaymentsService.confirm', () => {
 
 describe('OrderPaymentsService.settle', () => {
   it('pays an order waiting for payment: the order locked first, the payment before the order', async () => {
-    const { service, prisma, tx, payments, stock } = setup();
+    const { service, prisma, tx, payments, stock, notifications, committed } =
+      setup();
 
     await expect(service.settle(captured.id, NOW)).resolves.toEqual({
       kind: 'PAID',
@@ -419,9 +442,23 @@ describe('OrderPaymentsService.settle', () => {
     const paid = payments.markPaid.mock.invocationCallOrder[0];
     const orderPaid = tx.order.updateMany.mock.invocationCallOrder[1];
     expect(lock < read && read < paid && paid < orderPaid).toBe(true);
+    // Then the email that tells the customer, in the same transaction.
+    expect(notifications.queue).toHaveBeenCalledWith(tx, {
+      kind: 'ORDER_PAID',
+      orderId: ORDER_ID,
+    });
+    expect(orderPaid < notifications.queue.mock.invocationCallOrder[0]).toBe(
+      true,
+    );
     expect(stock.take).not.toHaveBeenCalled();
     expect(payments.recordRefund).not.toHaveBeenCalled();
     expect(payments.requestRefund).not.toHaveBeenCalled();
+    // Sent once the transaction is saved (ADR 0029).
+    expect(notifications.wake).toHaveBeenCalledTimes(1);
+    expect(
+      committed.mock.invocationCallOrder[0] <
+        notifications.wake.mock.invocationCallOrder[0],
+    ).toBe(true);
   });
 
   it('changes nothing for a payment that is not captured', async () => {
@@ -503,7 +540,7 @@ describe('OrderPaymentsService.settle', () => {
   });
 
   it('pays an expired order late when its stock can be taken again', async () => {
-    const { service, tx, payments, stock } = setup();
+    const { service, tx, payments, stock, notifications } = setup();
     tx.order.findUniqueOrThrow.mockResolvedValueOnce({
       status: 'EXPIRED',
       items,
@@ -530,10 +567,15 @@ describe('OrderPaymentsService.settle', () => {
         payments.markPaid.mock.invocationCallOrder[0],
     ).toBe(true);
     expect(payments.recordRefund).not.toHaveBeenCalled();
+    expect(notifications.queue).toHaveBeenCalledWith(tx, {
+      kind: 'ORDER_PAID',
+      orderId: ORDER_ID,
+    });
+    expect(notifications.wake).toHaveBeenCalledTimes(1);
   });
 
   it('gives a late payment back in full when the stock is gone, and asks Razorpay only after saving', async () => {
-    const { service, prisma, tx, payments, stock } = setup();
+    const { service, prisma, tx, payments, stock, notifications } = setup();
     tx.order.findUniqueOrThrow.mockResolvedValueOnce({
       status: 'EXPIRED',
       items,
@@ -556,6 +598,9 @@ describe('OrderPaymentsService.settle', () => {
     });
     expect(payments.markPaid).not.toHaveBeenCalled();
     expect(tx.order.updateMany).toHaveBeenCalledTimes(1);
+    // No email for a payment given back (the owner's choice, ADR 0029).
+    expect(notifications.queue).not.toHaveBeenCalled();
+    expect(notifications.wake).not.toHaveBeenCalled();
     expect(payments.requestRefund).toHaveBeenCalledWith(REFUND_ID);
     const saved = await prisma.$transaction.mock.results[0].value;
     expect(saved).toMatchObject({ kind: 'REFUNDING' });
@@ -643,8 +688,8 @@ describe('OrderPaymentsService.settle', () => {
     expect(payments.requestRefund).not.toHaveBeenCalled();
   });
 
-  it('fails when the order changed although it was locked', async () => {
-    const { service, tx } = setup();
+  it('fails when the order changed although it was locked, and saves no email', async () => {
+    const { service, tx, notifications } = setup();
     tx.order.updateMany
       .mockResolvedValueOnce({ count: 1 })
       .mockResolvedValueOnce({ count: 0 });
@@ -652,6 +697,8 @@ describe('OrderPaymentsService.settle', () => {
     await expect(service.settle(captured.id, NOW)).rejects.toThrow(
       'The order changed while it was locked',
     );
+    expect(notifications.queue).not.toHaveBeenCalled();
+    expect(notifications.wake).not.toHaveBeenCalled();
   });
 
   it("passes Razorpay's failure on, before deciding anything", async () => {

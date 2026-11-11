@@ -13,6 +13,7 @@ import type {
   RefundReason,
 } from '../generated/prisma/enums';
 import { NotEnoughStockError, StockService } from '../inventory/stock.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import {
   PaymentsService,
   type PaymentSummary,
@@ -178,6 +179,7 @@ export class OrdersService {
     private readonly packs: ShopPacksService,
     private readonly stock: StockService,
     private readonly payments: PaymentsService,
+    private readonly notifications: NotificationsService,
   ) {}
 
   // What the customer's cart would cost as an order now: today's prices,
@@ -293,8 +295,9 @@ export class OrdersService {
 
   // Cancels the customer's own order until it ships, and gives its stock
   // back. A paid order's payment goes back in full: saved in the same
-  // transaction, and asked of Razorpay after it (ADR 0028). Any other order
-  // answers 409; someone else's, 404.
+  // transaction, and asked of Razorpay after it (ADR 0028). Once saved, the
+  // email that tells of it is sent first, so a slow Razorpay never holds it
+  // up (ADR 0029). Any other order answers 409; someone else's, 404.
   async cancel(
     userId: string,
     id: string,
@@ -303,6 +306,7 @@ export class OrdersService {
     const { refundId } = await this.prisma.$transaction((tx) =>
       this.cancelLocked(tx, { id, userId }, 'CANCELLED_BY_CUSTOMER', now),
     );
+    this.notifications.wake();
     if (refundId) {
       await this.payments.requestRefund(refundId);
     }
@@ -313,9 +317,10 @@ export class OrdersService {
   // with the order locked: so a payment, an expiry or a staff step at the
   // same moment waits, and then finds it cancelled. Its stock comes back,
   // and once paid, its payment is saved as going back in full, for the
-  // reason given. The caller asks Razorpay for the refund once the
-  // transaction is saved. Answers the status the order had, and the
-  // refund's ID, if any.
+  // reason given, with the email that tells the customer (ADR 0029). Once
+  // the transaction is saved, the caller sends the email, then asks Razorpay
+  // for the refund.
+  // Answers the status the order had, and the refund's ID, if any.
   async cancelLocked(
     tx: Prisma.TransactionClient,
     where: { id: string; userId?: string },
@@ -352,6 +357,10 @@ export class OrdersService {
       data: { status: 'CANCELLED' },
     });
     await this.stock.release(tx, where.id);
+    await this.notifications.queue(tx, {
+      kind: 'ORDER_CANCELLED',
+      orderId: where.id,
+    });
     return { from, refundId };
   }
 

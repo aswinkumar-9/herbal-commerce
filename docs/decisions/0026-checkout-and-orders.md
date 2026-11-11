@@ -4,6 +4,7 @@
 - Date: 2026-11-08
 - Updated: 2026-11-09 (part 8: orders are paid through Razorpay, and an expired order may still be paid late, see ADR 0027)
 - Updated: 2026-11-10 (part 9: staff see orders and take paid ones through packed, shipped and delivered, and an order may be cancelled until it ships, see ADR 0028)
+- Updated: 2026-11-11 (part 10: the customer is emailed when an order is paid, packed, shipped, delivered or cancelled, see ADR 0029)
 
 ## Context
 
@@ -206,6 +207,6 @@ The first two were tested in 28 cases, and the third in 8 more, after converting
   - paying for an order: done in part 8, through Razorpay (ADR 0027);
   - GST invoices, numbered per financial year, with the chartered accountant's answers on rounding, the delivery charge and the CGST, SGST or IGST split;
   - staff seeing, packing and shipping orders: done in part 9 (ADR 0028), apart from the admin console itself;
-  - an email confirming an order;
+  - an email confirming an order: done in part 10, once the order is paid, with an email at each later step too (ADR 0029);
   - returns, and refunds a customer asks for. Payments that can't be kept go back on their own since part 8 (ADR 0027);
   - how long orders are kept for the tax records, and what deleting an account keeps (ADR 0011).
