@@ -9,11 +9,10 @@ import {
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
-import { MemoryRouter } from 'react-router';
+import { RouterProvider, createMemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
-import { App } from './App';
+import { routes } from './App';
 import { accessToken } from './api/access-token';
-import { SessionProvider } from './auth/SessionProvider';
 import { IDLE_LIMIT_MS, IDLE_WARNING_MS } from './auth/idle';
 import { fetchProfile } from './auth/staff-api';
 import { ASHA, RAVI, fakeApi, json, offline, tokens } from './test/fake-api';
@@ -37,13 +36,10 @@ function openConsole(
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
+  const router = createMemoryRouter(routes, { initialEntries: [path] });
   const tree = (
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[path]}>
-        <SessionProvider>
-          <App />
-        </SessionProvider>
-      </MemoryRouter>
+      <RouterProvider router={router} />
     </QueryClientProvider>
   );
   render(strict ? <StrictMode>{tree}</StrictMode> : tree);

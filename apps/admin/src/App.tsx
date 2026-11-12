@@ -1,5 +1,7 @@
-import { Route, Routes } from 'react-router';
+import { Outlet, Route, createRoutesFromElements } from 'react-router';
+import { SessionProvider } from './auth/SessionProvider';
 import { RequireRole, RequireSession } from './auth/guards';
+import { CrashScreen, ErrorBoundary } from './components/ErrorBoundary';
 import { AppShell } from './layout/AppShell';
 import { NAV_ITEMS } from './layout/nav-items';
 import type { NavItem } from './layout/nav-items';
@@ -23,20 +25,32 @@ function comingSoon(item: NavItem) {
   );
 }
 
-export function App() {
+// Around every page: a calm screen if one breaks, and the staff session.
+function Root() {
   return (
-    <Routes>
-      <Route path="/sign-in" element={<SignInPage />} />
-      <Route element={<RequireSession />}>
-        <Route element={<AppShell />}>
-          <Route index element={<OverviewPage />} />
-          {forEveryone.map(comingSoon)}
-          <Route element={<RequireRole only="SUPER_USER" />}>
-            {forSuperUsers.map(comingSoon)}
-          </Route>
-          <Route path="*" element={<NotFoundPage />} />
-        </Route>
-      </Route>
-    </Routes>
+    <ErrorBoundary>
+      <SessionProvider>
+        <Outlet />
+      </SessionProvider>
+    </ErrorBoundary>
   );
 }
+
+// The console's pages, for createBrowserRouter (main.tsx) and the tests'
+// createMemoryRouter. A data router, so a page with unsaved changes can ask
+// before staff leave it (useBlocker).
+export const routes = createRoutesFromElements(
+  <Route element={<Root />} errorElement={<CrashScreen />}>
+    <Route path="/sign-in" element={<SignInPage />} />
+    <Route element={<RequireSession />}>
+      <Route element={<AppShell />}>
+        <Route index element={<OverviewPage />} />
+        {forEveryone.map(comingSoon)}
+        <Route element={<RequireRole only="SUPER_USER" />}>
+          {forSuperUsers.map(comingSoon)}
+        </Route>
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
+    </Route>
+  </Route>,
+);
