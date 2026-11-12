@@ -1,28 +1,42 @@
-import { Leaf } from 'lucide-react';
-import { motion } from 'motion/react';
-import { rise } from './motion';
+import { Route, Routes } from 'react-router';
+import { RequireRole, RequireSession } from './auth/guards';
+import { AppShell } from './layout/AppShell';
+import { NAV_ITEMS } from './layout/nav-items';
+import type { NavItem } from './layout/nav-items';
+import { ComingSoonPage } from './pages/ComingSoonPage';
+import { NotFoundPage } from './pages/NotFoundPage';
+import { OverviewPage } from './pages/OverviewPage';
+import { SignInPage } from './pages/SignInPage';
 
-// The console's first page, until the sign-in arrives (Part 12A, Step 3).
+const forEveryone = NAV_ITEMS.filter((item) => item.arrives && !item.role);
+const forSuperUsers = NAV_ITEMS.filter(
+  (item) => item.arrives && item.role === 'SUPER_USER',
+);
+
+function comingSoon(item: NavItem) {
+  return (
+    <Route
+      key={item.to}
+      path={item.to.slice(1)}
+      element={<ComingSoonPage item={item} />}
+    />
+  );
+}
+
 export function App() {
   return (
-    <main className="grid min-h-dvh place-items-center p-6">
-      <motion.section
-        variants={rise}
-        initial="hidden"
-        animate="shown"
-        className="w-full max-w-sm rounded-card border border-line bg-surface p-8 shadow-soft"
-      >
-        <div className="flex items-center gap-3">
-          <span className="grid size-10 place-items-center rounded-full bg-primary-soft text-primary">
-            <Leaf aria-hidden="true" className="size-5" />
-          </span>
-          <div>
-            <h1 className="text-lg font-semibold">Herbal Commerce</h1>
-            <p className="text-sm text-ink-muted">Admin console</p>
-          </div>
-        </div>
-        <p className="mt-6 text-sm text-ink-muted">Staff sign-in comes next.</p>
-      </motion.section>
-    </main>
+    <Routes>
+      <Route path="/sign-in" element={<SignInPage />} />
+      <Route element={<RequireSession />}>
+        <Route element={<AppShell />}>
+          <Route index element={<OverviewPage />} />
+          {forEveryone.map(comingSoon)}
+          <Route element={<RequireRole only="SUPER_USER" />}>
+            {forSuperUsers.map(comingSoon)}
+          </Route>
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Route>
+    </Routes>
   );
 }

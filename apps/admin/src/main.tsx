@@ -2,7 +2,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MotionConfig } from 'motion/react';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router';
 import { App } from './App';
+import { SessionProvider } from './auth/SessionProvider';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -19,7 +21,11 @@ createRoot(root).render(
     <QueryClientProvider client={queryClient}>
       {/* Follows the computer's "reduce motion" setting. */}
       <MotionConfig reducedMotion="user">
-        <App />
+        <BrowserRouter>
+          <SessionProvider>
+            <App />
+          </SessionProvider>
+        </BrowserRouter>
       </MotionConfig>
     </QueryClientProvider>
   </StrictMode>,
