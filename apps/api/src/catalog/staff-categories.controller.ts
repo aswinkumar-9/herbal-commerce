@@ -9,15 +9,21 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
 } from '@nestjs/common';
 import type { AuditContext } from '../audit/audit-context';
 import { CurrentAuditContext } from '../audit/audit-context.decorator';
 import { StaffOnly } from '../auth/staff-only.decorator';
 import { SuperUserOnly } from '../auth/super-user-only.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { categorySchema, categoryUpdateSchema } from './categories.schemas';
+import {
+  categoryOrderSchema,
+  categorySchema,
+  categoryUpdateSchema,
+} from './categories.schemas';
 import type {
   CategoryInput,
+  CategoryOrderInput,
   CategoryUpdateInput,
 } from './categories.schemas';
 import { CategoriesService } from './categories.service';
@@ -45,6 +51,16 @@ export class StaffCategoriesController {
     @CurrentAuditContext() context: AuditContext,
   ) {
     return this.categories.create(body, context);
+  }
+
+  // A new order for the categories customers see: all of them, first to
+  // last.
+  @Put('order')
+  reorder(
+    @Body(new ZodValidationPipe(categoryOrderSchema)) body: CategoryOrderInput,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.categories.reorder(body, context);
   }
 
   // Changes, activates or deactivates a category. An ID that is not a UUID

@@ -1,4 +1,8 @@
-import { categorySchema, categoryUpdateSchema } from './categories.schemas';
+import {
+  categoryOrderSchema,
+  categorySchema,
+  categoryUpdateSchema,
+} from './categories.schemas';
 
 describe('categorySchema', () => {
   it('makes the slug from the name, and keeps it hidden unless asked', () => {
@@ -80,5 +84,31 @@ describe('categoryUpdateSchema', () => {
   it('refuses a change with nothing in it', () => {
     expect(categoryUpdateSchema.safeParse({}).success).toBe(false);
     expect(categoryUpdateSchema.safeParse({ id: 'x' }).success).toBe(false);
+  });
+});
+
+describe('categoryOrderSchema', () => {
+  const A = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+  const B = '8d0f7780-8536-41ef-a55c-f18c2b01bf18';
+  const refused = (input: object) => {
+    const result = categoryOrderSchema.safeParse(input);
+    return result.success
+      ? []
+      : result.error.issues.map((issue) => [issue.path.join('.'), issue.message]);
+  };
+
+  it('takes every category, first to last', () => {
+    expect(categoryOrderSchema.parse({ ids: [B, A], other: 1 })).toEqual({ ids: [B, A] });
+  });
+
+  it('refuses an empty list, a category twice, a bad ID and more than 500', () => {
+    expect(refused({ ids: [] })).toEqual([['ids', 'List the categories']]);
+    expect(refused({ ids: [A, B, A] })).toEqual([['ids', 'List each category once']]);
+    expect(refused({ ids: ['hair-care'] })).toEqual([['ids.0', 'Each category by its ID']]);
+    const many = Array.from(
+      { length: 501 },
+      (_, n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    );
+    expect(refused({ ids: many })).toEqual([['ids', 'At most 500 categories']]);
   });
 });

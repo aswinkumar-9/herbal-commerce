@@ -87,14 +87,19 @@ describe('rate-limited routes', () => {
       create: undefined,
       update: undefined,
       remove: undefined,
+      reorder: undefined,
     });
     expect(routeLimits(CategoriesController)).toStrictEqual({
       list: undefined,
       listProducts: undefined,
     });
-    // Products too: small writes and paged reads.
+    // Products too: small writes and paged reads. The staff search (part
+    // 12B) weighs only names, for signed-in staff, so it needs no limit of
+    // its own, unlike the shop's.
     expect(routeLimits(StaffProductsController)).toStrictEqual({
       list: undefined,
+      findOne: undefined,
+      reorder: undefined,
       create: undefined,
       update: undefined,
       remove: undefined,

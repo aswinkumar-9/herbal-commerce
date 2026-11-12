@@ -1,3 +1,5 @@
+import { RequestMethod } from '@nestjs/common';
+import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { ProductsService } from './products.service';
 import { StaffProductsController } from './staff-products.controller';
 
@@ -15,6 +17,8 @@ function setup() {
     create: jest.fn().mockResolvedValue({ id: ID }),
     update: jest.fn().mockResolvedValue({ id: ID }),
     remove: jest.fn().mockResolvedValue(undefined),
+    findForStaff: jest.fn().mockResolvedValue({ id: ID }),
+    reorder: jest.fn().mockResolvedValue({ products: [] }),
   };
   const controller = new StaffProductsController(
     products as unknown as ProductsService,
@@ -51,10 +55,51 @@ describe('StaffProductsController', () => {
     expect(products.update).toHaveBeenCalledWith(ID, { isActive: true }, context);
   });
 
+  it('reads one product by its ID', async () => {
+    const { controller, products } = setup();
+
+    await expect(controller.findOne(ID)).resolves.toEqual({ id: ID });
+    expect(products.findForStaff).toHaveBeenCalledWith(ID);
+  });
+
+  it("puts a category's products in a new order, recording who did it", async () => {
+    const { controller, products } = setup();
+    const input = { categoryId: CATEGORY, ids: [ID] };
+
+    await expect(controller.reorder(input, context)).resolves.toEqual({
+      products: [],
+    });
+    expect(products.reorder).toHaveBeenCalledWith(input, context);
+  });
+
   it('deletes a product by its ID, recording who did it', async () => {
     const { controller, products } = setup();
 
     await expect(controller.remove(ID, context)).resolves.toBeUndefined();
     expect(products.remove).toHaveBeenCalledWith(ID, context);
+  });
+});
+
+// The HTTP method and path a handler is served at, by its name.
+function route(name: string) {
+  const handler = (
+    StaffProductsController.prototype as unknown as Record<string, object>
+  )[name];
+  return [
+    Reflect.getMetadata(METHOD_METADATA, handler) as RequestMethod,
+    Reflect.getMetadata(PATH_METADATA, handler) as string,
+  ];
+}
+
+describe('StaffProductsController routes', () => {
+  it('serves one product at GET /v1/staff/products/:id, and the new order at PUT /v1/staff/products/order', () => {
+    expect(route('findOne')).toEqual([
+      RequestMethod.GET,
+      ':id',
+    ]);
+    expect(route('reorder')).toEqual([
+      RequestMethod.PUT,
+      'order',
+    ]);
   });
 });

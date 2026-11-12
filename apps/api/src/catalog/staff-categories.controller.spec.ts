@@ -1,3 +1,5 @@
+import { RequestMethod } from '@nestjs/common';
+import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { CategoriesService } from './categories.service';
 import { StaffCategoriesController } from './staff-categories.controller';
 
@@ -14,6 +16,7 @@ function setup() {
     create: jest.fn().mockResolvedValue({ id: ID }),
     update: jest.fn().mockResolvedValue({ id: ID }),
     remove: jest.fn().mockResolvedValue(undefined),
+    reorder: jest.fn().mockResolvedValue({ categories: [] }),
   };
   const controller = new StaffCategoriesController(
     categories as unknown as CategoriesService,
@@ -52,10 +55,40 @@ describe('StaffCategoriesController', () => {
     );
   });
 
+  it('puts the categories in a new order, recording who did it', async () => {
+    const { controller, categories } = setup();
+    const input = { ids: [ID] };
+
+    await expect(controller.reorder(input, context)).resolves.toEqual({
+      categories: [],
+    });
+    expect(categories.reorder).toHaveBeenCalledWith(input, context);
+  });
+
   it('deletes a category by its ID, recording who did it', async () => {
     const { controller, categories } = setup();
 
     await expect(controller.remove(ID, context)).resolves.toBeUndefined();
     expect(categories.remove).toHaveBeenCalledWith(ID, context);
+  });
+});
+
+// The HTTP method and path a handler is served at, by its name.
+function route(name: string) {
+  const handler = (
+    StaffCategoriesController.prototype as unknown as Record<string, object>
+  )[name];
+  return [
+    Reflect.getMetadata(METHOD_METADATA, handler) as RequestMethod,
+    Reflect.getMetadata(PATH_METADATA, handler) as string,
+  ];
+}
+
+describe('StaffCategoriesController routes', () => {
+  it('serves the new order at PUT /v1/staff/categories/order', () => {
+    expect(route('reorder')).toEqual([
+      RequestMethod.PUT,
+      'order',
+    ]);
   });
 });

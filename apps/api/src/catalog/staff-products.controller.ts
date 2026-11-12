@@ -9,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
 } from '@nestjs/common';
 import type { AuditContext } from '../audit/audit-context';
@@ -18,12 +19,14 @@ import { SuperUserOnly } from '../auth/super-user-only.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import {
   productListQuerySchema,
+  productOrderSchema,
   productSchema,
   productUpdateSchema,
 } from './products.schemas';
 import type {
   ProductInput,
   ProductListQuery,
+  ProductOrderInput,
   ProductUpdateInput,
 } from './products.schemas';
 import { ProductsService } from './products.service';
@@ -37,12 +40,28 @@ export class StaffProductsController {
   constructor(private readonly products: ProductsService) {}
 
   // Every product, drafts too, one page at a time: the nextAfter of one
-  // page is the ?after= of the next. Reading is not audited.
+  // page is the ?after= of the next. With ?q=, the best matches by name, on
+  // one page. Reading is not audited.
   @Get()
   list(
     @Query(new ZodValidationPipe(productListQuerySchema)) query: ProductListQuery,
   ) {
     return this.products.list(query);
+  }
+
+  // One product, drafts too, for its page in the admin console.
+  @Get(':id')
+  findOne(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.products.findForStaff(id);
+  }
+
+  // A new order for a category's products: all of them, first to last.
+  @Put('order')
+  reorder(
+    @Body(new ZodValidationPipe(productOrderSchema)) body: ProductOrderInput,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.products.reorder(body, context);
   }
 
   // A new product starts as a hidden draft unless isActive is sent.

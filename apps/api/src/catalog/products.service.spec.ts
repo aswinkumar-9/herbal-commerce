@@ -79,9 +79,11 @@ function setup(products: object[] = []) {
     },
   };
   const prisma = {
+    $queryRaw: jest.fn().mockResolvedValue([]),
     product: {
       findMany: jest.fn().mockResolvedValue(products),
       findFirst: jest.fn().mockResolvedValue(null),
+      findUnique: jest.fn().mockResolvedValue(stored()),
     },
     category: { findFirst: jest.fn().mockResolvedValue(shopCategory) },
     $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)),
@@ -760,5 +762,218 @@ describe('ProductsService.findForShop', () => {
     await expect(service.findForShop('draft-product')).rejects.toThrow(
       new NotFoundException('Product not found'),
     );
+  });
+});
+
+const SECOND = '4a3c9d2e-6f7b-4c8d-9e0f-1a2b3c4d5e6f';
+const THIRD = '5b4d0e3f-7081-4d9e-8f10-2b3c4d5e6f70';
+
+// The SQL text and the values bound to it, from a tagged-template call.
+function rawCall(mock: jest.Mock, index = 0) {
+  const [strings, ...values] = mock.mock.calls[index] as [
+    TemplateStringsArray,
+    ...unknown[],
+  ];
+  return { sql: strings.join('?'), values };
+}
+
+describe('ProductsService.findForStaff', () => {
+  it('reads one product, drafts too, with every staff field', async () => {
+    const { service, prisma } = setup();
+
+    await expect(service.findForStaff(ID)).resolves.toEqual(stored());
+
+    const [query] = prisma.product.findUnique.mock.calls[0] as [
+      { where: object; select: Record<string, boolean> },
+    ];
+    expect(query.where).toEqual({ id: ID });
+    expect(query.select).toMatchObject({
+      id: true,
+      hsnCode: true,
+      isActive: true,
+    });
+  });
+
+  it('answers 404 for an unknown ID', async () => {
+    const { service, prisma } = setup();
+    prisma.product.findUnique.mockResolvedValue(null);
+
+    await expect(service.findForStaff(ID)).rejects.toThrow(
+      new NotFoundException('Product not found'),
+    );
+  });
+});
+
+describe('ProductsService.list with search words', () => {
+  it('finds by name with trigrams, drafts too, the best first, on one page', async () => {
+    const { service, prisma } = setup();
+    prisma.$queryRaw.mockResolvedValue([{ id: SECOND }, { id: ID }]);
+    prisma.product.findMany.mockResolvedValue([
+      stored(),
+      stored({ id: SECOND, name: 'Ashwagandha Powder' }),
+    ]);
+
+    const page = await service.list({ q: 'ashwa', limit: 50 });
+
+    // In the order of the matches, not the order the rows came back in.
+    expect(page.products.map((product) => product.id)).toEqual([SECOND, ID]);
+    expect(page.nextAfter).toBeNull();
+    const { sql, values } = rawCall(prisma.$queryRaw);
+    expect(sql).toContain('<% p."name"');
+    // By the name only, best match first, unlike the shop's search.
+    expect(sql).not.toMatch(/summary|description|ingredients/);
+    expect(sql).toMatch(/ORDER BY word_similarity\(\?, p\."name"\) DESC/);
+    // Every value is bound: the words, no category, any status, the limit.
+    expect(values).toEqual(['ashwa', null, null, null, null, 'ashwa', 50]);
+    expect(sql).not.toContain('ashwa');
+    const [query] = prisma.product.findMany.mock.calls[0] as [
+      { where: object },
+    ];
+    expect(query.where).toEqual({ id: { in: [SECOND, ID] } });
+  });
+
+  it('keeps the category and status filters, as bound values', async () => {
+    const { service, prisma } = setup();
+
+    await service.list({
+      q: 'tulsi',
+      limit: 10,
+      categoryId: CATEGORY,
+      isActive: false,
+    });
+
+    expect(rawCall(prisma.$queryRaw).values).toEqual([
+      'tulsi',
+      CATEGORY,
+      CATEGORY,
+      false,
+      false,
+      'tulsi',
+      10,
+    ]);
+  });
+
+  it('leaves out a product deleted between the two queries', async () => {
+    const { service, prisma } = setup();
+    prisma.$queryRaw.mockResolvedValue([{ id: SECOND }, { id: ID }]);
+    prisma.product.findMany.mockResolvedValue([stored()]);
+
+    const page = await service.list({ q: 'ashwa', limit: 50 });
+
+    expect(page.products.map((product) => product.id)).toEqual([ID]);
+  });
+
+  it('pages as before without search words, and asks no raw query', async () => {
+    const { service, prisma } = setup([stored()]);
+
+    await service.list({ limit: 50 });
+
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+});
+
+describe('ProductsService.reorder', () => {
+  function reorderSetup(positions: Record<string, number>) {
+    const ready = setup([stored()]);
+    ready.tx.$queryRaw
+      .mockResolvedValueOnce([{ id: CATEGORY }])
+      .mockResolvedValueOnce(
+        Object.entries(positions).map(([id, position]) => ({ id, position })),
+      );
+    return ready;
+  }
+
+  it('gives each product its place in the list, and records each one that moved', async () => {
+    const { service, tx, audit, prisma } = reorderSetup({
+      [ID]: 0,
+      [SECOND]: 1,
+      [THIRD]: 2,
+    });
+
+    await expect(
+      service.reorder(
+        { categoryId: CATEGORY, ids: [SECOND, ID, THIRD] },
+        context,
+      ),
+    ).resolves.toEqual({ products: [stored()] });
+
+    expect(tx.product.update.mock.calls).toEqual([
+      [{ where: { id: SECOND }, data: { position: 0 }, select: { id: true } }],
+      [{ where: { id: ID }, data: { position: 1 }, select: { id: true } }],
+    ]);
+    expect(audit.record.mock.calls.map(([, entry]) => entry)).toEqual([
+      {
+        ...context,
+        action: 'product.updated',
+        targetType: 'product',
+        targetId: SECOND,
+        before: { position: 1 },
+        after: { position: 0 },
+      },
+      {
+        ...context,
+        action: 'product.updated',
+        targetType: 'product',
+        targetId: ID,
+        before: { position: 0 },
+        after: { position: 1 },
+      },
+    ]);
+    // The answer is the category's products, in the new order.
+    const [query] = prisma.product.findMany.mock.calls[0] as [
+      { where: object },
+    ];
+    expect(query.where).toEqual({ categoryId: CATEGORY });
+  });
+
+  it('locks the category, then its products in the order of their IDs, before reading positions', async () => {
+    const { service, tx } = reorderSetup({ [ID]: 0 });
+
+    await service.reorder({ categoryId: CATEGORY, ids: [ID] }, context);
+
+    const category = rawCall(tx.$queryRaw, 0);
+    expect(category.sql).toContain('FOR KEY SHARE');
+    expect(category.values).toEqual([CATEGORY]);
+    const products = rawCall(tx.$queryRaw, 1);
+    expect(products.sql).toMatch(/ORDER BY id FOR NO KEY UPDATE/);
+    expect(products.values).toEqual([CATEGORY]);
+  });
+
+  it('changes and records nothing when the order is the same', async () => {
+    const { service, tx, audit, logger } = reorderSetup({
+      [ID]: 0,
+      [SECOND]: 1,
+    });
+
+    await service.reorder({ categoryId: CATEGORY, ids: [ID, SECOND] }, context);
+
+    expect(tx.product.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a product is missing', [ID]],
+    ['a product is not in the category', [ID, THIRD]],
+  ])('answers 409 and changes nothing when %s', async (_case, ids) => {
+    const { service, tx, audit } = reorderSetup({ [ID]: 0, [SECOND]: 1 });
+
+    await expect(
+      service.reorder({ categoryId: CATEGORY, ids }, context),
+    ).rejects.toThrow(ConflictException);
+    expect(tx.product.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('answers 400 on categoryId for a category that does not exist', async () => {
+    const { service, tx } = setup();
+    tx.$queryRaw.mockResolvedValueOnce([]);
+
+    await expect(
+      refusal(service.reorder({ categoryId: CATEGORY, ids: [ID] }, context)),
+    ).resolves.toMatchObject({
+      errors: [{ field: 'categoryId', message: 'No category with this ID' }],
+    });
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
   });
 });

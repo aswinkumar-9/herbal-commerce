@@ -318,3 +318,88 @@ describe('CategoriesService.remove, with products', () => {
   });
 });
 
+describe('CategoriesService.reorder', () => {
+  const SECOND = '8d0f7780-8536-41ef-a55c-f18c2b01bf18';
+  const THIRD = '9e1a8891-9647-42f0-b66d-0a9d3c12c029';
+
+  function reorderSetup(positions: Record<string, number>) {
+    const ready = setup([stored()]);
+    ready.tx.$queryRaw.mockResolvedValueOnce(
+      Object.entries(positions).map(([id, position]) => ({ id, position })),
+    );
+    return ready;
+  }
+
+  it('gives each category its place in the list, and records each one that moved', async () => {
+    const { service, tx, audit, logger } = reorderSetup({
+      [ID]: 0,
+      [SECOND]: 5,
+      [THIRD]: 2,
+    });
+
+    await expect(
+      service.reorder({ ids: [SECOND, ID, THIRD] }, context),
+    ).resolves.toEqual({ categories: [stored()] });
+
+    expect(tx.category.update.mock.calls).toEqual([
+      [{ where: { id: SECOND }, data: { position: 0 }, select: { id: true } }],
+      [{ where: { id: ID }, data: { position: 1 }, select: { id: true } }],
+    ]);
+    expect(audit.record.mock.calls.map(([, entry]) => entry)).toEqual([
+      {
+        ...context,
+        action: 'category.updated',
+        targetType: 'category',
+        targetId: SECOND,
+        before: { position: 5 },
+        after: { position: 0 },
+      },
+      {
+        ...context,
+        action: 'category.updated',
+        targetType: 'category',
+        targetId: ID,
+        before: { position: 0 },
+        after: { position: 1 },
+      },
+    ]);
+    expect(logger.info).toHaveBeenCalledWith(
+      { moved: 2, actorId: context.actorId },
+      'Categories reordered',
+    );
+  });
+
+  it('locks every category in the order of their IDs, letting products be saved meanwhile', async () => {
+    const { service, tx } = reorderSetup({ [ID]: 0 });
+
+    await service.reorder({ ids: [ID] }, context);
+
+    const [strings] = tx.$queryRaw.mock.calls[0] as [TemplateStringsArray];
+    expect(strings.join('?')).toMatch(/ORDER BY id FOR NO KEY UPDATE/);
+  });
+
+  it('changes and records nothing when the order is the same', async () => {
+    const { service, tx, audit } = reorderSetup({ [ID]: 0, [SECOND]: 1 });
+
+    await service.reorder({ ids: [ID, SECOND] }, context);
+
+    expect(tx.category.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a category is missing', [ID]],
+    ['a category is unknown', [ID, THIRD]],
+    ['the list is longer', [ID, SECOND, THIRD]],
+  ])('answers 409 and changes nothing when %s', async (_case, ids) => {
+    const { service, tx, audit } = reorderSetup({ [ID]: 0, [SECOND]: 1 });
+
+    await expect(service.reorder({ ids }, context)).rejects.toThrow(
+      new ConflictException(
+        'The categories changed while you were ordering them. Reload and try again.',
+      ),
+    );
+    expect(tx.category.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+});

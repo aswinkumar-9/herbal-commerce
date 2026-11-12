@@ -14,6 +14,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import type {
   CategoryInput,
+  CategoryOrderInput,
   CategoryUpdateInput,
 } from './categories.schemas';
 import { changedFields, pick } from './changes';
@@ -23,6 +24,8 @@ export const SLUG_TAKEN =
   'Another category already has this slug. Choose a different one.';
 export const CATEGORY_HAS_PRODUCTS =
   'This category still has products. Move them to another category or delete them first.';
+export const CATEGORIES_CHANGED =
+  'The categories changed while you were ordering them. Reload and try again.';
 
 const CATEGORY_FIELDS = {
   id: true,
@@ -149,6 +152,58 @@ export class CategoriesService {
       );
     }
     return category;
+  }
+
+  // Puts the categories in a new order, from the whole list first to last,
+  // as staff dragged them (ADR 0031). Each one's position becomes its place
+  // in the list. All of it is saved in one transaction, with an audit entry
+  // for each category that moved, so each one's history shows it.
+  async reorder(
+    { ids }: CategoryOrderInput,
+    context: AuditContext,
+  ): Promise<{ categories: Category[] }> {
+    const moved = await this.prisma.$transaction(async (tx) => {
+      // Every category, locked in the order of their IDs, as everywhere, so
+      // two new orders take turns. NO KEY UPDATE: products being saved in a
+      // category don't wait for it.
+      const current = await tx.$queryRaw<{ id: string; position: number }[]>`
+        SELECT id, position FROM categories ORDER BY id FOR NO KEY UPDATE`;
+      const was = new Map(current.map((row) => [row.id, row.position]));
+      // The list must be every category: one added or deleted since staff
+      // loaded the page would otherwise be left out of the order.
+      if (current.length !== ids.length || ids.some((id) => !was.has(id))) {
+        throw new ConflictException(CATEGORIES_CHANGED);
+      }
+      let count = 0;
+      for (const [position, id] of ids.entries()) {
+        const before = was.get(id);
+        if (before === position) {
+          continue;
+        }
+        await tx.category.update({
+          where: { id },
+          data: { position },
+          select: { id: true },
+        });
+        await this.audit.record(tx, {
+          ...context,
+          action: 'category.updated',
+          targetType: 'category',
+          targetId: id,
+          before: { position: before },
+          after: { position },
+        });
+        count += 1;
+      }
+      return count;
+    });
+    if (moved > 0) {
+      this.logger.info(
+        { moved, actorId: context.actorId },
+        'Categories reordered',
+      );
+    }
+    return this.list();
   }
 
   // Deletes a category for good. Only Super Users may: the route is
