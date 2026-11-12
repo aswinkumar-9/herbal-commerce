@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.22.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.23.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -1096,15 +1096,25 @@ Rules for clients:
 - **Each code works once.** After a `401`, wait for the next code before trying again; never send the same code twice.
 - Don't guess for the user which part was wrong: the answer is the same on purpose.
 
+**From the admin console** (ADR 0031): when the request's `Origin` header is exactly `ADMIN_ORIGIN`, the answer has no `refreshToken`. It comes in a cookie the page cannot read:
+```
+Set-Cookie: herbal_staff_refresh=<token>; Path=/v1/staff/auth; Max-Age=43200; HttpOnly; SameSite=Strict
+```
+with `Secure` when `ADMIN_ORIGIN` is `https`. A failed sign-in sets no cookie. Every other client works as above.
+
 ### POST `/v1/staff/auth/refresh`
 
 **Public.** Works like `/v1/auth/refresh`, for staff refresh tokens only: each token works once, and reusing one ends the session. The session still ends 12 hours after the login.
 
 A customer refresh token gets `401 Invalid refresh token`, and is not used up: it keeps working on its own path. Errors otherwise as for `/v1/auth/refresh`.
 
+**From the admin console** (`Origin` exactly `ADMIN_ORIGIN`): no body is needed, and a token in the body is ignored. The cookie's token is swapped: the answer is `accessToken`, `tokenType` and `expiresIn`, and the new refresh token comes in a new cookie. Without a cookie, or with one the API refuses, the answer is `401 Invalid refresh token`, with a `Set-Cookie` that clears it (`Max-Age=0`).
+
 ### POST `/v1/staff/auth/logout`
 
 **Public.** Works like `/v1/auth/logout`, for staff sessions. Always `204`; a customer refresh token is ignored.
+
+**From the admin console** (`Origin` exactly `ADMIN_ORIGIN`): no body is needed. The cookie's session ends, if there is one, and the cookie is always cleared.
 
 ### POST `/v1/staff/auth/accept-invite`
 

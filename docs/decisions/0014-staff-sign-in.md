@@ -59,8 +59,8 @@ Staff accounts can see and change far more than one customer can. So a stolen pa
 
 ### Staff sessions
 
-- **12 hours in total**, one working day, with no idle timeout. After that the staff member signs in again with the password and a new code. Customers keep 30 days.
-- **The same refresh rotation and reuse detection as customers** (ADR 0007), at `/v1/staff/auth/refresh` and `/v1/staff/auth/logout`.
+- **12 hours in total**, one working day, with no idle timeout. After that the staff member signs in again with the password and a new code. Customers keep 30 days. Since part 12A, the admin console signs staff out after 30 minutes without activity; the API still has no idle limit (ADR 0031).
+- **The same refresh rotation and reuse detection as customers** (ADR 0007), at `/v1/staff/auth/refresh` and `/v1/staff/auth/logout`. Since part 12A, the admin console keeps the refresh token in an HttpOnly cookie instead of the body (ADR 0031).
 - **A session's audience follows from its user's role.** Each login path accepts only its own roles, so no new database column is needed.
 - **A refresh token from the other path is refused and left alone:** refresh answers `401`, logout answers `204` and does nothing. Neither path ever changes the other path's sessions. Such attempts are logged as warnings (`wrong_audience`).
 - **The session check on every staff request** requires an active Admin or Super User **with MFA set up**. Disabling a staff member, or setting up their MFA again (which ends their sessions, ADR 0013), takes effect at once.
