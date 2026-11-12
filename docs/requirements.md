@@ -68,7 +68,7 @@ Assumptions to confirm: Admin handles delivery and return approval but never mon
 - Payments through a gateway (sandbox first), server-verified, idempotent. Razorpay, chosen by the owner on 2026-11-08 (ADR 0027)
 - Order lifecycle, cancellations, returns, refunds. Since part 9: packed, shipped and delivered, typed in by staff, and cancelling until shipped with the payment back in full, by the owner's choices on 2026-11-09 (ADR 0028). Returns are still to come.
 - GST invoices (system-generated, sequential per financial year)
-- Admin console: catalog, prices, stock, orders, returns, customers (limited)
+- Admin console: catalog, prices, stock, orders, returns, customers (limited). Since part 12A: React and Vite, staff sign-in, the menu for each role, and signing out after 30 minutes without activity, by the owner's choices on 2026-11-11 and 2026-11-12 (ADR 0031). Its pages follow: catalog and stock first, then orders and refunds.
 - Super User console sections: admin management, invoices, payments, audit log, settings
 - Email and in-app notifications; basic support tickets. Since part 10, order emails: to the customer when an order is paid (a full summary), packed, shipped (with the courier and tracking number, again if corrected), delivered or cancelled, and when a refund is complete; and to the Super Users when a refund fails, by the owner's choices on 2026-11-11 (ADR 0029). In-app notifications and support tickets are still to come.
 

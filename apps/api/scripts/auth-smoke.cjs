@@ -66,6 +66,14 @@ function razorpaySignature(body) {
   return createHmac('sha256', secret).update(body).digest('hex');
 }
 
+// The admin console's origin, as the API reads it from .env (ADR 0031).
+function adminOrigin() {
+  const env = parseEnv(
+    readFileSync(path.join(__dirname, '..', '..', '..', '.env'), 'utf8'),
+  );
+  return (env.ADMIN_ORIGIN || 'http://localhost:5173').replace(/\/+$/, '');
+}
+
 // Sends a webhook as Razorpay would: this exact body, with this signature.
 async function webhook(body, signature) {
   const headers = { 'Content-Type': 'application/json' };
@@ -266,6 +274,42 @@ async function main() {
     ).status === 401,
   );
 
+  // The admin console's staff session (part 12A): from the console's
+  // origin, the staff refresh and sign-out use only the HttpOnly cookie, and
+  // ignore a token in the body. Without the cookie, refreshing answers 401
+  // and signing out 204, and both tell the browser to forget it. A failed
+  // sign-in sets no cookie.
+  const fromConsole = { Origin: adminOrigin() };
+  const consoleRefresh = await call('POST', '/v1/staff/auth/refresh', {
+    json: { refreshToken: login.body.refreshToken },
+    headers: fromConsole,
+  });
+  const consoleLogout = await call('POST', '/v1/staff/auth/logout', {
+    json: {},
+    headers: fromConsole,
+  });
+  const consoleLogin = await call('POST', '/v1/staff/auth/login', {
+    json: {
+      email: `nobody.${Date.now()}@example.com`,
+      password,
+      code: '000000',
+    },
+    headers: fromConsole,
+  });
+  const forgetsCookie = (answer) =>
+    answer.headers.get('set-cookie') ===
+    'herbal_staff_refresh=; Path=/v1/staff/auth; Max-Age=0; HttpOnly; SameSite=Strict' +
+      (adminOrigin().startsWith('https://') ? '; Secure' : '');
+  check(
+    'from the admin console, the staff refresh and sign-out use only the cookie: without one, 401 and 204, and the cookie is forgotten; a failed sign-in sets none',
+    consoleRefresh.status === 401 &&
+      forgetsCookie(consoleRefresh) &&
+      consoleLogout.status === 204 &&
+      forgetsCookie(consoleLogout) &&
+      consoleLogin.status === 401 &&
+      consoleLogin.headers.get('set-cookie') === null,
+  );
+
   const refreshed = await call('POST', '/v1/auth/refresh', {
     json: { refreshToken: login.body.refreshToken },
   });
@@ -295,9 +339,11 @@ async function main() {
       401,
   );
 
-  // Rate limits. One logout already happened above, so the request number
-  // LOGOUT_LIMIT below is the first one over the limit. Each request claims a
-  // different client IP; that must not help, because no proxy is trusted.
+  // Rate limits. Two logouts already happened above, the customer's and the
+  // admin console's (customers and staff share the limit), so the request
+  // number LOGOUT_LIMIT - 1 below is the first one over the limit. Each
+  // request claims a different client IP; that must not help, because no
+  // proxy is trusted.
   let refused;
   for (let i = 1; i <= LOGOUT_LIMIT + 5 && !refused; i += 1) {
     const response = await call('POST', '/v1/auth/logout', {
@@ -310,7 +356,7 @@ async function main() {
   }
   check(
     `logout is limited to ${LOGOUT_LIMIT} per minute per IP, even with a faked X-Forwarded-For`,
-    refused?.at === LOGOUT_LIMIT,
+    refused?.at === LOGOUT_LIMIT - 1,
   );
   check(
     'the 429 says when to try again (Retry-After) and has code RATE_LIMITED',

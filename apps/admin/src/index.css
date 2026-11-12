@@ -1,0 +1,89 @@
+@import 'tailwindcss';
+
+/* The console's colours (ADR 0031): calm herbal greens and warm neutrals,
+   light by default, and dark when the computer asks for it. Components use
+   the names below (bg-canvas, text-ink, bg-primary ...), never raw colours,
+   so both themes follow from these two lists. */
+:root {
+  color-scheme: light dark;
+  --canvas: #f6f7f2;
+  --surface: #ffffff;
+  --surface-muted: #eef2ea;
+  --line: #dce3d5;
+  --ink: #1d2820;
+  --ink-muted: #56665a;
+  --primary: #2e6a44;
+  --primary-strong: #245536;
+  --primary-soft: #e2eee5;
+  --on-primary: #ffffff;
+  --accent: #b7832f;
+  --danger: #b42318;
+  --danger-soft: #fdecea;
+  --focus: #3f8f5c;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #111613;
+    --surface: #181f1a;
+    --surface-muted: #202924;
+    --line: #2c3830;
+    --ink: #e6ece5;
+    --ink-muted: #a0afa4;
+    --primary: #6dbb88;
+    --primary-strong: #86c99d;
+    --primary-soft: #1d3125;
+    --on-primary: #0d1a12;
+    --accent: #d9a656;
+    --danger: #f08c80;
+    --danger-soft: #3a1d1a;
+    --focus: #86c99d;
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-line: var(--line);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-primary: var(--primary);
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-soft: var(--primary-soft);
+  --color-on-primary: var(--on-primary);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-focus: var(--focus);
+  --radius-card: 0.875rem;
+  --shadow-soft:
+    0 1px 2px rgb(16 24 18 / 0.06), 0 8px 24px rgb(16 24 18 / 0.06);
+  /* The computer's own font: nothing is fetched from another site. */
+  --font-sans:
+    ui-sans-serif, system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+}
+
+body {
+  @apply bg-canvas text-ink antialiased;
+  font-family: var(--font-sans);
+}
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* "Reduce motion" turns CSS motion off too; Motion's own animations follow
+   MotionConfig in main.tsx. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

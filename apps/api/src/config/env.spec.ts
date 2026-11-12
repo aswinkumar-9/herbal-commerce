@@ -110,6 +110,7 @@ describe('validateEnv', () => {
       NODE_ENV: 'production',
       WEB_BASE_URL: 'https://shop.example.com',
       MEDIA_BASE_URL: 'https://media.example.com',
+      ADMIN_ORIGIN: 'https://admin.example.com',
       RAZORPAY_KEY_ID: 'rzp_live_FakeKey0123',
     };
     expect(() => validateEnv(production)).not.toThrow();
@@ -123,8 +124,14 @@ describe('validateEnv', () => {
       validateEnv({ ...production, WEB_BASE_URL: 'http://shop.example.com' }),
     ).toThrow('WEB_BASE_URL');
     expect(() =>
-      validateEnv({ ...production, MEDIA_BASE_URL: 'http://media.example.com' }),
+      validateEnv({
+        ...production,
+        MEDIA_BASE_URL: 'http://media.example.com',
+      }),
     ).toThrow('MEDIA_BASE_URL');
+    expect(() =>
+      validateEnv({ ...production, ADMIN_ORIGIN: 'http://admin.example.com' }),
+    ).toThrow('ADMIN_ORIGIN: must use https in production');
     expect(() =>
       validateEnv({ ...production, RAZORPAY_KEY_ID: 'rzp_test_FakeKey0123' }),
     ).toThrow('RAZORPAY_KEY_ID: must be a live key (rzp_live_) in production');
@@ -141,12 +148,37 @@ describe('validateEnv', () => {
       validateEnv({ ...valid, MEDIA_BASE_URL: 'https://media.example.com/' })
         .MEDIA_BASE_URL,
     ).toBe('https://media.example.com');
-    for (const value of ['media.example.com', 'ftp://media.example.com', 'https://', '']) {
+    for (const value of [
+      'media.example.com',
+      'ftp://media.example.com',
+      'https://',
+      '',
+    ]) {
       expect(() => validateEnv({ ...valid, MEDIA_BASE_URL: value })).toThrow(
         'MEDIA_BASE_URL',
       );
     }
     expect(() => validateEnv({ ...valid, MEDIA_DIR: '' })).toThrow('MEDIA_DIR');
+  });
+
+  it("expects the admin console on Vite's dev server by default, and wants an origin with no path", () => {
+    expect(validateEnv(valid).ADMIN_ORIGIN).toBe('http://localhost:5173');
+    expect(
+      validateEnv({ ...valid, ADMIN_ORIGIN: 'https://admin.example.com/' })
+        .ADMIN_ORIGIN,
+    ).toBe('https://admin.example.com');
+    for (const value of [
+      'admin.example.com',
+      'https://admin.example.com/console',
+      'https://admin.example.com?x=1',
+      'ftp://admin.example.com',
+      'https://',
+      '',
+    ]) {
+      expect(() => validateEnv({ ...valid, ADMIN_ORIGIN: value })).toThrow(
+        'ADMIN_ORIGIN',
+      );
+    }
   });
 
   it('allows the local placeholders in development', () => {

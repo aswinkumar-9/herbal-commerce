@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. There are no apps or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. The admin console has begun (part 12A): staff sign in with the password and the authenticator code, stay signed in through a cookie the page cannot read, see the menu for their role, and are signed out after 30 minutes without activity. Its pages come next. There is no customer app or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -97,7 +97,8 @@ It first clears the local rate-limit counters, so it can run again at once. Then
 - paying: with a pack in stock, starting to pay for that order answers in rupees only, with a Razorpay test key and the same Razorpay order every time; only its owner can pay for it; a wrong or missing confirmation is refused; the order shows its payment without Razorpay's IDs; and once cancelled it can no longer be paid. This calls Razorpay's test mode, so the smoke test needs the internet, and each run leaves a test order in the Razorpay dashboard;
 - Razorpay's webhooks: one without a signature, with a wrong one, or re-spaced after signing is refused, and one signed with `RAZORPAY_WEBHOOK_SECRET` from `.env` is taken;
 - that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, cannot list, create, change or delete categories, products, pack sizes or images, cannot see or change stock, and cannot see orders or refunds as staff, or pack, ship, deliver or cancel an order there. Without a token, those order and refund routes answer `401` too;
-- that a made-up invitation link is refused.
+- that a made-up invitation link is refused;
+- the admin console's session cookie: from the console's address, staff renewal and sign-out use only the cookie and ignore a token in the body, both tell the browser to forget a missing cookie, and a failed staff sign-in sets none.
 
 The staff login, a real invitation, managing categories, products, pack sizes, images and stock, and handling orders need a phone, so they are tried by hand: see "Sign in as staff", "Invite an Admin", "Manage categories", "Manage products", "Manage pack sizes and prices", "Manage product images", "Manage stock" and "Handle orders". With an empty shop, the page, price, image and stock checks, and the cart's and orders' checks with a pack in stock, have nothing to look at. They are most useful while a product with packs, images and stock is live. A customer's cart and orders can be tried by hand too: see "Use the cart" and "Place an order". Paying needs a person on Razorpay's payment page: see "Pay for an order".
 
@@ -119,11 +120,17 @@ Emails sent in development never leave your machine. Read them in Mailpit at htt
 | `pnpm api:limits:clear` | Delete all rate-limit counters in the local Valkey (development only; refuses unless `NODE_ENV=development`) |
 | `pnpm api:create-super-user` | Create a Super User (developers only, at most 3). See "Create a Super User" below. |
 | `pnpm api:setup-staff-mfa` | Set up, or replace, a staff member's authenticator app. See "Set up staff MFA" below. |
+| `pnpm admin:dev` | Start the admin console at http://localhost:5173, with live reload (needs the API running) |
+| `pnpm admin:test` | Run the admin console's tests |
+| `pnpm admin:lint` | Run the linter on the admin console |
+| `pnpm admin:typecheck` | Type-check the admin console |
+| `pnpm admin:build` | Build the admin console into `apps/admin/dist`, then check the build (its security policy, nothing inline, no source maps) |
+| `pnpm admin:preview` | Serve the built console at http://localhost:5173, with its security policy and headers (stop `admin:dev` first) |
 | `pnpm audit` | List known vulnerabilities in dependencies |
 | `docker compose up -d` / `down` | Start / stop local services (data is kept) |
 | `docker compose down -v` | Stop and **delete all local data** (development only) |
 
-Before opening a pull request, run `pnpm api:typecheck`, `pnpm api:test`, `pnpm api:lint`, `pnpm api:build`, `pnpm audit` and `pnpm api:smoke`.
+Before opening a pull request, run `pnpm api:typecheck`, `pnpm api:test`, `pnpm api:lint`, `pnpm api:build`, `pnpm audit` and `pnpm api:smoke`, and for the admin console `pnpm admin:typecheck`, `pnpm admin:test`, `pnpm admin:lint` and `pnpm admin:build`.
 
 Database commands (run from `apps/api`):
 
@@ -178,7 +185,7 @@ pnpm api:setup-staff-mfa
 
 ## Sign in as staff
 
-There is no admin console yet, so the staff login is tried by hand (ADR 0014). With the API running, in PowerShell:
+The admin console is the everyday way (see "Open the admin console" below). The staff login can also be tried by hand (ADR 0014). With the API running, in PowerShell:
 
 ```powershell
 $secure = Read-Host 'Staff password' -AsSecureString
@@ -195,9 +202,26 @@ Remove-Variable secure, code, body, login
 - Staff sessions last 12 hours, and staff tokens work only on `/v1/staff/...` routes.
 - Each successful sign-in is recorded in the audit log as `staff.signed_in`. Failed ones are only in the API log.
 
+## Open the admin console
+
+The admin console is a web app for staff (ADR 0031). Its pages come in the next parts; today staff sign in and see the menu for their role.
+
+1. Start the API (`pnpm api:dev`), then, in a second terminal:
+   ```powershell
+   pnpm admin:dev
+   ```
+2. Open http://localhost:5173 and sign in with your staff email, password and the code your authenticator app shows now.
+
+- **Use exactly http://localhost:5173.** The API gives the session cookie only to `ADMIN_ORIGIN` (in `.env`, by default `http://localhost:5173`), so the console on any other address says it can't reach the server.
+- **Reloading keeps you signed in,** for up to 12 hours: the refresh token is in a cookie the page cannot read, and the access token only in the page's memory.
+- **After 30 minutes without activity,** in any tab of the console, you are signed out. A panel warns you a minute before.
+- **Signing out in one tab signs out the others.**
+- **Admins don't see Admins or the audit log.** The areas marked "Soon" arrive in the next parts.
+- **The dev server runs without the page's security policy,** because live reload needs inline scripts. To see the console as it will be served, with its policy and headers, stop `admin:dev` and run `pnpm admin:build` then `pnpm admin:preview`. The browser's console (F12) should show no `Refused to …` messages.
+
 ## Invite an Admin
 
-Only a Super User can invite an Admin (ADR 0015). The Admin then chooses their own password with the link from the email, and a developer sets up their MFA. There is no admin console yet, so the link is not clicked: the token is read from Mailpit instead.
+Only a Super User can invite an Admin (ADR 0015). The Admin then chooses their own password with the link from the email, and a developer sets up their MFA. The admin console has no page for the link yet (ADR 0031), so the link is not clicked: the token is read from Mailpit instead.
 
 1. **Sign in as a Super User**, as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`: `$login` is needed in the next step.
 2. **Send the invitation, then sign the Super User out:**
@@ -868,6 +892,16 @@ Each email is saved with the change it tells of, and sent within a second of it.
 ```
 .
 ├── apps/
+│   ├── admin/                  the admin console: React, Vite and Tailwind (ADR 0031)
+│   │   ├── public/             the favicon
+│   │   ├── scripts/            check-build.mjs (checks every build)
+│   │   └── src/
+│   │       ├── api/            the one API client: the access token in memory, renewal one at a time, answers checked
+│   │       ├── auth/           signing in, the session and its tabs, the role guards, the idle sign-out
+│   │       ├── components/, layout/, pages/   the screens, the menu and the pages
+│   │       ├── security-headers.ts   the page's Content Security Policy and security headers
+│   │       ├── motion.ts       the console's motion: durations and movements
+│   │       └── index.css       the colours, light and dark
 │   └── api/                    NestJS backend (modular monolith)
 │       ├── prisma/             schema and migrations
 │       ├── scripts/            auth-smoke.cjs (smoke test), pay-test.cjs (a payment by hand), clear-rate-limits.cjs
@@ -899,7 +933,7 @@ Each email is saved with the change it tells of, and sent within a second of it.
 │   └── decisions/              architecture decision records (ADRs)
 ├── docker-compose.yml          local PostgreSQL, Valkey and Mailpit
 ├── .env.example                template; the real .env is never committed
-├── package.json                root commands (api:dev, api:test, api:smoke, api:pay-test, api:limits:clear, ...)
+├── package.json                root commands (api:dev, api:test, api:smoke, admin:dev, admin:build, ...)
 └── pnpm-workspace.yaml         workspace, build approvals, 3-day minimum release age
 ```
 
@@ -915,6 +949,8 @@ Each email is saved with the change it tells of, and sent within a second of it.
 - Never put Super User credentials in `.env` or type the password on the command line. Use `Read-Host` as shown above, and remove the variables afterwards.
 - Treat an MFA setup key like a password: it is shown once, typed into the app, and then cleared from the screen. Back up `MFA_ENCRYPTION_KEY` with the other production secrets.
 - Leave `TRUST_PROXY` empty unless the API runs behind a proxy you control. Then list that proxy's address. Never use a hop count: it would let anyone fake their IP and dodge the rate limits.
+- **In the admin console,** tokens never go into `localStorage` or `sessionStorage`: the refresh token is in an `HttpOnly` cookie, the access token only in memory. Never weaken the page's security policy (`apps/admin/src/security-headers.ts`) with `unsafe-inline` or `unsafe-eval`: `pnpm admin:build` refuses it.
+- Set `ADMIN_ORIGIN` to the console's exact address. In production it must be `https`, and the console must be served from the same origin as the API (`docs/security.md`, section 6).
 - The status of every security control is in `docs/security.md`.
 
 ## Troubleshooting
@@ -927,6 +963,9 @@ Each email is saved with the change it tells of, and sent within a second of it.
 - **The API refuses to start with `Invalid environment configuration`:** the message names each setting that is wrong (never its value). For `JWT_ACCESS_SECRET`, generate a new secret with the command in step 1.
 - **`pnpm api:smoke` says "Smoke test stopped":** start the API (`pnpm api:dev`) and Mailpit (`docker compose up -d`), then run it again.
 - **TypeScript says a Prisma model or field does not exist, although the migration ran:** the client is out of date. Run `pnpm exec prisma generate` in `apps/api`.
+- **The admin console says "The server can't be reached":** start the API (`pnpm api:dev`) and click "Try again". If the API is running, check that the console is open at exactly `ADMIN_ORIGIN` (by default http://localhost:5173): from any other address the API ignores the session cookie.
+- **`pnpm admin:dev` or `admin:preview` says port 5173 is in use:** the other one, or an earlier copy, is still running. Stop it first: the console must stay on 5173, its `ADMIN_ORIGIN`.
+- **The admin console signed you out unexpectedly:** after 30 minutes without activity it does so on purpose, and says so. Otherwise the session's 12 hours ran out, or you signed out in another tab.
 - **The API refuses to start: `MFA_ENCRYPTION_KEY: ...`:** add your own value to `.env` (see First-time setup, step 1). It must differ from `JWT_ACCESS_SECRET`.
 - **The API refuses to start: `RAZORPAY_KEY_ID: ...`, `RAZORPAY_KEY_SECRET: ...` or `RAZORPAY_WEBHOOK_SECRET: ...`:** put your Razorpay test keys and your own webhook secret into `.env` (see First-time setup, step 1). The webhook secret must differ from `JWT_ACCESS_SECRET` and `MFA_ENCRYPTION_KEY`.
 - **Paying answers `503 PAYMENTS_UNAVAILABLE`:** find `Razorpay could not start a payment` (or `confirm`) in the API log. A `status` of `401` means the key ID or Key Secret in `.env` is wrong: copy them again from the dashboard, then restart the API. No status means Razorpay couldn't be reached: check the internet.
