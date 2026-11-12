@@ -12,6 +12,11 @@
     "api:setup-staff-mfa": "pnpm --filter api build && pnpm --filter api cli:setup-staff-mfa",
     "api:limits:clear": "node apps/api/scripts/clear-rate-limits.cjs",
     "api:smoke": "node apps/api/scripts/clear-rate-limits.cjs && node apps/api/scripts/auth-smoke.cjs",
-    "api:pay-test": "node apps/api/scripts/pay-test.cjs"
+    "api:pay-test": "node apps/api/scripts/pay-test.cjs",
+    "admin:dev": "pnpm --filter admin dev",
+    "admin:build": "pnpm --filter admin build",
+    "admin:test": "pnpm --filter admin test",
+    "admin:lint": "pnpm --filter admin lint",
+    "admin:typecheck": "pnpm --filter admin typecheck"
   }
 }
