@@ -9,11 +9,16 @@ interface DialogProps {
   // Escape, a click outside, or a button that cancels.
   onClose: () => void;
   title: string;
-  children: ReactNode;
+  // What the dialog is about, read out when it opens.
+  description?: ReactNode;
+  // Anything more, such as a form with its own buttons (DialogActions).
+  children?: ReactNode;
   // The buttons, the safe one first: it takes the focus when the dialog
-  // opens.
-  actions: ReactNode;
+  // opens (unless the children come first with a field).
+  actions?: ReactNode;
   tone?: 'default' | 'danger';
+  // A form needs more room than a question.
+  size?: 'sm' | 'md';
   // While a change is being sent: Escape and a click outside do nothing.
   locked?: boolean;
 }
@@ -32,9 +37,11 @@ export function Dialog({ open, ...box }: DialogProps) {
 function DialogBox({
   onClose,
   title,
+  description,
   children,
   actions,
   tone = 'default',
+  size = 'sm',
   locked = false,
 }: Omit<DialogProps, 'open'>) {
   const ref = useRef<HTMLDialogElement>(null);
@@ -111,7 +118,7 @@ function DialogBox({
     <motion.dialog
       ref={ref}
       aria-labelledby={titleId}
-      aria-describedby={bodyId}
+      aria-describedby={description ? bodyId : undefined}
       initial={{ opacity: 0, scale: 0.96, y: 8 }}
       animate={{ opacity: 1, scale: 1, y: 0, transition }}
       exit={{
@@ -119,7 +126,11 @@ function DialogBox({
         scale: 0.98,
         transition: { duration: DURATION.fast, ease: EASE_OUT },
       }}
-      className="m-auto w-[min(28rem,calc(100%-2rem))] rounded-card border border-line bg-surface p-0 text-ink shadow-soft backdrop:bg-black/45"
+      className={`m-auto max-h-[calc(100dvh-2rem)] overflow-y-auto ${
+        size === 'md'
+          ? 'w-[min(34rem,calc(100%-2rem))]'
+          : 'w-[min(28rem,calc(100%-2rem))]'
+      } rounded-card border border-line bg-surface p-0 text-ink shadow-soft backdrop:bg-black/45`}
     >
       <div className="p-6">
         <div className="flex items-start gap-3">
@@ -132,11 +143,21 @@ function DialogBox({
             {title}
           </h2>
         </div>
-        <div id={bodyId} className="mt-3 space-y-2 text-sm text-ink-muted">
-          {children}
-        </div>
-        <div className="mt-6 flex flex-wrap justify-end gap-2">{actions}</div>
+        {description ? (
+          <div id={bodyId} className="mt-3 space-y-2 text-sm text-ink-muted">
+            {description}
+          </div>
+        ) : null}
+        {children}
+        {actions ? <DialogActions>{actions}</DialogActions> : null}
       </div>
     </motion.dialog>
+  );
+}
+
+// A dialog's buttons, on the right.
+export function DialogActions({ children }: { children: ReactNode }) {
+  return (
+    <div className="mt-6 flex flex-wrap justify-end gap-2">{children}</div>
   );
 }

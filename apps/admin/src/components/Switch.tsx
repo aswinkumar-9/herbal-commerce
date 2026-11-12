@@ -7,6 +7,11 @@ interface SwitchProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
   hint?: string | undefined;
+  // Named for screen readers only, where the row around it says the rest.
+  hideLabel?: boolean;
+  // While its change is on the way: it shows the new state, ignores
+  // clicks, and keeps the focus (a disabled one would drop it).
+  busy?: boolean;
   disabled?: boolean;
   id?: string;
   className?: string;
@@ -20,6 +25,8 @@ export function Switch({
   checked,
   onChange,
   hint,
+  hideLabel = false,
+  busy = false,
   disabled = false,
   id,
   className = '',
@@ -32,7 +39,11 @@ export function Switch({
   return (
     <div className={`flex items-start justify-between gap-4 ${className}`}>
       <div>
-        <label id={labelId} htmlFor={switchId} className="text-sm font-medium">
+        <label
+          id={labelId}
+          htmlFor={switchId}
+          className={hideLabel ? 'sr-only' : 'text-sm font-medium'}
+        >
           {label}
         </label>
         {hint ? (
@@ -48,9 +59,14 @@ export function Switch({
         aria-checked={checked}
         aria-labelledby={labelId}
         aria-describedby={hint ? hintId : undefined}
+        aria-disabled={busy || undefined}
         disabled={disabled}
-        onClick={() => onChange(!checked)}
-        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60 ${
+        onClick={() => {
+          if (!busy) {
+            onChange(!checked);
+          }
+        }}
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-70 ${
           checked ? 'bg-primary' : 'bg-line'
         }`}
       >

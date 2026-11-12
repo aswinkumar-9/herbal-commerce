@@ -32,8 +32,8 @@ function DeleteQuestion({
             <Button variant="danger">Delete for good</Button>
           </>
         }
+        description={<p>Customers no longer see it.</p>}
       >
-        <p>Customers no longer see it.</p>
         <label>
           Type its name
           <input />

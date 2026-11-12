@@ -349,7 +349,7 @@ describe('roles', () => {
       within(menu)
         .getAllByRole('link')
         .map((link) => link.textContent),
-    ).toEqual(['Overview', 'CatalogSoon', 'StockSoon', 'OrdersSoon']);
+    ).toEqual(['Overview', 'Catalog', 'StockSoon', 'OrdersSoon']);
     expect(screen.getByText('Admin', { selector: 'span' })).toBeInTheDocument();
   });
 

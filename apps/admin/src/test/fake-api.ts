@@ -9,8 +9,9 @@ export interface SentRequest {
 }
 
 // One answer, made fresh each time (a Response can be read only once). An
-// Error stands for a request that never reached the server.
-type Answer = () => Response | Error;
+// Error stands for a request that never reached the server. A promise lets
+// a test hold the answer back.
+type Answer = () => Response | Error | Promise<Response | Error>;
 
 export function json(
   status: number,
@@ -74,7 +75,7 @@ export function fakeApi(routes: Record<string, Answer | Answer[]>) {
       const turn = asked.get(key) ?? 0;
       asked.set(key, turn + 1);
       const answer = answers[Math.min(turn, answers.length - 1)];
-      const result = answer?.();
+      const result = await answer?.();
       if (!result || result instanceof Error) {
         throw new TypeError('Failed to fetch');
       }

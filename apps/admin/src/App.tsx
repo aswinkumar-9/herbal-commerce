@@ -1,6 +1,13 @@
-import { Outlet, Route, createRoutesFromElements } from 'react-router';
+import {
+  Navigate,
+  Outlet,
+  Route,
+  createRoutesFromElements,
+} from 'react-router';
 import { SessionProvider } from './auth/SessionProvider';
 import { RequireRole, RequireSession } from './auth/guards';
+import { CatalogLayout } from './catalog/CatalogLayout';
+import { CategoriesPage } from './catalog/categories/CategoriesPage';
 import { CrashScreen, ErrorBoundary } from './components/ErrorBoundary';
 import { AppShell } from './layout/AppShell';
 import { NAV_ITEMS } from './layout/nav-items';
@@ -45,6 +52,10 @@ export const routes = createRoutesFromElements(
     <Route element={<RequireSession />}>
       <Route element={<AppShell />}>
         <Route index element={<OverviewPage />} />
+        <Route path="catalog" element={<CatalogLayout />}>
+          <Route index element={<Navigate to="categories" replace />} />
+          <Route path="categories" element={<CategoriesPage />} />
+        </Route>
         {forEveryone.map(comingSoon)}
         <Route element={<RequireRole only="SUPER_USER" />}>
           {forSuperUsers.map(comingSoon)}

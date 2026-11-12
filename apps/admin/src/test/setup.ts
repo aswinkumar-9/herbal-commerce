@@ -25,6 +25,7 @@ HTMLDialogElement.prototype.close ??= function close(this: HTMLDialogElement) {
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   vi.useRealTimers();
   setAccessToken(null);
   localStorage.clear();

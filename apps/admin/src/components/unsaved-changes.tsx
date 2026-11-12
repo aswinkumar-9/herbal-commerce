@@ -52,6 +52,12 @@ export function useUnsavedChanges(when: boolean): UnsavedChanges {
       onClose={stay}
       tone="danger"
       title="Leave without saving?"
+      description={
+        <p>
+          Your changes on this page are not saved yet. If you leave, they are
+          lost.
+        </p>
+      }
       actions={
         <>
           <Button onClick={stay}>Keep editing</Button>
@@ -60,12 +66,7 @@ export function useUnsavedChanges(when: boolean): UnsavedChanges {
           </Button>
         </>
       }
-    >
-      <p>
-        Your changes on this page are not saved yet. If you leave, they are
-        lost.
-      </p>
-    </Dialog>
+    />
   );
   return { prompt, allowLeaving };
 }
