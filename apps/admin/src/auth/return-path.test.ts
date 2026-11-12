@@ -11,6 +11,7 @@ describe('the page to return to after signing in', () => {
     '//elsewhere.example/phish',
     '/\\elsewhere.example/phish',
     'https://elsewhere.example/phish',
+    // oxlint-disable-next-line no-script-url -- checks such a link is refused
     'javascript:alert(1)',
     'orders',
     '/sign-in',

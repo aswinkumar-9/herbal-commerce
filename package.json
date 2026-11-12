@@ -15,6 +15,7 @@
     "api:pay-test": "node apps/api/scripts/pay-test.cjs",
     "admin:dev": "pnpm --filter admin dev",
     "admin:build": "pnpm --filter admin build",
+    "admin:preview": "pnpm --filter admin preview",
     "admin:test": "pnpm --filter admin test",
     "admin:lint": "pnpm --filter admin lint",
     "admin:typecheck": "pnpm --filter admin typecheck"

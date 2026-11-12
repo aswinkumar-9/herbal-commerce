@@ -2,7 +2,7 @@ import { createContext, useContext } from 'react';
 import type { SignInInput, StaffProfile } from './staff-api';
 
 // Why staff landed back on the sign-in page.
-export type SignedOutNotice = 'expired' | 'elsewhere';
+export type SignedOutNotice = 'expired' | 'elsewhere' | 'idle';
 
 export type SessionState =
   | { status: 'checking' }
@@ -13,7 +13,8 @@ export type SessionState =
 export interface Session {
   state: SessionState;
   signIn(input: SignInInput): Promise<void>;
-  signOut(): Promise<void>;
+  // idle: after 30 minutes without activity (ADR 0031).
+  signOut(options?: { idle?: boolean }): Promise<void>;
   // Tries again to resume the session after the server could not be reached.
   retry(): void;
 }

@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router';
 import { ApiError } from '../api/api-error';
+import { IdleSignOut } from '../auth/IdleSignOut';
 import { useSession } from '../auth/session-context';
 import { ROLE_NAMES } from '../auth/staff-api';
 import { Brand } from '../components/Brand';
@@ -170,6 +171,7 @@ export function AppShell() {
           <Outlet />
         </motion.div>
       </main>
+      <IdleSignOut />
     </div>
   );
 }

@@ -25,6 +25,7 @@ const EMPTY: Values = { email: '', password: '', code: '' };
 const NOTICES: Record<SignedOutNotice, string> = {
   expired: 'Your session ended. Please sign in again.',
   elsewhere: 'You signed out in another tab.',
+  idle: 'You were signed out after 30 minutes without activity.',
 };
 
 export function SignInPage() {
@@ -148,7 +149,12 @@ export function SignInPage() {
           ) : null}
         </AnimatePresence>
 
-        <form noValidate onSubmit={submit} className="mt-6 space-y-4">
+        <form
+          method="post"
+          noValidate
+          onSubmit={submit}
+          className="mt-6 space-y-4"
+        >
           <Field
             ref={(element) => {
               inputs.current.email = element;

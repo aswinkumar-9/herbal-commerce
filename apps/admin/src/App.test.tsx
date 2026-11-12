@@ -1,5 +1,12 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { act, render, screen, within } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { StrictMode } from 'react';
 import { MemoryRouter } from 'react-router';
@@ -7,6 +14,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { accessToken } from './api/access-token';
 import { SessionProvider } from './auth/SessionProvider';
+import { IDLE_LIMIT_MS, IDLE_WARNING_MS } from './auth/idle';
 import { fetchProfile } from './auth/staff-api';
 import { ASHA, RAVI, fakeApi, json, offline, tokens } from './test/fake-api';
 
@@ -450,5 +458,192 @@ describe('signing out', () => {
       'You signed out in another tab.',
     );
     expect(accessToken()).toBeNull();
+  });
+});
+
+describe('signing out after 30 idle minutes', () => {
+  const MINUTE = 60_000;
+  const PENDING = 'herbal-staff-sign-out-pending';
+
+  // The clock is ours; it still moves with real time, so the page can load.
+  // React's own scheduling (setImmediate) stays real, so the console's
+  // timers start as soon as it shows.
+  async function signedInWithOurClock(
+    logout: () => Response | Error = () => json(204),
+  ) {
+    vi.useFakeTimers({
+      shouldAdvanceTime: true,
+      toFake: [
+        'setTimeout',
+        'clearTimeout',
+        'setInterval',
+        'clearInterval',
+        'Date',
+      ],
+    });
+    const api = fakeApi({
+      [REFRESH]: session('t1'),
+      [ME]: () => json(200, ASHA),
+      [LOGOUT]: logout,
+    });
+    openConsole('/');
+    await screen.findByRole('heading', { name: 'Welcome, Asha' });
+    // The page shows before its effects run: let the idle timer start.
+    await act(() => new Promise((done) => setTimeout(done, 50)));
+    return api;
+  }
+
+  const pass = (ms: number) => act(() => vi.advanceTimersByTime(ms));
+
+  function anotherTabWasActive(at: number) {
+    const tab = new BroadcastChannel('herbal-staff-activity');
+    tab.postMessage({ at });
+    tab.close();
+    // The message arrives on a later turn.
+    return act(() => new Promise((done) => setTimeout(done, 50)));
+  }
+
+  it('waits 30 minutes, as the owner chose', () => {
+    expect(IDLE_LIMIT_MS).toBe(30 * MINUTE);
+    expect(IDLE_WARNING_MS).toBe(MINUTE);
+  });
+
+  it('warns a minute before, then ends the session and says why', async () => {
+    const api = await signedInWithOurClock();
+    const heard = listenToOtherTabs();
+
+    await pass(IDLE_LIMIT_MS - IDLE_WARNING_MS);
+    expect(screen.getByText('Still there?')).toBeInTheDocument();
+    expect(screen.getByText(/^(1:00|0:59)$/)).toBeInTheDocument();
+    expect(api.to('POST', '/v1/staff/auth/logout')).toHaveLength(0);
+
+    await pass(IDLE_WARNING_MS);
+
+    expect(
+      await screen.findByRole('heading', { name: 'Sign in' }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'You were signed out after 30 minutes without activity.',
+    );
+    expect(api.to('POST', '/v1/staff/auth/logout')).toHaveLength(1);
+    expect(accessToken()).toBeNull();
+    // The other tabs sign out too, and say why.
+    await vi.waitFor(() => expect(heard.messages).toEqual(['signed-out-idle']));
+    heard.close();
+  });
+
+  it('tells the other tabs that staff are active', async () => {
+    await signedInWithOurClock();
+    const heard: unknown[] = [];
+    const tab = new BroadcastChannel('herbal-staff-activity');
+    tab.onmessage = (event: MessageEvent) => heard.push(event.data);
+
+    await pass(MINUTE);
+    fireEvent.keyDown(document.body, { key: 'a' });
+
+    await vi.waitFor(() => expect(heard).toEqual([{ at: expect.any(Number) }]));
+    tab.close();
+  });
+
+  it('starts the time again with any key or click', async () => {
+    const api = await signedInWithOurClock();
+
+    await pass(20 * MINUTE);
+    fireEvent.keyDown(document.body, { key: 'a' });
+    await pass(20 * MINUTE);
+    fireEvent.pointerDown(document.body);
+    await pass(20 * MINUTE);
+
+    expect(
+      screen.getByRole('heading', { name: 'Welcome, Asha' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Still there?')).not.toBeInTheDocument();
+    expect(api.to('POST', '/v1/staff/auth/logout')).toHaveLength(0);
+  });
+
+  it('keeps staff signed in from the warning', async () => {
+    const api = await signedInWithOurClock();
+    await pass(IDLE_LIMIT_MS - 30_000);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stay signed in' }));
+    await vi.waitFor(() =>
+      expect(screen.queryByText('Still there?')).not.toBeInTheDocument(),
+    );
+    await pass(10 * MINUTE);
+
+    expect(api.to('POST', '/v1/staff/auth/logout')).toHaveLength(0);
+  });
+
+  it('counts activity in another tab of the console', async () => {
+    const api = await signedInWithOurClock();
+
+    await pass(20 * MINUTE);
+    await anotherTabWasActive(Date.now());
+    await pass(20 * MINUTE);
+
+    expect(screen.queryByText('Still there?')).not.toBeInTheDocument();
+    expect(api.to('POST', '/v1/staff/auth/logout')).toHaveLength(0);
+  });
+
+  it('never counts activity from the future', async () => {
+    const api = await signedInWithOurClock();
+
+    await anotherTabWasActive(Date.now() + 24 * 60 * MINUTE);
+    await pass(IDLE_LIMIT_MS);
+
+    await screen.findByRole('heading', { name: 'Sign in' });
+    expect(api.to('POST', '/v1/staff/auth/logout')).toHaveLength(1);
+  });
+
+  it('signs out at once when a computer wakes after a long sleep', async () => {
+    const api = await signedInWithOurClock();
+
+    // Asleep: no timer ran, but the clock moved on.
+    vi.setSystemTime(Date.now() + IDLE_LIMIT_MS + MINUTE);
+    act(() => {
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+
+    // At once, as the page shows again: not at the next tick of the timer.
+    expect(api.to('POST', '/v1/staff/auth/logout')).toHaveLength(1);
+    await screen.findByRole('heading', { name: 'Sign in' });
+  });
+
+  it('locks the console even when the server cannot be reached, and ends the session at the next start', async () => {
+    await signedInWithOurClock(offline);
+
+    await pass(IDLE_LIMIT_MS);
+
+    await screen.findByRole('heading', { name: 'Sign in' });
+    expect(accessToken()).toBeNull();
+    expect(localStorage.getItem(PENDING)).toBe('1');
+
+    // The next start: the session ends before anything else.
+    cleanup();
+    vi.useRealTimers();
+    const api = fakeApi({
+      [LOGOUT]: () => json(204),
+      [REFRESH]: session('t2'),
+      [ME]: () => json(200, ASHA),
+    });
+    openConsole('/');
+
+    await screen.findByRole('heading', { name: 'Sign in' });
+    expect(api.to('POST', '/v1/staff/auth/logout')).toHaveLength(1);
+    expect(api.to('POST', '/v1/staff/auth/refresh')).toHaveLength(0);
+    expect(localStorage.getItem(PENDING)).toBeNull();
+  });
+
+  it("says why when another tab's idle sign-out signs this tab out", async () => {
+    fakeApi({ [REFRESH]: session('t1'), [ME]: () => json(200, ASHA) });
+    openConsole('/');
+    await screen.findByRole('heading', { name: 'Welcome, Asha' });
+
+    tellThisTab('signed-out-idle');
+
+    await screen.findByRole('heading', { name: 'Sign in' });
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'You were signed out after 30 minutes without activity.',
+    );
   });
 });

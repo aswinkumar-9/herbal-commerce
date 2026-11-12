@@ -9,6 +9,12 @@
     "react/exhaustive-deps": "error",
     "react/no-danger": "error",
     "react/jsx-no-target-blank": "error",
-    "typescript/no-explicit-any": "error"
+    "typescript/no-explicit-any": "error",
+    "no-eval": "error",
+    "no-implied-eval": "error",
+    "no-new-func": "error",
+    "no-script-url": "error",
+    "react/jsx-no-script-url": "error",
+    "react/iframe-missing-sandbox": "error"
   }
 }

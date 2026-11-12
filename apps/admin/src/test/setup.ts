@@ -11,5 +11,7 @@ MotionGlobalConfig.skipAnimations = true;
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  vi.useRealTimers();
   setAccessToken(null);
+  localStorage.clear();
 });

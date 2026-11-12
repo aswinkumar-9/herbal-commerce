@@ -1,3 +1,4 @@
+import './zod-config';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MotionConfig } from 'motion/react';
 import { StrictMode } from 'react';
@@ -5,6 +6,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { App } from './App';
 import { SessionProvider } from './auth/SessionProvider';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import './index.css';
 
 const queryClient = new QueryClient({
@@ -22,9 +24,11 @@ createRoot(root).render(
       {/* Follows the computer's "reduce motion" setting. */}
       <MotionConfig reducedMotion="user">
         <BrowserRouter>
-          <SessionProvider>
-            <App />
-          </SessionProvider>
+          <ErrorBoundary>
+            <SessionProvider>
+              <App />
+            </SessionProvider>
+          </ErrorBoundary>
         </BrowserRouter>
       </MotionConfig>
     </QueryClientProvider>

@@ -4,6 +4,11 @@ import type { ReactNode } from 'react';
 import { setAccessToken } from '../api/access-token';
 import { ApiError } from '../api/api-error';
 import { onSessionLost, renewSession } from '../api/client';
+import {
+  clearSignOutPending,
+  markSignOutPending,
+  signOutPending,
+} from './pending-sign-out';
 import { SessionContext } from './session-context';
 import type { Session, SessionState } from './session-context';
 import { fetchProfile, signInRequest, signOutRequest } from './staff-api';
@@ -11,10 +16,16 @@ import type { SignInInput, StaffProfile } from './staff-api';
 
 // Tabs of the console tell each other when staff sign in or out.
 const CHANNEL = 'herbal-staff-session';
-type TabMessage = 'signed-in' | 'signed-out';
+type TabMessage = 'signed-in' | 'signed-out' | 'signed-out-idle';
 
 // After a reload: the cookie brings the session back, if there is one.
 async function resumeSession(): Promise<StaffProfile | null> {
+  // An idle sign-out could not reach the server: the session ends first.
+  if (signOutPending()) {
+    await signOutRequest();
+    clearSignOutPending();
+    return null;
+  }
   if (!(await renewSession())) {
     return null;
   }
@@ -81,6 +92,8 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     tabs.onmessage = (event: MessageEvent<unknown>) => {
       if (event.data === 'signed-out') {
         forget({ status: 'signed-out', notice: 'elsewhere' });
+      } else if (event.data === 'signed-out-idle') {
+        forget({ status: 'signed-out', notice: 'idle' });
       } else if (event.data === 'signed-in') {
         // Another tab signed in, and the cookie is now that session's: this
         // tab picks it up too, with its name and role (it may be someone
@@ -102,11 +115,30 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     channel.current?.postMessage('signed-in' satisfies TabMessage);
   }, []);
 
-  const signOut = useCallback(async () => {
-    await signOutRequest();
-    forget({ status: 'signed-out' });
-    channel.current?.postMessage('signed-out' satisfies TabMessage);
-  }, [forget]);
+  // Staff who sign out themselves are told when it did not work, and stay
+  // signed in. After 30 idle minutes nobody is there to try again: the
+  // console locks anyway, and its next start ends the session.
+  const signOut = useCallback(
+    async ({ idle = false }: { idle?: boolean } = {}) => {
+      try {
+        await signOutRequest();
+      } catch (error) {
+        if (!idle) {
+          throw error;
+        }
+        markSignOutPending();
+      }
+      forget(
+        idle
+          ? { status: 'signed-out', notice: 'idle' }
+          : { status: 'signed-out' },
+      );
+      channel.current?.postMessage(
+        (idle ? 'signed-out-idle' : 'signed-out') satisfies TabMessage,
+      );
+    },
+    [forget],
+  );
 
   const session = useMemo<Session>(
     () => ({ state, signIn, signOut, retry }),
