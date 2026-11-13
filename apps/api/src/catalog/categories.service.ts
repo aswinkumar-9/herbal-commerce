@@ -155,7 +155,7 @@ export class CategoriesService {
   }
 
   // Puts the categories in a new order, from the whole list first to last,
-  // as staff dragged them (ADR 0031). Each one's position becomes its place
+  // as staff dragged them (ADR 0032). Each one's position becomes its place
   // in the list. All of it is saved in one transaction, with an audit entry
   // for each category that moved, so each one's history shows it.
   async reorder(

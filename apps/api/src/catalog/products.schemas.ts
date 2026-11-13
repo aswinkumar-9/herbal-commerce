@@ -141,7 +141,7 @@ export type ProductUpdateInput = z.infer<typeof productUpdateSchema>;
 // What staff may ask of the product list. Query values arrive as text, so
 // the number and the yes or no are converted. Unknown parameters are dropped.
 // With search words (q), the list is the best matches by name, on one page
-// (ADR 0031).
+// (ADR 0032).
 export const productListQuerySchema = z
   .object({
     limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -160,7 +160,7 @@ export const productListQuerySchema = z
 export type ProductListQuery = z.infer<typeof productListQuerySchema>;
 
 // A new order for a category's products: every one of its products, drafts
-// too, each once, first to last (ADR 0031).
+// too, each once, first to last (ADR 0032).
 export const productOrderSchema = z.object({
   categoryId,
   ids: z

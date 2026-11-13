@@ -16,7 +16,7 @@ export type SearchSort = (typeof SEARCH_SORTS)[number];
 const MAX_PRICE_RUPEES = 1_000_000;
 
 // The search words, with each run of spaces made one. Empty means none.
-// Staff search the product list with the same rule (ADR 0031).
+// Staff search the product list with the same rule (ADR 0032).
 export const searchWords = z
   .string()
   .transform((value) => value.trim().replace(/\s+/g, ' '))

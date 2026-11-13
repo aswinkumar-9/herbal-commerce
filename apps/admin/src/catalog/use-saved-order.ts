@@ -25,7 +25,7 @@ function sameOrder(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((id, index) => id === b[index]);
 }
 
-// Drag-and-drop ordering (ADR 0031): the screen moves at once, and the new
+// Drag-and-drop ordering (ADR 0032): the screen moves at once, and the new
 // order goes to the server as one list. One request at a time: moves made
 // while one is on the way are sent after it, as their latest order only, so
 // an older order can never arrive last. A failure puts the server's order

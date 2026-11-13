@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { ApiError } from '../api/api-error';
 import { apiRequest } from '../api/client';
 
-// The staff catalog API (ADR 0020 to 0023, and 0031 for ordering): what the
+// The staff catalog API (ADR 0020 to 0023, and 0032 for ordering and search): what the
 // console reads and sends. Every answer is checked against these shapes.
 
 const CATEGORIES = '/v1/staff/categories';

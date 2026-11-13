@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.23.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.24.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -1306,6 +1306,7 @@ Product categories for staff (ADR 0020). These endpoints need a **staff** access
 | `GET /v1/staff/categories` | List every category, hidden ones too |
 | `POST /v1/staff/categories` | Create a category |
 | `PATCH /v1/staff/categories/:id` | Change, activate or deactivate a category |
+| `PUT /v1/staff/categories/order` | Put every category in a new order, as staff dragged them (ADR 0032) |
 | `DELETE /v1/staff/categories/:id` | Delete a category (Super Users only) |
 
 A category, as these endpoints return it:
@@ -1384,6 +1385,30 @@ Errors:
 | `409` | `Another category already has this slug. Choose a different one.` | The new slug is taken |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
+### PUT `/v1/staff/categories/order`
+
+Puts the categories in a new order, the one customers see: what staff dragged in the admin console (ADR 0032).
+
+Request: **every category, hidden ones too, each once,** first to last:
+```json
+{ "ids": ["0b8f3a52-6d1e-4c7a-9f2b-3e4d5c6b7a81", "7c9e6679-7425-40de-944b-e07fc1f90ae7", "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"] }
+```
+
+- Each category's `position` becomes its place in the list: `0`, `1`, `2` and so on.
+- Only the categories that moved are changed, each with its own audit entry (`category.updated`, the position before and after). All of it is saved in one transaction.
+- The same order again changes nothing and writes no audit entry.
+
+Response `200`: `{ "categories": [...] }`, every category in the new order, in the form above.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | No list, an ID that is not a UUID (`Each category by its ID`), an ID twice (`List each category once`), or more than 500 |
+| `401` | see above | No staff access token, or a customer's |
+| `409` | `The categories changed while you were ordering them. Reload and try again.` | The list is not exactly every category: one was added or deleted since the list was read, or an ID is unknown |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
 ### DELETE `/v1/staff/categories/:id`
 
 Deletes a category for good. **Super Users only.** An Admin deactivates it instead (`{ "isActive": false }`), which hides it from customers and can be undone. The audit log keeps what was deleted.
@@ -1407,9 +1432,11 @@ Products for staff (ADR 0021). These endpoints need a **staff** access token: an
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /v1/staff/products` | List every product, drafts too, one page at a time |
+| `GET /v1/staff/products` | List every product, drafts too, one page at a time, or search them by name |
+| `GET /v1/staff/products/:id` | Read one product, a draft too (ADR 0032) |
 | `POST /v1/staff/products` | Create a product |
 | `PATCH /v1/staff/products/:id` | Change it, move it to another category, activate or deactivate it |
+| `PUT /v1/staff/products/order` | Put a category's products in a new order, as staff dragged them (ADR 0032) |
 | `DELETE /v1/staff/products/:id` | Delete a product (Super Users only) |
 
 A product, as these endpoints return it:
@@ -1492,10 +1519,26 @@ Query parameters, all optional:
 | `after` | UUID | The `nextAfter` of the previous page: continue just after it |
 | `categoryId` | UUID | Only this category's products |
 | `isActive` | `true` or `false` | Only live products, or only drafts |
+| `q` | 2 to 100 characters | Search by name (since part 12B, ADR 0032) |
 
 Response `200`: `{ "products": [...], "nextAfter": "<id>" }`, each product in the form above. `nextAfter` is `null` on the last page.
 
-Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` (see "Authentication errors on protected endpoints"), also for a customer access token; `429` (the 600 per minute limit).
+**Searching by name** (`q`), for the admin console's product list:
+- **Only the name is searched,** with the shop's matching (ADR 0030): a part of a word or a typo still finds a product. `ashwa` finds "Ashwagandha Capsules", and so does `ashwaganda`.
+- **The closest names come first, all on one page** of up to `limit`, so `nextAfter` is always `null`. Sending `after` with `q` is refused: narrow the words instead.
+- It combines with `categoryId` and `isActive`.
+- Spaces at the ends are dropped and each run of spaces counts as one. An empty `q` means no search.
+- The words are a bound parameter in the query, never part of the SQL.
+
+Errors: `400 Validation failed` (a bad parameter, named in `errors`, such as `Search with at least 2 characters`, or `after` with `q`: `A search shows its best matches on one page: leave out after`); `401` (see "Authentication errors on protected endpoints"), also for a customer access token; `429` (the 600 per minute limit).
+
+### GET `/v1/staff/products/:id`
+
+One product, a draft too, for its page in the admin console (ADR 0032).
+
+Response `200`: the product, in the form above.
+
+Errors: `400` (the ID is not a UUID); `401` (see above), also for a customer access token; `404 Product not found`; `429` (the 600 per minute limit).
 
 ### POST `/v1/staff/products`
 
@@ -1536,6 +1579,33 @@ Errors:
 | `401` | see above | No staff access token, or a customer's |
 | `404` | `Product not found` | No product with this ID |
 | `409` | `Another product already has this slug. Choose a different one.` | The new slug is taken |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### PUT `/v1/staff/products/order`
+
+Puts one category's products in a new order, the one customers see in that category: what staff dragged in the admin console (ADR 0032).
+
+Request: the category, and **every one of its products, drafts too, each once,** first to last:
+```json
+{
+  "categoryId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "ids": ["4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a", "3f2b8c1d-5e6a-4b7c-8d9e-0f1a2b3c4d5e"]
+}
+```
+
+- Each product's `position` becomes its place in the list: `0`, `1`, `2` and so on.
+- Only the products that moved are changed, each with its own audit entry (`product.updated`, the position before and after). All of it is saved in one transaction, and the category can't be deleted meanwhile.
+- The same order again changes nothing and writes no audit entry.
+
+Response `200`: `{ "products": [...] }`, every product of the category in the new order, in the form above.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | No category or no list, an ID that is not a UUID, an ID twice (`List each product once`), more than 1000, or a category that doesn't exist (`No category with this ID`, for `categoryId`) |
+| `401` | see above | No staff access token, or a customer's |
+| `409` | `The products in this category changed while you were ordering them. Reload and try again.` | The list is not exactly the category's products: one was added, moved to another category or deleted since the list was read, or an ID is not one of them |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
 ### DELETE `/v1/staff/products/:id`

@@ -208,7 +208,7 @@ export class ProductsService {
     };
   }
 
-  // One product, drafts too, for its page in the admin console (ADR 0031).
+  // One product, drafts too, for its page in the admin console (ADR 0032).
   async findForStaff(id: string): Promise<Product> {
     const product = await this.prisma.product.findUnique({
       where: { id },
@@ -417,7 +417,7 @@ export class ProductsService {
   }
 
   // Puts a category's products in a new order, from the whole list first to
-  // last, as staff dragged them (ADR 0031). Each one's position becomes its
+  // last, as staff dragged them (ADR 0032). Each one's position becomes its
   // place in the list. All of it is saved in one transaction, with an audit
   // entry for each product that moved.
   async reorder(

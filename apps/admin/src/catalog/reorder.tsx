@@ -38,7 +38,7 @@ export interface Reordering<T extends Named> {
   drop: (item: T) => void;
 }
 
-// Drag-and-drop ordering of a list of named rows (ADR 0031), with the
+// Drag-and-drop ordering of a list of named rows (ADR 0032), with the
 // keyboard too: Up and Down move a row one place, Home and End to the top or
 // the bottom. Each move is read out, and saved as one new order.
 export function useReorder<T extends Named>({

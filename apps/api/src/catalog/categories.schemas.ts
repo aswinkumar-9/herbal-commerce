@@ -50,7 +50,7 @@ export const categoryUpdateSchema = z
 export type CategoryUpdateInput = z.infer<typeof categoryUpdateSchema>;
 
 // A new order for the categories customers see: every category, hidden ones
-// too, each once, first to last (ADR 0031).
+// too, each once, first to last (ADR 0032).
 export const categoryOrderSchema = z.object({
   ids: z
     .array(z.uuid('Each category by its ID'))
