@@ -11,9 +11,11 @@ import {
   SHAMPOO,
   SKIN,
   SOAP,
+  VARIANTS,
   categoriesOf,
   fieldsRefused,
   productsOf,
+  variantsOf,
 } from '../../test/catalog-fixtures';
 import { heldBack, openSignedIn } from '../../test/console';
 import { RAVI, json } from '../../test/fake-api';
@@ -31,6 +33,7 @@ async function openProduct(
     answers: {
       [CATEGORIES]: categoriesOf([HAIR, SKIN]),
       [PRODUCT(product)]: () => json(200, product),
+      [VARIANTS(product)]: variantsOf([]),
       ...options.answers,
     },
   });
@@ -75,6 +78,7 @@ describe('a new product', () => {
         [PRODUCTS_IN(HAIR)]: productsOf([OIL, SHAMPOO]),
         [CREATE]: () => json(201, NEW),
         [PRODUCT(NEW)]: () => json(200, NEW),
+        [VARIANTS(NEW)]: variantsOf([]),
       },
     });
     await waitFor(() =>
@@ -544,6 +548,7 @@ describe('a product that is not there', () => {
       answers: {
         [CATEGORIES]: categoriesOf([HAIR]),
         [PRODUCT(OIL)]: [() => json(500), () => json(200, OIL)],
+        [VARIANTS(OIL)]: variantsOf([]),
       },
     });
 
@@ -614,6 +619,7 @@ describe('deleting a product (Super Users)', () => {
         [CATEGORIES]: categoriesOf([HAIR, SKIN]),
         [ALL_PRODUCTS]: [productsOf([OIL, SHAMPOO]), again.answer],
         [PRODUCT(OIL)]: () => json(200, OIL),
+        [VARIANTS(OIL)]: variantsOf([]),
         [`DELETE /v1/staff/products/${OIL.id}`]: () =>
           new Response(null, { status: 204 }),
       },

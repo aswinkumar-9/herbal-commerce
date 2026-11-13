@@ -11,7 +11,7 @@ import {
   listProducts,
   listVariants,
 } from './catalog-api';
-import type { Category, ProductQuery } from './catalog-api';
+import type { Category, ProductQuery, Variant } from './catalog-api';
 
 // Where the console keeps each catalog answer. A change invalidates
 // catalogKeys.all, or the part it touched.
@@ -89,5 +89,25 @@ export function putCategory(queryClient: QueryClient, saved: Category): void {
 export function dropCategory(queryClient: QueryClient, id: string): void {
   queryClient.setQueryData<Category[]>(catalogKeys.categories(), (list) =>
     list?.filter((category) => category.id !== id),
+  );
+}
+
+// A pack size as the server now has it, in place in its product's list.
+export function putVariant(queryClient: QueryClient, saved: Variant): void {
+  queryClient.setQueryData<Variant[]>(
+    catalogKeys.variants(saved.productId),
+    (list) =>
+      list?.map((variant) => (variant.id === saved.id ? saved : variant)),
+  );
+}
+
+// A deleted pack size, out of its product's list.
+export function dropVariant(
+  queryClient: QueryClient,
+  productId: string,
+  id: string,
+): void {
+  queryClient.setQueryData<Variant[]>(catalogKeys.variants(productId), (list) =>
+    list?.filter((variant) => variant.id !== id),
   );
 }

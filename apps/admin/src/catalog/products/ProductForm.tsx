@@ -29,6 +29,7 @@ import type {
 import { catalogKeys } from '../catalog-queries';
 import { SLUG_MAX, slugify } from '../slug';
 import { DeleteProductDialog } from './DeleteProductDialog';
+import { PackSizesSection } from './PackSizesSection';
 import {
   FIELD_ORDER,
   LIMITS,
@@ -424,8 +425,8 @@ export function ProductForm({
             />
           ) : (
             <p className="text-sm text-ink-muted sm:col-span-2">
-              A new product starts as a draft: customers don&apos;t see it. Make
-              it live once its details and an image are in.
+              A new product starts as a draft: customers don&apos;t see it. Once
+              it is added, give it pack sizes and an image, then make it live.
             </p>
           )}
         </FormSection>
@@ -440,6 +441,10 @@ export function ProductForm({
         />
         {prompt}
       </motion.form>
+
+      {product ? (
+        <PackSizesSection product={product} canDelete={canDelete} />
+      ) : null}
 
       {product && canDelete ? (
         <>

@@ -148,26 +148,32 @@ export function useReorder<T extends Named>({
 export function OrderBar({
   order,
   noun,
+  className = 'mt-8',
   children,
 }: {
   order: Pick<
     Reordering<Named>,
     'helpId' | 'saving' | 'savedNote' | 'announcement'
   >;
-  // "category" or "product".
+  // "category", "product", "pack size" or "image".
   noun: string;
+  // The space above it.
+  className?: string;
   // What staff see: how to drag.
   children: ReactNode;
 }) {
+  const article = /^[aeiou]/i.test(noun) ? 'an' : 'a';
   return (
     <>
-      <div className="mt-8 flex min-h-6 flex-wrap items-center justify-between gap-2 text-sm text-ink-muted">
+      <div
+        className={`${className} flex min-h-6 flex-wrap items-center justify-between gap-2 text-sm text-ink-muted`}
+      >
         <p id={order.helpId}>
           {children}
           <span className="sr-only">
             {' '}
-            Or press Up or Down to move a {noun} one place, Home or End to move
-            it to the top or the bottom.
+            Or press Up or Down to move {article} {noun} one place, Home or End
+            to move it to the top or the bottom.
           </span>
         </p>
         {/* Read out as it changes. */}

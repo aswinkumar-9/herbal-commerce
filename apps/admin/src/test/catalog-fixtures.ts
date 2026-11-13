@@ -92,3 +92,45 @@ export const productsOf =
     json(200, { products, nextAfter });
 export const fieldsRefused = (errors: { field: string; message: string }[]) =>
   json(400, { message: 'Validation failed', errors });
+
+// Pack sizes of the live product, as the API lists them.
+export const ML_100 = {
+  id: '6a7b8c9d-0e1f-4a2b-8c3d-4e5f6a7b8c9d',
+  productId: SHAMPOO.id,
+  sku: 'AML-SHA-100',
+  quantity: 100,
+  unit: 'ML',
+  mrpRupees: 250,
+  priceRupees: 225,
+  isActive: true,
+  position: 0,
+  createdAt: at,
+  updatedAt: at,
+};
+
+export const ML_200 = {
+  ...ML_100,
+  id: '7b8c9d0e-1f2a-4b3c-9d4e-5f6a7b8c9d0e',
+  sku: 'AML-SHA-200',
+  quantity: 200,
+  mrpRupees: 450,
+  priceRupees: 450,
+  position: 1,
+};
+
+// Off sale.
+export const ML_500 = {
+  ...ML_100,
+  id: '8c9d0e1f-2a3b-4c4d-8e5f-6a7b8c9d0e1f',
+  sku: 'AML-SHA-500',
+  quantity: 500,
+  mrpRupees: 1000,
+  priceRupees: 899,
+  isActive: false,
+  position: 2,
+};
+
+export const VARIANTS = (product: { id: string }) =>
+  `GET /v1/staff/products/${product.id}/variants`;
+export const variantsOf = (variants: unknown[]) => () =>
+  json(200, { variants });
