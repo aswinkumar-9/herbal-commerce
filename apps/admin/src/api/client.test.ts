@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { fakeApi, json, offline, tokens } from '../test/fake-api';
 import { accessToken, setAccessToken } from './access-token';
 import { ApiError } from './api-error';
-import { apiRequest, onSessionLost, renewSession } from './client';
+import { apiRequest, apiUpload, onSessionLost, renewSession } from './client';
 
 const REFRESH = 'POST /v1/staff/auth/refresh';
 const thing = z.object({ name: z.string() });
@@ -217,5 +217,182 @@ describe('the API client', () => {
     await expect(
       apiRequest('/v1/staff/things', { schema: thing }),
     ).rejects.toThrow('does not understand');
+  });
+});
+
+describe('an upload', () => {
+  const UPLOAD = 'POST /v1/staff/things/files';
+  const PATH = '/v1/staff/things/files';
+  const photo = () =>
+    new File(['0123456789'], 'tulsi.jpg', { type: 'image/jpeg' });
+
+  // An answer the test gives when it is ready.
+  function heldBack() {
+    let give: (response: Response) => void = () => undefined;
+    const answer = new Promise<Response>((resolve) => {
+      give = resolve;
+    });
+    return {
+      answer: () => answer,
+      give: (response: Response) => give(response),
+    };
+  }
+
+  it('sends the file itself, with its type and the access token, and says how much has gone', async () => {
+    const api = fakeApi({ [UPLOAD]: () => json(201, { name: 'tulsi' }) });
+    setAccessToken('t1');
+    const file = photo();
+    const progress = vi.fn();
+
+    await expect(
+      apiUpload(PATH, file, { schema: thing, onProgress: progress }),
+    ).resolves.toEqual({ name: 'tulsi' });
+
+    const [request] = api.sent;
+    expect(request?.body).toBe(file);
+    expect(request?.authorization).toBe('Bearer t1');
+    const headers = new Headers(request?.init.headers);
+    expect(headers.get('Content-Type')).toBe('image/jpeg');
+    expect(headers.get('Accept')).toBe('application/json');
+    expect(progress.mock.calls).toEqual([[0.5], [1]]);
+  });
+
+  it('refuses to send anything outside the API', async () => {
+    const api = fakeApi({});
+    setAccessToken('t1');
+
+    for (const path of ['https://elsewhere.example/v1/x', '/media/x']) {
+      await expect(apiUpload(path, photo(), { schema: thing })).rejects.toThrow(
+        'Not an API path',
+      );
+    }
+    expect(api.sent).toHaveLength(0);
+  });
+
+  it('renews an expired access token once, and sends the file again', async () => {
+    const api = fakeApi({
+      [UPLOAD]: [
+        () => json(401, { message: 'Invalid or expired access token' }),
+        () => json(201, { name: 'tulsi' }),
+      ],
+      [REFRESH]: () => json(200, tokens('t2')),
+    });
+    setAccessToken('t1');
+    const file = photo();
+
+    await expect(apiUpload(PATH, file, { schema: thing })).resolves.toEqual({
+      name: 'tulsi',
+    });
+
+    expect(api.sent.map((r) => [r.method, r.path, r.authorization])).toEqual([
+      ['POST', PATH, 'Bearer t1'],
+      ['POST', '/v1/staff/auth/refresh', null],
+      ['POST', PATH, 'Bearer t2'],
+    ]);
+    expect(api.sent[2]?.body).toBe(file);
+  });
+
+  it('ends the session when the cookie cannot renew it any more', async () => {
+    fakeApi({
+      [UPLOAD]: () => json(401, { message: 'Invalid or expired access token' }),
+      [REFRESH]: () => json(401, { message: 'Invalid refresh token' }),
+    });
+    const lost = vi.fn();
+    const stop = onSessionLost(lost);
+    setAccessToken('t1');
+
+    await expect(
+      apiUpload(PATH, photo(), { schema: thing }),
+    ).rejects.toMatchObject({ status: 401 });
+    expect(lost).toHaveBeenCalledTimes(1);
+    stop();
+  });
+
+  it("reads the API's refusals, with the wait", async () => {
+    fakeApi({
+      [UPLOAD]: [
+        () =>
+          json(
+            429,
+            { message: 'Too many requests. Please try again later.' },
+            { 'Retry-After': '120' },
+          ),
+        () =>
+          json(400, {
+            message: 'Validation failed',
+            errors: [
+              {
+                field: 'file',
+                message: 'The image needs at least 400 pixels on each side',
+              },
+            ],
+          }),
+      ],
+    });
+    setAccessToken('t1');
+    const send = () => apiUpload(PATH, photo(), { schema: thing });
+
+    await expect(send()).rejects.toMatchObject({
+      status: 429,
+      message: 'Too many requests. Please try again later.',
+      retryAfterSeconds: 120,
+    });
+    await expect(send()).rejects.toMatchObject({
+      status: 400,
+      fieldErrors: [
+        {
+          field: 'file',
+          message: 'The image needs at least 400 pixels on each side',
+        },
+      ],
+    });
+  });
+
+  it('says so when the server cannot be reached', async () => {
+    fakeApi({ [UPLOAD]: offline });
+    setAccessToken('t1');
+
+    await expect(
+      apiUpload(PATH, photo(), { schema: thing }),
+    ).rejects.toMatchObject({
+      status: 0,
+      message: expect.stringContaining("can't reach the server"),
+    });
+  });
+
+  it('refuses an answer that is not the shape it expects', async () => {
+    fakeApi({ [UPLOAD]: () => json(201, { name: 42 }) });
+    setAccessToken('t1');
+
+    await expect(apiUpload(PATH, photo(), { schema: thing })).rejects.toThrow(
+      'does not understand',
+    );
+  });
+
+  it('stops when it is called off, half way or before it starts', async () => {
+    const held = heldBack();
+    const api = fakeApi({ [UPLOAD]: held.answer });
+    setAccessToken('t1');
+    const progress = vi.fn();
+    const halfWay = new AbortController();
+
+    const sending = apiUpload(PATH, photo(), {
+      schema: thing,
+      onProgress: progress,
+      signal: halfWay.signal,
+    });
+    await vi.waitFor(() => expect(progress).toHaveBeenCalledWith(0.5));
+    halfWay.abort();
+    held.give(json(201, { name: 'tulsi' }));
+
+    await expect(sending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(progress).not.toHaveBeenCalledWith(1);
+
+    const before = new AbortController();
+    before.abort();
+    await expect(
+      apiUpload(PATH, photo(), { schema: thing, signal: before.signal }),
+    ).rejects.toMatchObject({ name: 'AbortError' });
+    expect(api.sent).toHaveLength(1);
   });
 });

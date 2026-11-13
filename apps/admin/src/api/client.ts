@@ -60,25 +60,59 @@ export async function apiRequest(
   path: string,
   options: RequestOptions & { schema?: z.ZodType } = {},
 ): Promise<unknown> {
-  const token = options.anonymous ? null : accessToken();
-  let response = await send(path, options, token);
-
-  if (response.status === 401 && token !== null) {
-    // The access token ran out (it lives 15 minutes): renew it once through
-    // the cookie, and try again.
-    if (!(await renewSession())) {
-      for (const listener of sessionLostListeners) {
-        listener();
-      }
-      throw await failure(response);
-    }
-    response = await send(path, options, accessToken());
-  }
-
+  const response = await authorised(options.anonymous, (token) =>
+    send(path, options, token),
+  );
   if (!response.ok) {
     throw await failure(response);
   }
   return options.schema ? read(response, options.schema) : undefined;
+}
+
+export interface UploadOptions<T> {
+  schema: z.ZodType<T>;
+  // How much of the file has gone, from 0 to 1.
+  onProgress?: (sent: number) => void;
+  signal?: AbortSignal;
+}
+
+// Sends a file as the request body, with its own type as the Content-Type,
+// and says how much of it has gone. fetch cannot tell, so uploads go through
+// XMLHttpRequest, with the same rules as every other request: the API's own
+// origin only, the access token renewed once, the answer checked.
+export async function apiUpload<T>(
+  path: string,
+  file: Blob,
+  options: UploadOptions<T>,
+): Promise<T> {
+  const response = await authorised(false, (token) =>
+    upload(path, file, options, token),
+  );
+  if (!response.ok) {
+    throw await failure(response);
+  }
+  return read(response, options.schema);
+}
+
+// Sends with the access token. When the API says it ran out (it lives 15
+// minutes), renews it once through the cookie and sends again; when the
+// cookie cannot renew it, the session is over.
+async function authorised(
+  anonymous: boolean | undefined,
+  sendWith: (token: string | null) => Promise<Response>,
+): Promise<Response> {
+  const token = anonymous ? null : accessToken();
+  const response = await sendWith(token);
+  if (response.status !== 401 || token === null) {
+    return response;
+  }
+  if (!(await renewSession())) {
+    for (const listener of sessionLostListeners) {
+      listener();
+    }
+    throw await failure(response);
+  }
+  return sendWith(accessToken());
 }
 
 let renewing: Promise<boolean> | null = null;
@@ -121,9 +155,7 @@ async function send(
   options: RequestOptions,
   token: string | null,
 ): Promise<Response> {
-  if (!path.startsWith(API_PREFIX)) {
-    throw new Error(`Not an API path: ${path}`);
-  }
+  checkPath(path);
   const headers = new Headers({ Accept: 'application/json' });
   if (token !== null) {
     headers.set('Authorization', `Bearer ${token}`);
@@ -150,6 +182,77 @@ async function send(
       throw error;
     }
     throw new ApiError(0, UNREACHABLE);
+  }
+}
+
+// One upload, answered as a Response, so it is read like any other answer.
+// The answer's only header the console reads is Retry-After.
+function upload(
+  path: string,
+  file: Blob,
+  { onProgress, signal }: Omit<UploadOptions<unknown>, 'schema'>,
+  token: string | null,
+): Promise<Response> {
+  checkPath(path);
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(stopped());
+      return;
+    }
+    const request = new XMLHttpRequest();
+    request.open('POST', path);
+    request.setRequestHeader('Accept', 'application/json');
+    request.setRequestHeader('Content-Type', file.type);
+    if (token !== null) {
+      request.setRequestHeader('Authorization', `Bearer ${token}`);
+    }
+    request.responseType = 'text';
+    const stop = () => request.abort();
+    signal?.addEventListener('abort', stop, { once: true });
+
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable && event.total > 0) {
+        onProgress?.(Math.min(1, event.loaded / event.total));
+      }
+    };
+    request.onload = () => {
+      signal?.removeEventListener('abort', stop);
+      const { status } = request;
+      if (status < 200 || status > 599) {
+        reject(new ApiError(0, UNREACHABLE));
+        return;
+      }
+      const headers = new Headers();
+      const retryAfter = request.getResponseHeader('Retry-After');
+      if (retryAfter !== null) {
+        headers.set('Retry-After', retryAfter);
+      }
+      // A 204 has no body; any other answer's body is its JSON.
+      const body =
+        status === 204 || !request.responseText ? null : request.responseText;
+      resolve(new Response(body, { status, headers }));
+    };
+    request.onerror = () => {
+      signal?.removeEventListener('abort', stop);
+      reject(new ApiError(0, UNREACHABLE));
+    };
+    request.onabort = () => {
+      signal?.removeEventListener('abort', stop);
+      reject(stopped());
+    };
+    request.send(file);
+  });
+}
+
+// The same error fetch gives for a request that was called off.
+function stopped(): DOMException {
+  return new DOMException('The upload was stopped.', 'AbortError');
+}
+
+// The console talks only to its own API (see API_PREFIX).
+function checkPath(path: string): void {
+  if (!path.startsWith(API_PREFIX)) {
+    throw new Error(`Not an API path: ${path}`);
   }
 }
 

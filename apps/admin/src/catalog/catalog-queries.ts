@@ -4,7 +4,13 @@ import {
   useQuery,
 } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
-import { getProduct, listCategories, listProducts } from './catalog-api';
+import {
+  getProduct,
+  listCategories,
+  listImages,
+  listProducts,
+  listVariants,
+} from './catalog-api';
 import type { Category, ProductQuery } from './catalog-api';
 
 // Where the console keeps each catalog answer. A change invalidates
@@ -16,6 +22,12 @@ export const catalogKeys = {
   products: (query: Omit<ProductQuery, 'after'>) =>
     ['catalog', 'products', query] as const,
   product: (id: string) => ['catalog', 'product', id] as const,
+  // A product's pack sizes and images (under its product, so refreshing the
+  // product refreshes them too).
+  variants: (productId: string) =>
+    ['catalog', 'product', productId, 'variants'] as const,
+  images: (productId: string) =>
+    ['catalog', 'product', productId, 'images'] as const,
   // Whether a category has any product, drafts too (under productLists, so
   // a product change refreshes it).
   categoryHasProducts: (categoryId: string) =>
@@ -47,6 +59,22 @@ export function useProduct(id: string) {
   return useQuery({
     queryKey: catalogKeys.product(id),
     queryFn: ({ signal }) => getProduct(id, signal),
+  });
+}
+
+// Every pack size of a product, off sale ones too, first to last.
+export function useVariants(productId: string) {
+  return useQuery({
+    queryKey: catalogKeys.variants(productId),
+    queryFn: ({ signal }) => listVariants(productId, signal),
+  });
+}
+
+// Every image of a product, the main photo first.
+export function useImages(productId: string) {
+  return useQuery({
+    queryKey: catalogKeys.images(productId),
+    queryFn: ({ signal }) => listImages(productId, signal),
   });
 }
 
