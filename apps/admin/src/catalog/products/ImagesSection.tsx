@@ -14,7 +14,7 @@ import {
   motion,
   useDragControls,
 } from 'motion/react';
-import { useId, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import type { DragEvent, KeyboardEvent } from 'react';
 import { problemMessage } from '../../api/problems';
 import { Button, buttonClass } from '../../components/Button';
@@ -54,6 +54,31 @@ function unnamed(row: ImageRow): ProductImage {
   return image as ProductImage;
 }
 
+// A file dropped beside the drop zone would open in the tab, in place of
+// the console. While the section is on the page, only the zone takes files:
+// its own handlers accept them first, so any other file drag is turned away.
+function useNoStrayDrops() {
+  useEffect(() => {
+    const turnAway = (event: globalThis.DragEvent) => {
+      const transfer = event.dataTransfer;
+      if (
+        transfer &&
+        !event.defaultPrevented &&
+        Array.from(transfer.types).includes('Files')
+      ) {
+        event.preventDefault();
+        transfer.dropEffect = 'none';
+      }
+    };
+    window.addEventListener('dragover', turnAway);
+    window.addEventListener('drop', turnAway);
+    return () => {
+      window.removeEventListener('dragover', turnAway);
+      window.removeEventListener('drop', turnAway);
+    };
+  }, []);
+}
+
 // The photos of a product, the main one first (ADR 0023, 0033). Staff add
 // several at once, chosen or dropped; each is sent on its own, with its
 // progress, and can be cancelled or tried again. Admins delete them too.
@@ -70,6 +95,7 @@ export function ImagesSection({ product }: { product: Product }) {
       (upload) => upload.state === 'waiting' || upload.state === 'sending',
     ),
   );
+  useNoStrayDrops();
   const [describing, setDescribing] = useState<{
     open: boolean;
     image: ProductImage | null;
@@ -299,7 +325,7 @@ function ImageRowItem({
         className="size-16 shrink-0 rounded-md border border-line bg-surface-muted object-cover"
       />
       <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <p
             className={`truncate ${row.altText ? 'font-medium' : 'text-ink-muted'}`}
           >
@@ -467,7 +493,7 @@ function UploadRow({
             <ImageIcon aria-hidden="true" className="size-5" />
           )}
         </span>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 basis-48">
           <p className="truncate text-sm font-medium">{name}</p>
           <p className={`text-sm ${wrong ? 'text-danger' : 'text-ink-muted'}`}>
             {fileSize(upload.file.size)} · {status}

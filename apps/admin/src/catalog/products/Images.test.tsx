@@ -1,5 +1,6 @@
 import {
   act,
+  createEvent,
   fireEvent,
   screen,
   waitFor,
@@ -325,6 +326,36 @@ describe('adding images', () => {
     // Text dragged from the page is not a file.
     fireEvent.dragEnter(zone, { dataTransfer: { types: ['text/plain'] } });
     expect(zone).not.toHaveClass('border-primary');
+  });
+
+  it('turns away files dropped beside the zone, which would open in place of the console', async () => {
+    const { router } = await openImages();
+    await waitForList();
+    const dragOver = (target: Element, types: string[]) => {
+      const dataTransfer = { types, dropEffect: 'copy' };
+      const event = createEvent.dragOver(target, { dataTransfer });
+      fireEvent(target, event);
+      return {
+        handled: event.defaultPrevented,
+        effect: dataTransfer.dropEffect,
+      };
+    };
+    const beside = within(section()).getByRole('heading', { name: 'Images' });
+
+    expect(dragOver(beside, ['Files'])).toEqual({
+      handled: true,
+      effect: 'none',
+    });
+    // The zone takes them.
+    expect(
+      dragOver(within(section()).getByText('Add more images'), ['Files']),
+    ).toEqual({ handled: true, effect: 'copy' });
+    // Text is the browser's to handle.
+    expect(dragOver(beside, ['text/plain']).handled).toBe(false);
+
+    // Once staff leave the page, the browser's own way comes back.
+    await act(() => router.navigate('/'));
+    expect(dragOver(document.body, ['Files']).handled).toBe(false);
   });
 
   it('takes no more than the room left', async () => {
