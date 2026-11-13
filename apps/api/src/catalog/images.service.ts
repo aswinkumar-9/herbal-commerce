@@ -15,7 +15,7 @@ import { changedFields, pick } from './changes';
 import { IMAGE_ORDER, imageFileNames, removeImageFiles } from './image-files';
 import { processImage } from './image-processing';
 import type { ImageType } from './image-processing';
-import type { ImageUpdateInput } from './images.schemas';
+import type { ImageOrderInput, ImageUpdateInput } from './images.schemas';
 import { PRODUCT_NOT_FOUND } from './products.service';
 
 // A product has at most 6 images (ADR 0023). The database's trigger
@@ -25,6 +25,8 @@ export const IMAGE_NOT_FOUND = 'Image not found';
 export const TOO_MANY_IMAGES = `A product has at most ${MAX_IMAGES_PER_PRODUCT} images. Delete one first.`;
 export const LAST_IMAGE_OF_LIVE_PRODUCT =
   'A live product needs at least one image. Add another first, or take the product offline.';
+export const IMAGES_CHANGED =
+  "The product's images changed while you were ordering them. Reload and try again.";
 
 // Everything about an image that staff set or the upload decided: what the
 // audit log keeps of it.
@@ -179,6 +181,61 @@ export class ImagesService {
       );
     }
     return this.staffView(image);
+  }
+
+  // Puts a product's images in a new order, from the whole list first to
+  // last, as staff dragged them (ADR 0033). The first becomes the main
+  // photo. All of it is saved in one transaction, with an audit entry for
+  // each image that moved.
+  async reorder(
+    productId: string,
+    { ids }: ImageOrderInput,
+    context: AuditContext,
+  ): Promise<{ images: StaffImage[] }> {
+    const moved = await this.prisma.$transaction(async (tx) => {
+      // The product first, as uploads and deletions lock it too: no image
+      // is added or deleted while the order is saved.
+      await this.lockProduct(tx, productId);
+      // Its images, locked in the order of their IDs, as everywhere.
+      const current = await tx.$queryRaw<{ id: string; position: number }[]>`
+        SELECT id, position FROM product_images
+         WHERE "productId" = ${productId}::uuid
+         ORDER BY id FOR NO KEY UPDATE`;
+      const was = new Map(current.map((row) => [row.id, row.position]));
+      // The list must be every image of the product, each once.
+      if (current.length !== ids.length || ids.some((id) => !was.has(id))) {
+        throw new ConflictException(IMAGES_CHANGED);
+      }
+      let count = 0;
+      for (const [position, id] of ids.entries()) {
+        const before = was.get(id);
+        if (before === position) {
+          continue;
+        }
+        await tx.productImage.update({
+          where: { id },
+          data: { position },
+          select: { id: true },
+        });
+        await this.audit.record(tx, {
+          ...context,
+          action: 'image.updated',
+          targetType: 'image',
+          targetId: id,
+          before: { position: before },
+          after: { position },
+        });
+        count += 1;
+      }
+      return count;
+    });
+    if (moved > 0) {
+      this.logger.info(
+        { productId, moved, actorId: context.actorId },
+        'Images reordered',
+      );
+    }
+    return this.listForProduct(productId);
   }
 
   // Deletes an image for good. Admins may too: replacing a photo is

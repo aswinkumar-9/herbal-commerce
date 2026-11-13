@@ -1,5 +1,6 @@
 import {
   priceIssues,
+  variantOrderSchema,
   variantSchema,
   variantUpdateSchema,
 } from './variants.schemas';
@@ -93,5 +94,34 @@ describe('variantUpdateSchema', () => {
   it('refuses a change with nothing in it', () => {
     expect(variantUpdateSchema.safeParse({}).success).toBe(false);
     expect(variantUpdateSchema.safeParse({ productId: 'x' }).success).toBe(false);
+  });
+});
+
+describe('variantOrderSchema', () => {
+  const A = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+  const B = '8d0f7780-8536-41ef-a55c-f18c2b01bf18';
+  const refused = (input: object) => {
+    const result = variantOrderSchema.safeParse(input);
+    return result.success
+      ? []
+      : result.error.issues.map((issue) => [issue.path.join('.'), issue.message]);
+  };
+  const ids = (count: number) =>
+    Array.from(
+      { length: count },
+      (_, n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    );
+
+  it('takes every pack size, first to last, and drops unknown fields', () => {
+    expect(variantOrderSchema.parse({ ids: [B, A], productId: A })).toEqual({ ids: [B, A] });
+    expect(refused({ ids: ids(100) })).toEqual([]);
+  });
+
+  it('refuses an empty list, a pack size twice, a bad ID and more than 100', () => {
+    expect(refused({ ids: [] })).toEqual([['ids', 'List the pack sizes']]);
+    expect(refused({ ids: [A, B, A] })).toEqual([['ids', 'List each pack size once']]);
+    expect(refused({ ids: ['ASH-CAP-60'] })).toEqual([['ids.0', 'Each pack size by its ID']]);
+    expect(refused({ ids: ids(101) })).toEqual([['ids', 'At most 100 pack sizes']]);
+    expect(refused({})).toEqual([['ids', expect.any(String)]]);
   });
 });

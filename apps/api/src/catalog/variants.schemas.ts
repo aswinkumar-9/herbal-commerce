@@ -76,3 +76,17 @@ export const variantUpdateSchema = z
     'Nothing to change',
   );
 export type VariantUpdateInput = z.infer<typeof variantUpdateSchema>;
+
+// A new order for a product's pack sizes: every one of them, off sale ones
+// too, each once, first to last (ADR 0033).
+export const variantOrderSchema = z.object({
+  ids: z
+    .array(z.uuid('Each pack size by its ID'))
+    .min(1, 'List the pack sizes')
+    .max(100, 'At most 100 pack sizes')
+    .refine(
+      (ids) => new Set(ids).size === ids.length,
+      'List each pack size once',
+    ),
+});
+export type VariantOrderInput = z.infer<typeof variantOrderSchema>;

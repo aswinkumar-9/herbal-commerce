@@ -17,7 +17,11 @@ import { PRODUCT_NOT_FOUND } from './products.service';
 import { validationFailed } from './validation-failed';
 import { VARIANT_ORDER } from './variant-order';
 import { priceIssues } from './variants.schemas';
-import type { VariantInput, VariantUpdateInput } from './variants.schemas';
+import type {
+  VariantInput,
+  VariantOrderInput,
+  VariantUpdateInput,
+} from './variants.schemas';
 
 export const VARIANT_NOT_FOUND = 'Pack size not found';
 export const SKU_TAKEN =
@@ -25,6 +29,8 @@ export const SKU_TAKEN =
 export const SIZE_TAKEN = 'This product already has a pack of this size.';
 export const VARIANT_HAS_STOCK =
   'This pack size still has stock. Write it off first, then delete it.';
+export const VARIANTS_CHANGED =
+  "The product's pack sizes changed while you were ordering them. Reload and try again.";
 
 // Everything staff set, and the product it belongs to: what the audit log
 // keeps of a pack size.
@@ -155,6 +161,67 @@ export class VariantsService {
       );
     }
     return variant;
+  }
+
+  // Puts a product's pack sizes in a new order, from the whole list first
+  // to last, as staff dragged them (ADR 0033). The shop shows them in the
+  // same order. All of it is saved in one transaction, with an audit entry
+  // for each pack size that moved.
+  async reorder(
+    productId: string,
+    { ids }: VariantOrderInput,
+    context: AuditContext,
+  ): Promise<{ variants: Variant[] }> {
+    const moved = await this.prisma.$transaction(async (tx) => {
+      // The product must exist, and stay while its pack sizes are ordered.
+      const product = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM products WHERE id = ${productId}::uuid FOR KEY SHARE`;
+      if (product.length === 0) {
+        throw new NotFoundException(PRODUCT_NOT_FOUND);
+      }
+      // Its pack sizes, locked in the order of their IDs, as everywhere.
+      // Stock and carts may still point at them meanwhile.
+      const current = await tx.$queryRaw<{ id: string; position: number }[]>`
+        SELECT id, position FROM product_variants
+         WHERE "productId" = ${productId}::uuid
+         ORDER BY id FOR NO KEY UPDATE`;
+      const was = new Map(current.map((row) => [row.id, row.position]));
+      // The list must be every pack size of the product, off sale ones too:
+      // one added or deleted since staff loaded the page would otherwise be
+      // left out of the order.
+      if (current.length !== ids.length || ids.some((id) => !was.has(id))) {
+        throw new ConflictException(VARIANTS_CHANGED);
+      }
+      let count = 0;
+      for (const [position, id] of ids.entries()) {
+        const before = was.get(id);
+        if (before === position) {
+          continue;
+        }
+        await tx.productVariant.update({
+          where: { id },
+          data: { position },
+          select: { id: true },
+        });
+        await this.audit.record(tx, {
+          ...context,
+          action: 'variant.updated',
+          targetType: 'variant',
+          targetId: id,
+          before: { position: before },
+          after: { position },
+        });
+        count += 1;
+      }
+      return count;
+    });
+    if (moved > 0) {
+      this.logger.info(
+        { productId, moved, actorId: context.actorId },
+        'Pack sizes reordered',
+      );
+    }
+    return this.listForProduct(productId);
   }
 
   // Deletes a pack size for good. Only Super Users may: the route is

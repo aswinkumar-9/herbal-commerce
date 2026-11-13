@@ -10,6 +10,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
 } from '@nestjs/common';
 import type { AuditContext } from '../audit/audit-context';
 import { CurrentAuditContext } from '../audit/audit-context.decorator';
@@ -17,8 +18,8 @@ import { StaffOnly } from '../auth/staff-only.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
 import { uploadedImage } from './image-upload';
-import { imageUpdateSchema } from './images.schemas';
-import type { ImageUpdateInput } from './images.schemas';
+import { imageOrderSchema, imageUpdateSchema } from './images.schemas';
+import type { ImageOrderInput, ImageUpdateInput } from './images.schemas';
 import { ImagesService } from './images.service';
 
 // Product images, for staff (ADR 0023). Admins and Super Users may add,
@@ -50,6 +51,17 @@ export class StaffImagesController {
   ) {
     const { file, type } = uploadedImage(body, contentType);
     return this.images.create(productId, file, type, context);
+  }
+
+  // A new order for a product's images: all of them, first to last. The
+  // first becomes the main photo (ADR 0033).
+  @Put('products/:productId/images/order')
+  reorder(
+    @Param('productId', new ParseUUIDPipe()) productId: string,
+    @Body(new ZodValidationPipe(imageOrderSchema)) body: ImageOrderInput,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.images.reorder(productId, body, context);
   }
 
   // Changes an image's description (altText) or its place (position).

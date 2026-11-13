@@ -1009,6 +1009,7 @@ async function main() {
     ],
     ['PATCH', `/v1/staff/variants/${anyId}`, { priceRupees: 100 }],
     ['DELETE', `/v1/staff/variants/${anyId}`],
+    ['PUT', `/v1/staff/products/${anyId}/variants/order`, { ids: [anyId] }],
   ];
   const packAnswers = [];
   for (const [method, path, json] of packRoutes) {
@@ -1016,7 +1017,7 @@ async function main() {
     packAnswers.push(answer.status);
   }
   check(
-    'a customer access token cannot list, add, change or delete pack sizes',
+    'a customer access token cannot list, add, change, reorder or delete pack sizes',
     packAnswers.every((status) => status === 401),
   );
 
@@ -1026,6 +1027,7 @@ async function main() {
     ['POST', `/v1/staff/products/${anyId}/images`, { altText: 'Smoke' }],
     ['PATCH', `/v1/staff/images/${anyId}`, { altText: 'Smoke' }],
     ['DELETE', `/v1/staff/images/${anyId}`],
+    ['PUT', `/v1/staff/products/${anyId}/images/order`, { ids: [anyId] }],
   ];
   const imageAnswers = [];
   for (const [method, path, json] of imageRoutes) {
@@ -1033,7 +1035,7 @@ async function main() {
     imageAnswers.push(answer.status);
   }
   check(
-    'a customer access token cannot list, upload, change or delete images',
+    'a customer access token cannot list, upload, change, reorder or delete images',
     imageAnswers.every((status) => status === 401),
   );
 
