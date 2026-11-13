@@ -131,7 +131,9 @@ describe('the categories page', () => {
     await waitForList();
 
     expect(router.state.location.pathname).toBe('/catalog/categories');
-    expect(document.title).toBe('Categories · Herbal Commerce Admin');
+    await waitFor(() =>
+      expect(document.title).toBe('Categories · Herbal Commerce Admin'),
+    );
     expect(rowNames()).toEqual(['Hair Care', 'Skin Care', 'Herbal Teas']);
     expect(
       screen.getByRole('switch', { name: 'Customers see Hair Care' }),

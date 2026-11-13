@@ -5,6 +5,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -81,7 +82,9 @@ describe('signing in', () => {
     expect(
       await screen.findByRole('heading', { name: 'Sign in' }),
     ).toBeInTheDocument();
-    expect(document.title).toBe('Sign in · Herbal Commerce Admin');
+    await waitFor(() =>
+      expect(document.title).toBe('Sign in · Herbal Commerce Admin'),
+    );
   });
 
   it('checks the form before anything is sent', async () => {

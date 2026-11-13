@@ -1,4 +1,8 @@
-import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useQuery,
+} from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import { getProduct, listCategories, listProducts } from './catalog-api';
 import type { Category, ProductQuery } from './catalog-api';
@@ -26,7 +30,8 @@ export function useCategories() {
 }
 
 // Products one page at a time: each page's nextAfter asks for the next.
-// A search comes back on one page.
+// A search comes back on one page. While another filter loads, the last
+// list stays (isPlaceholderData says so).
 export function useProductPages(query: Omit<ProductQuery, 'after'>) {
   return useInfiniteQuery({
     queryKey: catalogKeys.products(query),
@@ -34,6 +39,7 @@ export function useProductPages(query: Omit<ProductQuery, 'after'>) {
       listProducts({ ...query, after: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextAfter ?? undefined,
+    placeholderData: keepPreviousData,
   });
 }
 

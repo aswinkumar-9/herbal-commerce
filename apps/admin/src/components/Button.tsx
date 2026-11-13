@@ -14,6 +14,14 @@ const SIZES = {
   sm: 'h-8 px-3',
 } as const;
 
+// Also for a link that looks like a button, such as "New product".
+export function buttonClass(
+  variant: keyof typeof VARIANTS = 'secondary',
+  size: keyof typeof SIZES = 'md',
+): string {
+  return `inline-flex shrink-0 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100 aria-disabled:cursor-wait aria-disabled:opacity-80 ${VARIANTS[variant]} ${SIZES[size]}`;
+}
+
 interface ButtonProps extends ComponentProps<'button'> {
   variant?: keyof typeof VARIANTS;
   size?: keyof typeof SIZES;
@@ -52,7 +60,7 @@ export function Button({
       type={type}
       aria-disabled={busy || undefined}
       onClick={click}
-      className={`inline-flex shrink-0 items-center justify-center gap-2 rounded-lg text-sm font-medium transition-[background-color,color,transform] duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100 aria-disabled:cursor-wait aria-disabled:opacity-80 ${VARIANTS[variant]} ${SIZES[size]} ${className}`}
+      className={`${buttonClass(variant, size)} ${className}`}
       {...rest}
     >
       {busy ? (

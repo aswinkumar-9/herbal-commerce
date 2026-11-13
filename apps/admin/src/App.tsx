@@ -8,6 +8,8 @@ import { SessionProvider } from './auth/SessionProvider';
 import { RequireRole, RequireSession } from './auth/guards';
 import { CatalogLayout } from './catalog/CatalogLayout';
 import { CategoriesPage } from './catalog/categories/CategoriesPage';
+import { ProductPage } from './catalog/products/ProductPage';
+import { ProductsPage } from './catalog/products/ProductsPage';
 import { CrashScreen, ErrorBoundary } from './components/ErrorBoundary';
 import { AppShell } from './layout/AppShell';
 import { NAV_ITEMS } from './layout/nav-items';
@@ -55,7 +57,10 @@ export const routes = createRoutesFromElements(
         <Route path="catalog" element={<CatalogLayout />}>
           <Route index element={<Navigate to="categories" replace />} />
           <Route path="categories" element={<CategoriesPage />} />
+          <Route path="products" element={<ProductsPage />} />
         </Route>
+        <Route path="catalog/products/new" element={<ProductPage />} />
+        <Route path="catalog/products/:id" element={<ProductPage />} />
         {forEveryone.map(comingSoon)}
         <Route element={<RequireRole only="SUPER_USER" />}>
           {forSuperUsers.map(comingSoon)}

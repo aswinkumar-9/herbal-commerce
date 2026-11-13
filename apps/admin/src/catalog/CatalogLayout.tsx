@@ -2,7 +2,10 @@ import { motion } from 'motion/react';
 import { NavLink, Outlet } from 'react-router';
 import { transition } from '../motion';
 
-const TABS = [{ to: '/catalog/categories', label: 'Categories' }];
+const TABS = [
+  { to: '/catalog/categories', label: 'Categories' },
+  { to: '/catalog/products', label: 'Products' },
+];
 
 // The catalog's pages, with tabs between them. The line under the open tab
 // slides to the next one.

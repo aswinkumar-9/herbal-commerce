@@ -76,6 +76,9 @@ export type ProductFields = Omit<
   Product,
   'id' | 'position' | 'createdAt' | 'updatedAt'
 >;
+// What a product's create or change sends: its fields, and where it goes
+// in its category.
+export type ProductInput = Partial<ProductFields> & { position?: number };
 
 export interface ProductQuery {
   categoryId?: string | undefined;
@@ -88,12 +91,20 @@ export interface ProductQuery {
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// Whether a value from the address bar can be an ID at all.
+export function isId(value: string | null | undefined): value is string {
+  return typeof value === 'string' && UUID.test(value);
+}
+
+// The highest position the API takes.
+export const MAX_POSITION = 9999;
+
 // An ID put into a path is a UUID and nothing else. A product's page takes
 // its ID from the address bar, so "..", "/" or "?" must never reach the
 // path: such an ID is a product that does not exist. (The functions that
 // use it are async, so this comes back as a rejected promise too.)
 function idInPath(base: string, id: string): string {
-  if (!UUID.test(id)) {
+  if (!isId(id)) {
     throw new ApiError(404, 'There is no such item.');
   }
   return `${base}/${id}`;
@@ -169,7 +180,7 @@ export async function getProduct(id: string, signal?: AbortSignal) {
   return apiRequest(idInPath(PRODUCTS, id), { schema: productSchema, signal });
 }
 
-export function createProduct(input: Partial<ProductFields>) {
+export function createProduct(input: ProductInput) {
   return apiRequest(PRODUCTS, {
     method: 'POST',
     body: input,
@@ -177,10 +188,7 @@ export function createProduct(input: Partial<ProductFields>) {
   });
 }
 
-export async function updateProduct(
-  id: string,
-  changes: Partial<ProductFields>,
-) {
+export async function updateProduct(id: string, changes: ProductInput) {
   return apiRequest(idInPath(PRODUCTS, id), {
     method: 'PATCH',
     body: changes,
@@ -191,6 +199,19 @@ export async function updateProduct(
 // Super Users only; the API refuses Admins.
 export async function deleteProduct(id: string) {
   return apiRequest(idInPath(PRODUCTS, id), { method: 'DELETE' });
+}
+
+// Where a product put into a category goes: after its last one. The list
+// comes first to last, so the last product of the last page is the last.
+export async function nextProductPosition(categoryId: string) {
+  let after: string | undefined;
+  let last = -1;
+  do {
+    const page = await listProducts({ categoryId, after, limit: 100 });
+    last = page.products.at(-1)?.position ?? last;
+    after = page.nextAfter ?? undefined;
+  } while (after);
+  return Math.min(MAX_POSITION, last + 1);
 }
 
 // Every product of one category, first to last.
