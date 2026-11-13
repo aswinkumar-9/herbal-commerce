@@ -16,7 +16,8 @@ export type SearchSort = (typeof SEARCH_SORTS)[number];
 const MAX_PRICE_RUPEES = 1_000_000;
 
 // The search words, with each run of spaces made one. Empty means none.
-const words = z
+// Staff search the product list with the same rule (ADR 0032).
+export const searchWords = z
   .string()
   .transform((value) => value.trim().replace(/\s+/g, ' '))
   .pipe(
@@ -40,7 +41,7 @@ const price = z.coerce
 // and a page. Each filter works without words too.
 export const productSearchQuerySchema = z
   .object({
-    q: words.optional(),
+    q: searchWords.optional(),
     category: slugSchema.optional(),
     type: z
       .enum(

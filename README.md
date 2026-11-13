@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. The admin console has begun (part 12A): staff sign in with the password and the authenticator code, stay signed in through a cookie the page cannot read, see the menu for their role, and are signed out after 30 minutes without activity. Its pages come next. There is no customer app or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. The admin console has begun (part 12A): staff sign in with the password and the authenticator code, stay signed in through a cookie the page cannot read, see the menu for their role, and are signed out after 30 minutes without activity. Since part 12B, staff run the categories and products there: they find products by name, filter them, drag them into the order customers see, edit each product on its own page with the same checks as the API, and Super Users delete them after a dialog that says what is lost. Pack sizes, images and stock come next. There is no customer app or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -96,7 +96,7 @@ It first clears the local rate-limit counters, so it can run again at once. Then
 - orders: the checkout needs a customer token, an empty cart can be neither checked out nor ordered, and an order needs an `Idempotency-Key` and a valid body. With a pack in stock, an order is placed at the checkout's total, holds its stock for 15 minutes and empties the cart; the same key answers the same order, which a second customer can't see; cancelling gives the stock back, the customer is emailed at once that the order is cancelled, and cancelling again answers `409 This order can no longer be cancelled.`; and the order shows its customer that it isn't packed, shipped or delivered yet. Orders are never deleted, so each such run leaves one cancelled order behind;
 - paying: with a pack in stock, starting to pay for that order answers in rupees only, with a Razorpay test key and the same Razorpay order every time; only its owner can pay for it; a wrong or missing confirmation is refused; the order shows its payment without Razorpay's IDs; and once cancelled it can no longer be paid. This calls Razorpay's test mode, so the smoke test needs the internet, and each run leaves a test order in the Razorpay dashboard;
 - Razorpay's webhooks: one without a signature, with a wrong one, or re-spaced after signing is refused, and one signed with `RAZORPAY_WEBHOOK_SECRET` from `.env` is taken;
-- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, cannot list, create, change or delete categories, products, pack sizes or images, cannot see or change stock, and cannot see orders or refunds as staff, or pack, ship, deliver or cancel an order there. Without a token, those order and refund routes answer `401` too;
+- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, cannot list, create, change or delete categories, products, pack sizes or images, nor reorder categories and products or search products, cannot see or change stock, and cannot see orders or refunds as staff, or pack, ship, deliver or cancel an order there. Without a token, those order and refund routes answer `401` too;
 - that a made-up invitation link is refused;
 - the admin console's session cookie: from the console's address, staff renewal and sign-out use only the cookie and ignore a token in the body, both tell the browser to forget a missing cookie, and a failed staff sign-in sets none.
 
@@ -204,7 +204,7 @@ Remove-Variable secure, code, body, login
 
 ## Open the admin console
 
-The admin console is a web app for staff (ADR 0031). Its pages come in the next parts; today staff sign in and see the menu for their role.
+The admin console is a web app for staff (ADR 0031). Since part 12B its Catalog area has the categories and products (ADR 0032): see "Manage the catalog in the console" below. Its other areas come in the next parts.
 
 1. Start the API (`pnpm api:dev`), then, in a second terminal:
    ```powershell
@@ -218,6 +218,28 @@ The admin console is a web app for staff (ADR 0031). Its pages come in the next 
 - **Signing out in one tab signs out the others.**
 - **Admins don't see Admins or the audit log.** The areas marked "Soon" arrive in the next parts.
 - **The dev server runs without the page's security policy,** because live reload needs inline scripts. To see the console as it will be served, with its policy and headers, stop `admin:dev` and run `pnpm admin:build` then `pnpm admin:preview`. The browser's console (F12) should show no `Refused to …` messages.
+
+### Manage the catalog in the console
+
+Open **Catalog** in the menu. It has two tabs (ADR 0032).
+
+- **Categories,** in the order customers see them:
+  - the switch on each row shows or hides a category at once;
+  - "New category" and Edit open a form, and a new category goes last;
+  - only Super Users see Delete. A category that still has products can't be deleted: the dialog says so, and offers hiding it instead.
+- **Products:**
+  - type in "Search by name" and pause, or press Enter. A typo or the start of a word still finds a product;
+  - choose a category and a status (live or drafts). The filters stay in the page's address, so "Products" on a product's page brings the list back as you left it;
+  - a draft says how many details it still needs before it can go live;
+  - click a product to open its page, or "New product". With a category chosen, a new product starts in it.
+- **Changing the order:** drag a row by its handle (the dots on the left), or focus the handle with Tab and press Up, Down, Home or End. "Order saved" shows when it is saved. Products can be ordered within one category: choose it, keep "Live and drafts", leave the search empty, and "Show more" until all of them are there.
+- **A product's page:**
+  - Basics, Label details, Tax and In the shop, saved together with "Save changes" at the bottom of the window;
+  - mistakes are marked at their fields before anything is sent, and the focus goes to the first one;
+  - leaving with unsaved changes asks first;
+  - a new product is always a draft, and goes last in its category;
+  - going live needs every label and tax detail and an image. Images come to the console in part 12C: until then, add them as in "Manage product images", then turn on "Customers see it" and save;
+  - only Super Users see "Delete product". A product that still has stock can't be deleted: write the stock off first.
 
 ## Invite an Admin
 
@@ -330,7 +352,7 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
 
 ## Manage categories
 
-Admins and Super Users create, change, activate and deactivate product categories. Only a Super User deletes one (ADR 0020). Customers see the active ones at `GET /v1/categories`, without signing in.
+Admins and Super Users create, change, activate and deactivate product categories. Only a Super User deletes one (ADR 0020). Customers see the active ones at `GET /v1/categories`, without signing in. The admin console is the everyday way (see "Manage the catalog in the console"); this is the same by hand.
 
 1. **Sign in as staff** (an Admin or a Super User), as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`: `$login` is needed here. Check that `$login.accessToken` is not empty before going on.
 2. **List every category,** hidden ones too:
@@ -372,12 +394,13 @@ Admins and Super Users create, change, activate and deactivate product categorie
 - **Keep `charset=utf-8` in the content type.** Without it, Windows PowerShell 5.1 sends letters outside English wrongly: `é` arrives broken, and Devanagari as `??`.
 - A name without Latin letters or digits, in Devanagari for example, needs its own slug: add `"slug":"ayurveda"` to the body.
 - A change that sets the values a category already has changes nothing, and writes no audit entry.
+- **To change the order of all the categories at once,** send every category's ID, first to last: `Invoke-RestMethod -Method Put -Uri http://localhost:3000/v1/staff/categories/order -Headers $auth -ContentType 'application/json; charset=utf-8' -Body (@{ ids = @($categories.id) } | ConvertTo-Json)` keeps the order as it is. A list that misses a category answers `409` (ADR 0032).
 - Every change is in the audit log: `category.created`, `category.updated` (with only what changed) and `category.deleted` (with what was deleted). See "Read the audit log", with `?targetId=$id`. Its `target` column stays empty for categories, because it names accounts only.
 - The staff access token lasts 15 minutes. After that, sign in again (step 1).
 
 ## Manage products
 
-Admins and Super Users create, change, activate and deactivate products. Only a Super User deletes one (ADR 0021). A product always starts as a draft. It goes live only with its type, licence number, maker's name and address, its ingredients, its HSN code and GST rate (ADR 0022), and at least one image (ADR 0023). Customers see it only while its category is active too. Its prices are on its pack sizes, and its photos are its images: see "Manage pack sizes and prices" and "Manage product images".
+Admins and Super Users create, change, activate and deactivate products. Only a Super User deletes one (ADR 0021). A product always starts as a draft. It goes live only with its type, licence number, maker's name and address, its ingredients, its HSN code and GST rate (ADR 0022), and at least one image (ADR 0023). Customers see it only while its category is active too. Its prices are on its pack sizes, and its photos are its images: see "Manage pack sizes and prices" and "Manage product images". The admin console is the everyday way (see "Manage the catalog in the console"); this is the same by hand.
 
 1. **Sign in as staff**, as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`, and check that `$login.accessToken` is not empty. Then:
    ```powershell
@@ -393,6 +416,8 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
    ```
    - For the next page, add `&after=<the nextAfter value>`.
    - Add `&categoryId=<a category's ID>` for one category, or `&isActive=false` for the drafts only.
+   - Add `&q=ashwa` to search by name: the closest names first, all on one page (ADR 0032).
+   - One product, a draft too: `Invoke-RestMethod -Uri "$api/staff/products/<its ID>" -Headers $auth | Format-List`.
 3. **Create a draft, or pick one by its slug.** The draft needs only a category (its ID, from "Manage categories") and a name:
    ```powershell
    # Either create one:
@@ -898,6 +923,7 @@ Each email is saved with the change it tells of, and sent within a second of it.
 │   │   └── src/
 │   │       ├── api/            the one API client: the access token in memory, renewal one at a time, answers checked
 │   │       ├── auth/           signing in, the session and its tabs, the role guards, the idle sign-out
+│   │       ├── catalog/        the catalog pages: categories, products, and ordering by drag and drop (ADR 0032)
 │   │       ├── components/, layout/, pages/   the screens, the menu and the pages
 │   │       ├── security-headers.ts   the page's Content Security Policy and security headers
 │   │       ├── motion.ts       the console's motion: durations and movements
@@ -965,6 +991,9 @@ Each email is saved with the change it tells of, and sent within a second of it.
 - **TypeScript says a Prisma model or field does not exist, although the migration ran:** the client is out of date. Run `pnpm exec prisma generate` in `apps/api`.
 - **The admin console says "The server can't be reached":** start the API (`pnpm api:dev`) and click "Try again". If the API is running, check that the console is open at exactly `ADMIN_ORIGIN` (by default http://localhost:5173): from any other address the API ignores the session cookie.
 - **`pnpm admin:dev` or `admin:preview` says port 5173 is in use:** the other one, or an earlier copy, is still running. Stop it first: the console must stay on 5173, its `ADMIN_ORIGIN`.
+- **No drag handles on the products list:** the order is changed within one category. Choose a category, set the status to "Live and drafts", empty the search, and click "Show more" until it disappears.
+- **"The categories (or products) changed while you were ordering them":** someone added, moved or deleted one meanwhile, perhaps in another tab. The list has been read again: drag once more.
+- **A product can't go live from the console ("Add an image first"):** it has no image yet. Images come to the console in part 12C; until then, add one as in "Manage product images".
 - **The admin console signed you out unexpectedly:** after 30 minutes without activity it does so on purpose, and says so. Otherwise the session's 12 hours ran out, or you signed out in another tab.
 - **The API refuses to start: `MFA_ENCRYPTION_KEY: ...`:** add your own value to `.env` (see First-time setup, step 1). It must differ from `JWT_ACCESS_SECRET`.
 - **The API refuses to start: `RAZORPAY_KEY_ID: ...`, `RAZORPAY_KEY_SECRET: ...` or `RAZORPAY_WEBHOOK_SECRET: ...`:** put your Razorpay test keys and your own webhook secret into `.env` (see First-time setup, step 1). The webhook secret must differ from `JWT_ACCESS_SECRET` and `MFA_ENCRYPTION_KEY`.

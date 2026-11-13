@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 12A: the foundation)
 - Date: 2026-11-12
+- Updated: 2026-11-13 (part 12B: the catalog pages, see ADR 0032)
 
 ## Context
 

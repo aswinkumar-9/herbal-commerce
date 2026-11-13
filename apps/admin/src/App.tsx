@@ -1,5 +1,16 @@
-import { Route, Routes } from 'react-router';
+import {
+  Navigate,
+  Outlet,
+  Route,
+  createRoutesFromElements,
+} from 'react-router';
+import { SessionProvider } from './auth/SessionProvider';
 import { RequireRole, RequireSession } from './auth/guards';
+import { CatalogLayout } from './catalog/CatalogLayout';
+import { CategoriesPage } from './catalog/categories/CategoriesPage';
+import { ProductPage } from './catalog/products/ProductPage';
+import { ProductsPage } from './catalog/products/ProductsPage';
+import { CrashScreen, ErrorBoundary } from './components/ErrorBoundary';
 import { AppShell } from './layout/AppShell';
 import { NAV_ITEMS } from './layout/nav-items';
 import type { NavItem } from './layout/nav-items';
@@ -23,20 +34,39 @@ function comingSoon(item: NavItem) {
   );
 }
 
-export function App() {
+// Around every page: a calm screen if one breaks, and the staff session.
+function Root() {
   return (
-    <Routes>
-      <Route path="/sign-in" element={<SignInPage />} />
-      <Route element={<RequireSession />}>
-        <Route element={<AppShell />}>
-          <Route index element={<OverviewPage />} />
-          {forEveryone.map(comingSoon)}
-          <Route element={<RequireRole only="SUPER_USER" />}>
-            {forSuperUsers.map(comingSoon)}
-          </Route>
-          <Route path="*" element={<NotFoundPage />} />
-        </Route>
-      </Route>
-    </Routes>
+    <ErrorBoundary>
+      <SessionProvider>
+        <Outlet />
+      </SessionProvider>
+    </ErrorBoundary>
   );
 }
+
+// The console's pages, for createBrowserRouter (main.tsx) and the tests'
+// createMemoryRouter. A data router, so a page with unsaved changes can ask
+// before staff leave it (useBlocker).
+export const routes = createRoutesFromElements(
+  <Route element={<Root />} errorElement={<CrashScreen />}>
+    <Route path="/sign-in" element={<SignInPage />} />
+    <Route element={<RequireSession />}>
+      <Route element={<AppShell />}>
+        <Route index element={<OverviewPage />} />
+        <Route path="catalog" element={<CatalogLayout />}>
+          <Route index element={<Navigate to="categories" replace />} />
+          <Route path="categories" element={<CategoriesPage />} />
+          <Route path="products" element={<ProductsPage />} />
+        </Route>
+        <Route path="catalog/products/new" element={<ProductPage />} />
+        <Route path="catalog/products/:id" element={<ProductPage />} />
+        {forEveryone.map(comingSoon)}
+        <Route element={<RequireRole only="SUPER_USER" />}>
+          {forSuperUsers.map(comingSoon)}
+        </Route>
+        <Route path="*" element={<NotFoundPage />} />
+      </Route>
+    </Route>
+  </Route>,
+);

@@ -22,6 +22,7 @@ import type { ProductIssue } from './product-rules';
 import type {
   ProductInput,
   ProductListQuery,
+  ProductOrderInput,
   ProductUpdateInput,
   ShopProductListQuery,
 } from './products.schemas';
@@ -33,6 +34,8 @@ export const PRODUCT_SLUG_TAKEN =
   'Another product already has this slug. Choose a different one.';
 export const PRODUCT_HAS_STOCK =
   'This product still has stock. Write it off first, then delete it.';
+export const PRODUCTS_CHANGED =
+  'The products in this category changed while you were ordering them. Reload and try again.';
 const NO_SUCH_CATEGORY: ProductIssue = {
   field: 'categoryId',
   message: 'No category with this ID',
@@ -184,6 +187,9 @@ export class ProductsService {
   // Every product, drafts too, one page at a time. The filters are optional
   // and combine.
   async list(query: ProductListQuery): Promise<ProductPage> {
+    if (query.q) {
+      return this.search(query.q, query);
+    }
     const rows = await this.prisma.product.findMany({
       // A filter left out is undefined, and Prisma ignores it.
       where: { categoryId: query.categoryId, isActive: query.isActive },
@@ -200,6 +206,18 @@ export class ProductsService {
       nextAfter:
         rows.length > query.limit ? products[products.length - 1].id : null,
     };
+  }
+
+  // One product, drafts too, for its page in the admin console (ADR 0032).
+  async findForStaff(id: string): Promise<Product> {
+    const product = await this.prisma.product.findUnique({
+      where: { id },
+      select: PRODUCT_FIELDS,
+    });
+    if (!product) {
+      throw new NotFoundException(PRODUCT_NOT_FOUND);
+    }
+    return product;
   }
 
   async create(input: ProductInput, context: AuditContext): Promise<Product> {
@@ -396,6 +414,101 @@ export class ProductsService {
         };
       }),
     };
+  }
+
+  // Puts a category's products in a new order, from the whole list first to
+  // last, as staff dragged them (ADR 0032). Each one's position becomes its
+  // place in the list. All of it is saved in one transaction, with an audit
+  // entry for each product that moved.
+  async reorder(
+    { categoryId, ids }: ProductOrderInput,
+    context: AuditContext,
+  ): Promise<{ products: Product[] }> {
+    const moved = await this.prisma.$transaction(async (tx) => {
+      // The category must exist, and stay while its products are ordered.
+      const category = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM categories WHERE id = ${categoryId}::uuid FOR KEY SHARE`;
+      if (category.length === 0) {
+        throw validationFailed([NO_SUCH_CATEGORY]);
+      }
+      // Its products, locked in the order of their IDs, as everywhere.
+      const current = await tx.$queryRaw<{ id: string; position: number }[]>`
+        SELECT id, position FROM products
+         WHERE "categoryId" = ${categoryId}::uuid
+         ORDER BY id FOR NO KEY UPDATE`;
+      const was = new Map(current.map((row) => [row.id, row.position]));
+      // The list must be every product of the category, drafts too: one
+      // added, moved or deleted since staff loaded the page would otherwise
+      // be left out of the order.
+      if (current.length !== ids.length || ids.some((id) => !was.has(id))) {
+        throw new ConflictException(PRODUCTS_CHANGED);
+      }
+      let count = 0;
+      for (const [position, id] of ids.entries()) {
+        const before = was.get(id);
+        if (before === position) {
+          continue;
+        }
+        await tx.product.update({
+          where: { id },
+          data: { position },
+          select: { id: true },
+        });
+        await this.audit.record(tx, {
+          ...context,
+          action: 'product.updated',
+          targetType: 'product',
+          targetId: id,
+          before: { position: before },
+          after: { position },
+        });
+        count += 1;
+      }
+      return count;
+    });
+    if (moved > 0) {
+      this.logger.info(
+        { categoryId, moved, actorId: context.actorId },
+        'Products reordered',
+      );
+    }
+    const products = await this.prisma.product.findMany({
+      where: { categoryId },
+      orderBy: PRODUCT_ORDER,
+      select: PRODUCT_FIELDS,
+    });
+    return { products };
+  }
+
+  // Staff search by name, drafts too, with the shop's trigram matching
+  // (ADR 0030): the best matches first, on one page. The words, the
+  // category and the status are bound parameters, never part of the SQL.
+  private async search(
+    words: string,
+    { categoryId, isActive, limit }: ProductListQuery,
+  ): Promise<ProductPage> {
+    const matches = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT p."id"
+        FROM "products" p
+       WHERE ${words} <% p."name"
+         AND (${categoryId ?? null}::uuid IS NULL
+              OR p."categoryId" = ${categoryId ?? null}::uuid)
+         AND (${isActive ?? null}::boolean IS NULL
+              OR p."isActive" = ${isActive ?? null}::boolean)
+       ORDER BY word_similarity(${words}, p."name") DESC, p."name", p."id"
+       LIMIT ${limit}`;
+    const ids = matches.map((match) => match.id);
+    const rows = await this.prisma.product.findMany({
+      where: { id: { in: ids } },
+      select: PRODUCT_FIELDS,
+    });
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    // In the order of the matches. A product deleted in between is left out.
+    const products = ids.flatMap((id) => {
+      const product = byId.get(id);
+      return product ? [product] : [];
+    });
+    return { products, nextAfter: null };
   }
 
   // Locks the product until the transaction ends, then reads it, or answers

@@ -48,3 +48,17 @@ export const categoryUpdateSchema = z
     'Nothing to change',
   );
 export type CategoryUpdateInput = z.infer<typeof categoryUpdateSchema>;
+
+// A new order for the categories customers see: every category, hidden ones
+// too, each once, first to last (ADR 0032).
+export const categoryOrderSchema = z.object({
+  ids: z
+    .array(z.uuid('Each category by its ID'))
+    .min(1, 'List the categories')
+    .max(500, 'At most 500 categories')
+    .refine(
+      (ids) => new Set(ids).size === ids.length,
+      'List each category once',
+    ),
+});
+export type CategoryOrderInput = z.infer<typeof categoryOrderSchema>;

@@ -1,5 +1,6 @@
 import {
   productListQuerySchema,
+  productOrderSchema,
   productSchema,
   productUpdateSchema,
   shopProductListQuerySchema,
@@ -259,5 +260,72 @@ describe('shopProductListQuerySchema', () => {
         false,
       ]);
     }
+  });
+});
+
+describe('productListQuerySchema with search words', () => {
+  it('takes search words by the shop search rule, with the filters', () => {
+    expect(
+      productListQuerySchema.parse({
+        q: '  Ashwa   caps ',
+        categoryId: CATEGORY,
+        isActive: 'false',
+      }),
+    ).toEqual({ limit: 50, q: 'Ashwa caps', categoryId: CATEGORY, isActive: false });
+    // Empty words mean none.
+    expect(productListQuerySchema.parse({ q: '   ' }).q).toBeUndefined();
+  });
+
+  it('refuses one letter, more than 100, and a page to continue after', () => {
+    const refused = (query: object) => {
+      const result = productListQuerySchema.safeParse(query);
+      return result.success
+        ? []
+        : result.error.issues.map((issue) => [issue.path.join('.'), issue.message]);
+    };
+    expect(refused({ q: 'a' })).toEqual([['q', 'Search with at least 2 characters']]);
+    expect(refused({ q: 'a'.repeat(101) })).toEqual([
+      ['q', 'Search with at most 100 characters'],
+    ]);
+    expect(refused({ q: 'tulsi', after: CATEGORY })).toEqual([
+      ['after', 'A search shows its best matches on one page: leave out after'],
+    ]);
+  });
+});
+
+describe('productOrderSchema', () => {
+  const A = '3f2b8c1d-5e6a-4b7c-8d9e-0f1a2b3c4d5e';
+  const B = '4a3c9d2e-6f7b-4c8d-9e0f-1a2b3c4d5e6f';
+  const refused = (input: object) => {
+    const result = productOrderSchema.safeParse(input);
+    return result.success
+      ? []
+      : result.error.issues.map((issue) => [issue.path.join('.'), issue.message]);
+  };
+
+  it('takes the category and its products, first to last', () => {
+    expect(productOrderSchema.parse({ categoryId: CATEGORY, ids: [B, A] })).toEqual({
+      categoryId: CATEGORY,
+      ids: [B, A],
+    });
+  });
+
+  it('refuses an empty list, a product twice, a bad ID and a missing category', () => {
+    expect(refused({ categoryId: CATEGORY, ids: [] })).toEqual([['ids', 'List the products']]);
+    expect(refused({ categoryId: CATEGORY, ids: [A, A] })).toEqual([
+      ['ids', 'List each product once'],
+    ]);
+    expect(refused({ categoryId: CATEGORY, ids: ['1'] })).toEqual([
+      ['ids.0', 'Each product by its ID'],
+    ]);
+    expect(refused({ ids: [A] })).toEqual([['categoryId', 'Choose a category by its ID']]);
+  });
+
+  it('refuses more than 1000 products', () => {
+    const ids = Array.from(
+      { length: 1001 },
+      (_, n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    );
+    expect(refused({ categoryId: CATEGORY, ids })).toEqual([['ids', 'At most 1000 products']]);
   });
 });

@@ -31,7 +31,6 @@ export const NAV_ITEMS: NavItem[] = [
     to: '/catalog',
     label: 'Catalog',
     icon: Package,
-    arrives: 'Part 12B',
     summary: 'Categories, products, pack sizes and images.',
   },
   {

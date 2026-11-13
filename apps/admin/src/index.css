@@ -18,7 +18,9 @@
   --on-primary: #ffffff;
   --accent: #b7832f;
   --danger: #b42318;
+  --danger-strong: #912018;
   --danger-soft: #fdecea;
+  --on-danger: #ffffff;
   --focus: #3f8f5c;
 }
 
@@ -36,7 +38,9 @@
     --on-primary: #0d1a12;
     --accent: #d9a656;
     --danger: #f08c80;
+    --danger-strong: #f5a89f;
     --danger-soft: #3a1d1a;
+    --on-danger: #2a0d0a;
     --focus: #86c99d;
   }
 }
@@ -54,7 +58,9 @@
   --color-on-primary: var(--on-primary);
   --color-accent: var(--accent);
   --color-danger: var(--danger);
+  --color-danger-strong: var(--danger-strong);
   --color-danger-soft: var(--danger-soft);
+  --color-on-danger: var(--on-danger);
   --color-focus: var(--focus);
   --radius-card: 0.875rem;
   --shadow-soft:
@@ -73,6 +79,21 @@ body {
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+}
+
+/* A dialog's backdrop fades in, and the page under it stays still. */
+dialog::backdrop {
+  animation: backdrop-in 150ms ease-out;
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}
+
+html:has(dialog[open]) {
+  overflow: hidden;
 }
 
 /* "Reduce motion" turns CSS motion off too; Motion's own animations follow

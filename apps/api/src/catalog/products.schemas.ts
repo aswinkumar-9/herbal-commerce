@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ProductType } from '../generated/prisma/enums';
+import { searchWords } from './product-search.schemas';
 import { GST_RATES, HSN_CODE, productIssues } from './product-rules';
 import { slugSchema as slug, slugify } from './slug';
 
@@ -139,16 +140,39 @@ export type ProductUpdateInput = z.infer<typeof productUpdateSchema>;
 
 // What staff may ask of the product list. Query values arrive as text, so
 // the number and the yes or no are converted. Unknown parameters are dropped.
-export const productListQuerySchema = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(50),
-  after: z.uuid().optional(),
-  categoryId: z.uuid().optional(),
-  isActive: z
-    .enum(['true', 'false'], 'Use true or false')
-    .transform((value) => value === 'true')
-    .optional(),
-});
+// With search words (q), the list is the best matches by name, on one page
+// (ADR 0032).
+export const productListQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    after: z.uuid().optional(),
+    categoryId: z.uuid().optional(),
+    isActive: z
+      .enum(['true', 'false'], 'Use true or false')
+      .transform((value) => value === 'true')
+      .optional(),
+    q: searchWords.optional(),
+  })
+  .refine((query) => !(query.q && query.after), {
+    path: ['after'],
+    message: 'A search shows its best matches on one page: leave out after',
+  });
 export type ProductListQuery = z.infer<typeof productListQuerySchema>;
+
+// A new order for a category's products: every one of its products, drafts
+// too, each once, first to last (ADR 0032).
+export const productOrderSchema = z.object({
+  categoryId,
+  ids: z
+    .array(z.uuid('Each product by its ID'))
+    .min(1, 'List the products')
+    .max(1000, 'At most 1000 products')
+    .refine(
+      (ids) => new Set(ids).size === ids.length,
+      'List each product once',
+    ),
+});
+export type ProductOrderInput = z.infer<typeof productOrderSchema>;
 
 // What customers may ask of a category's products: a page size, and where
 // to continue, by the slug of the last product shown.

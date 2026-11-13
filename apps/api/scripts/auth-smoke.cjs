@@ -680,6 +680,7 @@ async function main() {
     ['POST', '/v1/staff/categories', { name: 'Smoke Category' }],
     ['PATCH', `/v1/staff/categories/${anyId}`, { isActive: true }],
     ['DELETE', `/v1/staff/categories/${anyId}`],
+    ['PUT', '/v1/staff/categories/order', { ids: [anyId] }],
   ];
   const categoryAnswers = [];
   for (const [method, path, json] of categoryRoutes) {
@@ -687,7 +688,7 @@ async function main() {
     categoryAnswers.push(answer.status);
   }
   check(
-    'a customer access token cannot list, create, change or delete categories',
+    'a customer access token cannot list, create, change, reorder or delete categories',
     categoryAnswers.every((status) => status === 401),
   );
   // Products (part 4B). The shop is public: a category's page and a product's
@@ -981,6 +982,9 @@ async function main() {
   );
   const productRoutes = [
     ['GET', '/v1/staff/products'],
+    ['GET', '/v1/staff/products?q=ashwa'],
+    ['GET', `/v1/staff/products/${anyId}`],
+    ['PUT', '/v1/staff/products/order', { categoryId: anyId, ids: [anyId] }],
     ['POST', '/v1/staff/products', { categoryId: anyId, name: 'Smoke Product' }],
     ['PATCH', `/v1/staff/products/${anyId}`, { name: 'Smoke Product' }],
     ['DELETE', `/v1/staff/products/${anyId}`],
@@ -991,7 +995,7 @@ async function main() {
     productAnswers.push(answer.status);
   }
   check(
-    'a customer access token cannot list, create, change or delete products',
+    'a customer access token cannot list, search, read, create, change, reorder or delete products',
     productAnswers.every((status) => status === 401),
   );
 

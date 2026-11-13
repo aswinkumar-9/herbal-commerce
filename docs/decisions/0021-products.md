@@ -6,6 +6,7 @@
 - Updated: 2026-11-06 (part 4D: going live also needs an image, a deleted product takes its images along, and the shop shows them, see ADR 0023)
 - Updated: 2026-11-06 (part 5: a product that still holds stock cannot be deleted, and its page says which packs are in stock, see ADR 0024)
 - Updated: 2026-11-11 (part 11: the shop can be searched by words in a product's name, summary and description, and filtered by category, type and price, see ADR 0030)
+- Updated: 2026-11-13 (part 12B: staff read one product, search the list by name, and put a category's products in a new order in one request, see ADR 0032)
 
 ## Context
 
