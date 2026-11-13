@@ -10,7 +10,8 @@ const altText = z
   .nullable()
   .transform((value) => value || null);
 // The order on the product's page. The first image is the main photo.
-const position = z.number().int().min(0).max(9999);
+export const MAX_IMAGE_POSITION = 9999;
+const position = z.number().int().min(0).max(MAX_IMAGE_POSITION);
 
 // A change to an image: its description or its place. The image itself
 // never changes; a new photo is a new upload (ADR 0023).

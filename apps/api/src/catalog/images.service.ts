@@ -15,6 +15,7 @@ import { changedFields, pick } from './changes';
 import { IMAGE_ORDER, imageFileNames, removeImageFiles } from './image-files';
 import { processImage } from './image-processing';
 import type { ImageType } from './image-processing';
+import { MAX_IMAGE_POSITION } from './images.schemas';
 import type { ImageOrderInput, ImageUpdateInput } from './images.schemas';
 import { PRODUCT_NOT_FOUND } from './products.service';
 
@@ -109,8 +110,12 @@ export class ImagesService {
       await this.media.save(names.small, processed.small);
       const image = await this.prisma.$transaction(async (tx) => {
         await this.lockProduct(tx, productId);
-        const count = await tx.productImage.count({ where: { productId } });
-        if (count >= MAX_IMAGES_PER_PRODUCT) {
+        const images = await tx.productImage.aggregate({
+          where: { productId },
+          _count: { _all: true },
+          _max: { position: true },
+        });
+        if (images._count._all >= MAX_IMAGES_PER_PRODUCT) {
           throw new ConflictException(TOO_MANY_IMAGES);
         }
         const created = await tx.productImage.create({
@@ -119,6 +124,12 @@ export class ImagesService {
             fileKey,
             width: processed.width,
             height: processed.height,
+            // After the last one. Once staff have ordered the images, each
+            // has its own place (ADR 0033), so 0 would put it second.
+            position: Math.min(
+              MAX_IMAGE_POSITION,
+              (images._max.position ?? -1) + 1,
+            ),
           },
           select: IMAGE_FIELDS,
         });

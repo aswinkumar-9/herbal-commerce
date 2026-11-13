@@ -55,11 +55,17 @@ function shown(changes: object = {}) {
   };
 }
 
+// What counting a product's images answers: how many, and the last place.
+function images(count: number, lastPosition: number | null) {
+  return { _count: { _all: count }, _max: { position: lastPosition } };
+}
+
 function setup() {
   const tx = {
     $queryRaw: jest.fn().mockResolvedValue([{ id: PRODUCT }]),
     productImage: {
       count: jest.fn().mockResolvedValue(0),
+      aggregate: jest.fn().mockResolvedValue(images(0, null)),
       create: jest.fn((args: { data: object }) =>
         Promise.resolve(stored(args.data)),
       ),
@@ -163,7 +169,13 @@ describe('ImagesService.create', () => {
       expect(detectImageType(file)).toBe('image/webp');
     }
     expect(tx.productImage.create).toHaveBeenCalledWith({
-      data: { productId: PRODUCT, fileKey: key, width: 800, height: 600 },
+      data: {
+        productId: PRODUCT,
+        fileKey: key,
+        width: 800,
+        height: 600,
+        position: 0,
+      },
       select: expect.any(Object),
     });
     expect(audit.record).toHaveBeenCalledWith(tx, {
@@ -227,20 +239,47 @@ describe('ImagesService.create', () => {
     const [sql, id] = tx.$queryRaw.mock.calls[0] as [string[], string];
     expect(sql.join('?')).toMatch(/FROM products WHERE id = \?::uuid FOR UPDATE/);
     expect(id).toBe(PRODUCT);
-    expect(tx.productImage.count).toHaveBeenCalledWith({
+    expect(tx.productImage.aggregate).toHaveBeenCalledWith({
       where: { productId: PRODUCT },
+      _count: { _all: true },
+      _max: { position: true },
     });
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
-      tx.productImage.count.mock.invocationCallOrder[0],
+      tx.productImage.aggregate.mock.invocationCallOrder[0],
     );
-    expect(tx.productImage.count.mock.invocationCallOrder[0]).toBeLessThan(
-      tx.productImage.create.mock.invocationCallOrder[0],
-    );
+    expect(
+      tx.productImage.aggregate.mock.invocationCallOrder[0],
+    ).toBeLessThan(tx.productImage.create.mock.invocationCallOrder[0]);
+  });
+
+  it('puts a new image after the last one, also once staff have ordered them', async () => {
+    const { service, tx } = setup();
+    const position = () => {
+      const [args] = tx.productImage.create.mock.lastCall as [
+        { data: { position: number } },
+      ];
+      return args.data.position;
+    };
+
+    // Ordered: in places 0, 1 and 2.
+    tx.productImage.aggregate.mockResolvedValue(images(3, 2));
+    await service.create(PRODUCT, photo, 'image/jpeg', context);
+    expect(position()).toBe(3);
+
+    // Never ordered: all in place 0, oldest first, so 1 is still last.
+    tx.productImage.aggregate.mockResolvedValue(images(2, 0));
+    await service.create(PRODUCT, photo, 'image/jpeg', context);
+    expect(position()).toBe(1);
+
+    // No place after the last one: the same, and the newest goes last.
+    tx.productImage.aggregate.mockResolvedValue(images(1, 9999));
+    await service.create(PRODUCT, photo, 'image/jpeg', context);
+    expect(position()).toBe(9999);
   });
 
   it('takes a sixth image, refuses a seventh with 409, and deletes its files', async () => {
     const { service, tx, audit, files, media } = setup();
-    tx.productImage.count.mockResolvedValue(5);
+    tx.productImage.aggregate.mockResolvedValue(images(5, 4));
     await service.create(PRODUCT, photo, 'image/jpeg', context);
     expect(files.size).toBe(2);
 
@@ -248,7 +287,7 @@ describe('ImagesService.create', () => {
     media.save.mockClear();
     tx.productImage.create.mockClear();
     audit.record.mockClear();
-    tx.productImage.count.mockResolvedValue(6);
+    tx.productImage.aggregate.mockResolvedValue(images(6, 5));
 
     await expect(
       service.create(PRODUCT, photo, 'image/jpeg', context),
@@ -287,7 +326,7 @@ describe('ImagesService.create', () => {
 
   it('still answers with the first error when the files cannot be deleted, and logs them', async () => {
     const { service, tx, media, logger } = setup();
-    tx.productImage.count.mockResolvedValue(6);
+    tx.productImage.aggregate.mockResolvedValue(images(6, 5));
     media.remove.mockRejectedValue(new Error('Disk unavailable'));
 
     await expect(
