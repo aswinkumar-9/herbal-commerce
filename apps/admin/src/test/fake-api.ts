@@ -92,10 +92,18 @@ export function fakeApi(routes: Record<string, Answer | Answer[]>) {
     },
   );
   vi.stubGlobal('fetch', fetchMock);
-  vi.stubGlobal('XMLHttpRequest', fakeXhr(respond));
+  const sending = new Set<() => void>();
+  vi.stubGlobal('XMLHttpRequest', fakeXhr(respond, sending));
 
   return {
     sent,
+    // Every upload still waiting for its answer has sent all its file: the
+    // server is checking it.
+    allSent: () => {
+      for (const finish of sending) {
+        finish();
+      }
+    },
     // Requests the test did not expect (the console turns them into
     // "can't reach the server", so they would otherwise go unnoticed).
     unexpected,
@@ -111,9 +119,11 @@ export const offline = () => new Error('offline');
 // The part of XMLHttpRequest the console uses, for one upload at a time.
 // Half the file has gone as soon as it is sent; the rest goes when the
 // answer comes, so a test that holds the answer back sees the upload half
-// way. abort() calls it off at any point.
+// way (allSent sends the rest before the answer). abort() calls it off at
+// any point.
 function fakeXhr(
   respond: (init: RequestInit, path: string) => Promise<Response | Error>,
+  sending: Set<() => void>,
 ) {
   return class FakeXMLHttpRequest {
     readonly upload: {
@@ -166,12 +176,15 @@ function fakeXhr(
             total,
           }),
         );
+      const sendRest = () => progress(total);
       queueMicrotask(() => {
         if (this.done) {
           return;
         }
         progress(Math.floor(total / 2));
+        sending.add(sendRest);
         void respond(init, this.path).then(async (result) => {
+          sending.delete(sendRest);
           if (this.done) {
             return;
           }

@@ -10,7 +10,10 @@ import { Button, buttonClass } from '../../components/Button';
 import { Field, SelectField, TextAreaField } from '../../components/Field';
 import { Switch } from '../../components/Switch';
 import { useToasts } from '../../components/toast-context';
-import { useUnsavedChanges } from '../../components/unsaved-changes';
+import {
+  UnsavedParts,
+  useUnsavedChanges,
+} from '../../components/unsaved-changes';
 import { rise, staggered } from '../../motion';
 import {
   GST_RATES,
@@ -29,6 +32,7 @@ import type {
 import { catalogKeys } from '../catalog-queries';
 import { SLUG_MAX, slugify } from '../slug';
 import { DeleteProductDialog } from './DeleteProductDialog';
+import { ImagesSection } from './ImagesSection';
 import { PackSizesSection } from './PackSizesSection';
 import {
   FIELD_ORDER,
@@ -96,7 +100,7 @@ export function ProductForm({
   const dirty = (Object.keys(initial) as (keyof ProductValues)[]).some(
     (key) => values[key] !== initial[key],
   );
-  const { prompt, allowLeaving } = useUnsavedChanges(dirty);
+  const { prompt, allowLeaving, report } = useUnsavedChanges(dirty);
 
   const save = useMutation({
     mutationKey: SAVING,
@@ -443,7 +447,12 @@ export function ProductForm({
       </motion.form>
 
       {product ? (
-        <PackSizesSection product={product} canDelete={canDelete} />
+        // Each saves on its own; the page asks before staff leave it with
+        // their changes not saved.
+        <UnsavedParts report={report}>
+          <PackSizesSection product={product} canDelete={canDelete} />
+          <ImagesSection product={product} />
+        </UnsavedParts>
       ) : null}
 
       {product && canDelete ? (

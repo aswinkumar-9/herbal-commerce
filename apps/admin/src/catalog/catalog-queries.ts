@@ -11,7 +11,12 @@ import {
   listProducts,
   listVariants,
 } from './catalog-api';
-import type { Category, ProductQuery, Variant } from './catalog-api';
+import type {
+  Category,
+  ProductImage,
+  ProductQuery,
+  Variant,
+} from './catalog-api';
 
 // Where the console keeps each catalog answer. A change invalidates
 // catalogKeys.all, or the part it touched.
@@ -109,5 +114,33 @@ export function dropVariant(
 ): void {
   queryClient.setQueryData<Variant[]>(catalogKeys.variants(productId), (list) =>
     list?.filter((variant) => variant.id !== id),
+  );
+}
+
+// A new image, after the last one in its product's list, as the API puts it.
+export function addImage(queryClient: QueryClient, saved: ProductImage): void {
+  queryClient.setQueryData<ProductImage[]>(
+    catalogKeys.images(saved.productId),
+    (list) => list && [...list.filter((image) => image.id !== saved.id), saved],
+  );
+}
+
+// An image as the server now has it, in place in its product's list.
+export function putImage(queryClient: QueryClient, saved: ProductImage): void {
+  queryClient.setQueryData<ProductImage[]>(
+    catalogKeys.images(saved.productId),
+    (list) => list?.map((image) => (image.id === saved.id ? saved : image)),
+  );
+}
+
+// A deleted image, out of its product's list.
+export function dropImage(
+  queryClient: QueryClient,
+  productId: string,
+  id: string,
+): void {
+  queryClient.setQueryData<ProductImage[]>(
+    catalogKeys.images(productId),
+    (list) => list?.filter((image) => image.id !== id),
   );
 }

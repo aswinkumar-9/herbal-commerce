@@ -134,3 +134,48 @@ export const VARIANTS = (product: { id: string }) =>
   `GET /v1/staff/products/${product.id}/variants`;
 export const variantsOf = (variants: unknown[]) => () =>
   json(200, { variants });
+
+// Images of the live product, as the API lists them: the main photo first.
+// The side view was added first, the back view last.
+const media = 'http://127.0.0.1:3000/media/products';
+
+export const FRONT = {
+  id: '9d0e1f2a-3b4c-4d5e-8f6a-7b8c9d0e1f2a',
+  productId: SHAMPOO.id,
+  width: 1600,
+  height: 1200,
+  altText: 'The bottle, from the front',
+  position: 0,
+  url: `${media}/1b2c3d4e-large.webp`,
+  thumbnailUrl: `${media}/1b2c3d4e-small.webp`,
+  createdAt: '2026-11-02T09:00:00.000Z',
+  updatedAt: '2026-11-02T09:00:00.000Z',
+};
+
+export const SIDE = {
+  ...FRONT,
+  id: '0e1f2a3b-4c5d-4e6f-9a7b-8c9d0e1f2a3b',
+  width: 1200,
+  height: 1600,
+  altText: null,
+  position: 1,
+  url: `${media}/2c3d4e5f-large.webp`,
+  thumbnailUrl: `${media}/2c3d4e5f-small.webp`,
+  createdAt: '2026-11-01T09:00:00.000Z',
+  updatedAt: '2026-11-01T09:00:00.000Z',
+};
+
+export const BACK = {
+  ...FRONT,
+  id: '1f2a3b4c-5d6e-4f7a-8b8c-9d0e1f2a3b4c',
+  altText: null,
+  position: 2,
+  url: `${media}/3d4e5f6a-large.webp`,
+  thumbnailUrl: `${media}/3d4e5f6a-small.webp`,
+  createdAt: '2026-11-03T09:00:00.000Z',
+  updatedAt: '2026-11-03T09:00:00.000Z',
+};
+
+export const IMAGES = (product: { id: string }) =>
+  `GET /v1/staff/products/${product.id}/images`;
+export const imagesOf = (images: unknown[]) => () => json(200, { images });

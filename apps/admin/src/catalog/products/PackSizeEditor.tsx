@@ -12,7 +12,7 @@ import { Dialog, DialogActions } from '../../components/Dialog';
 import { Field, SelectField } from '../../components/Field';
 import { Switch } from '../../components/Switch';
 import { useToasts } from '../../components/toast-context';
-import { useUnsavedChanges } from '../../components/unsaved-changes';
+import { useUnsavedPart } from '../../components/unsaved-changes';
 import {
   PACK_UNITS,
   PACK_UNIT_NAMES,
@@ -108,7 +108,8 @@ function PackSizeForm({
   const dirty = (Object.keys(initial) as (keyof PackValues)[]).some(
     (key) => values[key] !== initial[key],
   );
-  const { prompt } = useUnsavedChanges(dirty);
+  // Leaving the page asks first (the page's guard does it).
+  useUnsavedPart(dirty);
 
   const save = useMutation({
     mutationKey: SAVING,
@@ -302,7 +303,6 @@ function PackSizeForm({
           {variant ? 'Save changes' : 'Add pack size'}
         </Button>
       </DialogActions>
-      {prompt}
     </form>
   );
 }

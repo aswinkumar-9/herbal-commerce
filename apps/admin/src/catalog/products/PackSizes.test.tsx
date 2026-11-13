@@ -10,9 +10,11 @@ import {
   PRODUCT,
   SHAMPOO,
   SKIN,
+  IMAGES,
   VARIANTS,
   categoriesOf,
   fieldsRefused,
+  imagesOf,
   variantsOf,
 } from '../../test/catalog-fixtures';
 import { heldBack, openSignedIn } from '../../test/console';
@@ -37,6 +39,7 @@ async function openPacks(
       [CATEGORIES]: categoriesOf([HAIR, SKIN]),
       [PRODUCT(product)]: () => json(200, product),
       [VARIANTS(product)]: variantsOf(ALL),
+      [IMAGES(product)]: imagesOf([]),
       ...options.answers,
     },
   });
@@ -567,5 +570,41 @@ describe('deleting a pack size (Super Users)', () => {
       { isActive: false },
     );
     expect(api.to('DELETE', `/v1/staff/variants/${ML_100.id}`)).toEqual([]);
+  });
+});
+
+describe('leaving the page', () => {
+  it("asks about the product's own changes while a pack size dialog is open", async () => {
+    const { user, router } = await openPacks();
+    await waitForList();
+    await user.type(screen.getByLabelText('Name'), ' Plus');
+    await user.click(
+      within(section()).getByRole('button', { name: 'Add pack size' }),
+    );
+
+    // The back button: the dialog stops clicks on the page, not that.
+    await act(() => router.navigate('/catalog/products'));
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Leave without saving?' }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(
+      `/catalog/products/${SHAMPOO.id}`,
+    );
+  });
+
+  it('asks with a pack size half typed', async () => {
+    const { user, router } = await openPacks();
+    await waitForList();
+    await user.click(
+      within(section()).getByRole('button', { name: 'Add pack size' }),
+    );
+    await user.type(screen.getByLabelText('Quantity'), '150');
+
+    await act(() => router.navigate('/catalog/products'));
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Leave without saving?' }),
+    ).toBeInTheDocument();
   });
 });
