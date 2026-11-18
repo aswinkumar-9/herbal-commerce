@@ -7,6 +7,8 @@ import type { PackUnit, Variant, VariantFields } from '../catalog-api';
 export const SKU_MAX = 40;
 // Whole rupees, and whole units on the label, up to 10,00,000.
 export const MAX_AMOUNT = 1_000_000;
+// A new pack size is low at 10 packs or fewer, as the API's is (ADR 0034).
+export const LOW_STOCK_DEFAULT = 10;
 const SKU_PATTERN = /^[A-Z0-9]+(?:-[A-Z0-9]+)*$/;
 
 // The API's words when a pack size clashes with another of the shop's
@@ -16,7 +18,7 @@ export const SKU_TAKEN =
 export const SIZE_TAKEN = 'This product already has a pack of this size.';
 
 export type PackField =
-  'quantity' | 'unit' | 'sku' | 'mrpRupees' | 'priceRupees';
+  'quantity' | 'unit' | 'sku' | 'mrpRupees' | 'priceRupees' | 'lowStockAt';
 // Top to bottom, as the dialog shows them.
 export const PACK_FIELDS: readonly PackField[] = [
   'quantity',
@@ -24,6 +26,7 @@ export const PACK_FIELDS: readonly PackField[] = [
   'sku',
   'mrpRupees',
   'priceRupees',
+  'lowStockAt',
 ];
 export type PackErrors = Partial<Record<PackField, string>>;
 
@@ -34,6 +37,7 @@ export interface PackValues {
   sku: string;
   mrpRupees: string;
   priceRupees: string;
+  lowStockAt: string;
   isActive: boolean;
 }
 
@@ -68,6 +72,7 @@ export function startingValues(variant: Variant | null): PackValues {
     sku: variant?.sku ?? '',
     mrpRupees: variant ? String(variant.mrpRupees) : '',
     priceRupees: variant ? String(variant.priceRupees) : '',
+    lowStockAt: String(variant?.lowStockAt ?? LOW_STOCK_DEFAULT),
     isActive: variant?.isActive ?? true,
   };
 }
@@ -143,6 +148,14 @@ export function check(values: PackValues): PackErrors {
   ) {
     errors.priceRupees = 'The price may not be more than the MRP';
   }
+  const lowStockAt = wholeNumber(values.lowStockAt);
+  if (!values.lowStockAt.trim()) {
+    errors.lowStockAt = 'Enter a number of packs, or 0 for never';
+  } else if (lowStockAt === null) {
+    errors.lowStockAt = 'A whole number, like 10';
+  } else if (lowStockAt > MAX_AMOUNT) {
+    errors.lowStockAt = 'Between 0 and 10,00,000';
+  }
   return errors;
 }
 
@@ -154,6 +167,7 @@ export function toFields(values: PackValues): VariantFields {
     unit: values.unit as PackUnit,
     mrpRupees: wholeNumber(values.mrpRupees) ?? 0,
     priceRupees: wholeNumber(values.priceRupees) ?? 0,
+    lowStockAt: wholeNumber(values.lowStockAt) ?? LOW_STOCK_DEFAULT,
     isActive: values.isActive,
   };
 }
@@ -183,4 +197,18 @@ export function priceHint(values: PackValues): string {
   return price === mrp
     ? 'The same as the MRP.'
     : `${rupees(mrp - price)} off the MRP.`;
+}
+
+// When staff see the pack size's stock as low, as they type it.
+export function lowStockHint(values: PackValues): string {
+  const packs = wholeNumber(values.lowStockAt);
+  if (packs === null || packs > MAX_AMOUNT) {
+    return 'The Stock page shows it as low at this many packs or fewer.';
+  }
+  if (packs === 0) {
+    return 'Never shown as low; only as out of stock.';
+  }
+  return `Shown as low at ${packs.toLocaleString('en-IN')} ${
+    packs === 1 ? 'pack' : 'packs'
+  } or fewer that may be sold.`;
 }

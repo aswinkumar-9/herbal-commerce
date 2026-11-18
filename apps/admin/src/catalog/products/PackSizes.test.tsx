@@ -19,6 +19,8 @@ import {
 } from '../../test/catalog-fixtures';
 import { heldBack, openSignedIn } from '../../test/console';
 import { RAVI, json } from '../../test/fake-api';
+import { LINES } from '../../test/stock-fixtures';
+import { stockKeys } from '../../stock/stock-queries';
 
 const ALL = [ML_100, ML_200, ML_500];
 const POST = `POST /v1/staff/products/${SHAMPOO.id}/variants`;
@@ -265,6 +267,7 @@ describe('a new pack size', () => {
       unit: 'ML',
       mrpRupees: 1250,
       priceRupees: 1199,
+      lowStockAt: 10,
       isActive: true,
       position: 3,
     });
@@ -369,6 +372,51 @@ describe('changing a pack size', () => {
     expect(row('100 ml')).toHaveTextContent('₹199 · MRP ₹250');
     expect(rowNames()).toEqual(['100 ml', '200 ml', '500 ml']);
     expect(row('200 ml')).toHaveTextContent('₹450 (the MRP)');
+  });
+
+  it('changes when its stock shows as low, 0 for never, and stock is read again', async () => {
+    const { user, api, queryClient } = await openPacks({
+      answers: {
+        [PATCH(ML_100)]: () => json(200, { ...ML_100, lowStockAt: 0 }),
+      },
+    });
+    await waitForList();
+    queryClient.setQueryData(stockKeys.productLines(SHAMPOO.id), LINES);
+    await user.click(screen.getByRole('button', { name: 'Edit 100 ml' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit 100 ml' });
+    const field = within(dialog).getByLabelText('Low stock at (packs)');
+    expect(field).toHaveValue('10');
+    expect(field).toHaveAccessibleDescription(
+      'Shown as low at 10 packs or fewer that may be sold.',
+    );
+
+    await user.clear(field);
+    await user.type(field, '2.5');
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Save changes' }),
+    );
+    expect(field).toHaveAccessibleDescription(
+      expect.stringContaining('A whole number, like 10'),
+    );
+    expect(field).toHaveFocus();
+    await user.clear(field);
+    await user.type(field, '0');
+    expect(field).toHaveAccessibleDescription(
+      'Never shown as low; only as out of stock.',
+    );
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Save changes' }),
+    );
+
+    expect(await screen.findByText('100 ml saved')).toBeInTheDocument();
+    expect(api.to('PATCH', `/v1/staff/variants/${ML_100.id}`)).toHaveLength(1);
+    expect(api.to('PATCH', `/v1/staff/variants/${ML_100.id}`)[0]?.body).toEqual(
+      { lowStockAt: 0 },
+    );
+    expect(
+      queryClient.getQueryState(stockKeys.productLines(SHAMPOO.id))
+        ?.isInvalidated,
+    ).toBe(true);
   });
 
   it('sends nothing when nothing changed', async () => {
