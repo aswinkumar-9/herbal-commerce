@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 12B)
 - Date: 2026-11-13
+- Updated: 2026-11-18 (part 12C: pack sizes and images on the product's page, and one guard per page for leaving with unsaved changes, see ADR 0033)
 
 ## Context
 

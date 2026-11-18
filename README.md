@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. The admin console has begun (part 12A): staff sign in with the password and the authenticator code, stay signed in through a cookie the page cannot read, see the menu for their role, and are signed out after 30 minutes without activity. Since part 12B, staff run the categories and products there: they find products by name, filter them, drag them into the order customers see, edit each product on its own page with the same checks as the API, and Super Users delete them after a dialog that says what is lost. Pack sizes, images and stock come next. There is no customer app or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. The admin console has begun (part 12A): staff sign in with the password and the authenticator code, stay signed in through a cookie the page cannot read, see the menu for their role, and are signed out after 30 minutes without activity. Since part 12B, staff run the categories and products there: they find products by name, filter them, drag them into the order customers see, edit each product on its own page with the same checks as the API, and Super Users delete them after a dialog that says what is lost. Since part 12C, each product's page has its pack sizes and images too: staff add and change pack sizes in a dialog, put them and the images in order by dragging, and upload several photos at once, each with its progress, so a product now goes live from the console. Stock comes next. There is no customer app or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -96,7 +96,7 @@ It first clears the local rate-limit counters, so it can run again at once. Then
 - orders: the checkout needs a customer token, an empty cart can be neither checked out nor ordered, and an order needs an `Idempotency-Key` and a valid body. With a pack in stock, an order is placed at the checkout's total, holds its stock for 15 minutes and empties the cart; the same key answers the same order, which a second customer can't see; cancelling gives the stock back, the customer is emailed at once that the order is cancelled, and cancelling again answers `409 This order can no longer be cancelled.`; and the order shows its customer that it isn't packed, shipped or delivered yet. Orders are never deleted, so each such run leaves one cancelled order behind;
 - paying: with a pack in stock, starting to pay for that order answers in rupees only, with a Razorpay test key and the same Razorpay order every time; only its owner can pay for it; a wrong or missing confirmation is refused; the order shows its payment without Razorpay's IDs; and once cancelled it can no longer be paid. This calls Razorpay's test mode, so the smoke test needs the internet, and each run leaves a test order in the Razorpay dashboard;
 - Razorpay's webhooks: one without a signature, with a wrong one, or re-spaced after signing is refused, and one signed with `RAZORPAY_WEBHOOK_SECRET` from `.env` is taken;
-- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, cannot list, create, change or delete categories, products, pack sizes or images, nor reorder categories and products or search products, cannot see or change stock, and cannot see orders or refunds as staff, or pack, ship, deliver or cancel an order there. Without a token, those order and refund routes answer `401` too;
+- that a customer's password and tokens never open the staff routes, cannot invite or manage Admins, cannot read the audit log, cannot list, create, change or delete categories, products, pack sizes or images, nor reorder categories, products, pack sizes or images, or search products, cannot see or change stock, and cannot see orders or refunds as staff, or pack, ship, deliver or cancel an order there. Without a token, those order and refund routes answer `401` too;
 - that a made-up invitation link is refused;
 - the admin console's session cookie: from the console's address, staff renewal and sign-out use only the cookie and ignore a token in the body, both tell the browser to forget a missing cookie, and a failed staff sign-in sets none.
 
@@ -204,7 +204,7 @@ Remove-Variable secure, code, body, login
 
 ## Open the admin console
 
-The admin console is a web app for staff (ADR 0031). Since part 12B its Catalog area has the categories and products (ADR 0032): see "Manage the catalog in the console" below. Its other areas come in the next parts.
+The admin console is a web app for staff (ADR 0031). Since part 12B its Catalog area has the categories and products (ADR 0032), and since part 12C each product's pack sizes and images (ADR 0033): see "Manage the catalog in the console" and "Manage pack sizes and images in the console" below. Its other areas come in the next parts.
 
 1. Start the API (`pnpm api:dev`), then, in a second terminal:
    ```powershell
@@ -238,8 +238,27 @@ Open **Catalog** in the menu. It has two tabs (ADR 0032).
   - mistakes are marked at their fields before anything is sent, and the focus goes to the first one;
   - leaving with unsaved changes asks first;
   - a new product is always a draft, and goes last in its category;
-  - going live needs every label and tax detail and an image. Images come to the console in part 12C: until then, add them as in "Manage product images", then turn on "Customers see it" and save;
+  - going live needs every label and tax detail and an image: add one in the Images section below, then turn on "Customers see it" and save;
   - only Super Users see "Delete product". A product that still has stock can't be deleted: write the stock off first.
+
+### Manage pack sizes and images in the console
+
+On a product's page, below "In the shop", are two more sections: **Pack sizes** and **Images** (ADR 0033). Each saves its own changes at once; "Save changes" is only for the product's details. A new product gets them once it is saved.
+
+- **Pack sizes,** in the order customers see them:
+  - "Add pack size" and Edit open a dialog: the quantity and its unit, the SKU, the MRP and the price in whole rupees, and whether it is on sale. Mistakes are marked before anything is sent, such as a price above the MRP. A new pack size goes last;
+  - the switch on each row puts a pack size on or off sale at once;
+  - only Super Users see Delete. The dialog offers "Take it off sale instead", and a pack size that still has stock can't be deleted;
+  - a live product with no pack size on sale shows a warning: customers can't buy it.
+- **Images,** the main photo first, at most 6:
+  - drop photos on the box, or click "Choose images" to pick several at once. JPEG, PNG or WebP, at most 10 MB each, and at least 400 pixels on each side. An iPhone's HEIC photo is refused before it is sent: save it as JPEG, or set the camera to "Most Compatible";
+  - the files go one at a time, in the order chosen, each with its progress. Cancel stops one, and "Try again" sends a failed one again. A file the API refuses says why, and offers only Remove;
+  - "Checking the image…" means the file has arrived and the API is making its two copies: it can't be called off any more;
+  - leaving the page while files are on their way asks first, and leaving stops them;
+  - Describe adds a description for people who can't see the photo. Without one, the shop uses the product's name, and the console calls the image "Image 1", "Image 2" and so on, in the order they were added;
+  - Delete is there for Admins too. A live product's only image can't be deleted: add another first.
+- **Changing the order** of pack sizes or images works as for categories: drag a row by its handle, or focus the handle with Tab and press Up, Down, Home or End. The first image is the main photo, shown on the product's card in the shop.
+- **A photo dropped beside the box is ignored,** with a "no drop" pointer, so it never opens in the tab in place of the console.
 
 ## Invite an Admin
 
@@ -480,7 +499,7 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
 
 ## Manage pack sizes and prices
 
-Each product has its packs, such as 60 capsules or 100 g, each with an MRP and a price (ADR 0022). Prices are **whole rupees**: send `499` for ₹499. The price is never above the MRP. Admins and Super Users add packs, change them and take them off sale. Only a Super User deletes one. Customers see the packs on sale of a live product.
+Each product has its packs, such as 60 capsules or 100 g, each with an MRP and a price (ADR 0022). Prices are **whole rupees**: send `499` for ₹499. The price is never above the MRP. Admins and Super Users add packs, change them and take them off sale. Only a Super User deletes one. Customers see the packs on sale of a live product. The admin console is the everyday way (see "Manage pack sizes and images in the console"); this is the same by hand.
 
 1. **Sign in as staff and set the variables,** as in "Manage products", step 1.
 2. **Pick the product** by its slug, from the list in "Manage products", step 2:
@@ -527,11 +546,12 @@ Each product has its packs, such as 60 capsules or 100 g, each with an MRP and a
 - **The price is checked against the pack as it will be.** Lowering only the MRP below the current price is refused: send both together.
 - A pack off sale disappears from the shop at once, and from the product's lowest price on its category page.
 - A pack on sale shows "in stock" only while it has stock that may be sold (see "Manage stock"). **A pack that still holds stock cannot be deleted** (`409`): write the stock off first.
+- **To change the order of all of a product's packs at once,** send every pack's ID, first to last: `Invoke-RestMethod -Method Put -Uri "$api/staff/products/$productId/variants/order" -Headers $auth -ContentType $json -Body (@{ ids = @((Invoke-RestMethod -Uri "$api/staff/products/$productId/variants" -Headers $auth).variants.id) } | ConvertTo-Json)` keeps the order as it is. A list that misses a pack answers `409` (ADR 0033).
 - Every change is in the audit log: `variant.created`, `variant.updated` (with only what changed, so a price change shows the old and new price) and `variant.deleted`. Read a pack's price history with `?targetId=$variantId` (see "Read the audit log").
 
 ## Manage product images
 
-Each product has up to 6 photos, and a live product at least 1 (ADR 0023). Admins and Super Users upload, describe, move and delete them; unlike other deletions, **Admins delete images too**. An upload is a JPEG, PNG or WebP of at most 10 MB and at least 400 × 400 pixels. The API keeps only a new copy of its pixels: two WebP files, at most 1600 and 400 pixels on their longest side, upright, without the photo's hidden details such as its GPS location.
+Each product has up to 6 photos, and a live product at least 1 (ADR 0023). Admins and Super Users upload, describe, move and delete them; unlike other deletions, **Admins delete images too**. The admin console is the everyday way (see "Manage pack sizes and images in the console"); this is the same by hand. An upload is a JPEG, PNG or WebP of at most 10 MB and at least 400 × 400 pixels. The API keeps only a new copy of its pixels: two WebP files, at most 1600 and 400 pixels on their longest side, upright, without the photo's hidden details such as its GPS location.
 
 On a laptop the files live in `apps/api/storage/media`, which Git ignores, and the API serves them at http://127.0.0.1:3000/media.
 
@@ -553,7 +573,7 @@ On a laptop the files live in `apps/api/storage/media`, which Git ignores, and t
    $image | Format-List id, width, height, altText, position, url, thumbnailUrl
    Start-Process $image.url
    ```
-   The browser shows the large file. The first image (the lowest position, then the oldest) is the main photo, shown on the category page.
+   The browser shows the large file. A new image goes after the others (ADR 0033). The first image (the lowest position, then the oldest) is the main photo, shown on the category page.
 4. **List the product's images:**
    ```powershell
    (Invoke-RestMethod -Uri "$api/staff/products/$id/images" -Headers $auth).images | Format-Table position, altText, width, height, id
@@ -565,6 +585,9 @@ On a laptop the files live in `apps/api/storage/media`, which Git ignores, and t
    Invoke-RestMethod -Method Patch -Uri "$api/staff/images/$($image.id)" -Headers $auth -ContentType $json -Body '{"altText":"The back label, with the ingredients"}'
    # Move it: a lower position comes first.
    Invoke-RestMethod -Method Patch -Uri "$api/staff/images/$($image.id)" -Headers $auth -ContentType $json -Body '{"position":1}'
+   # Or put them all in a new order, first to last: every image's ID, each once. The first becomes the main photo. This one turns the order around.
+   $ids = @((Invoke-RestMethod -Uri "$api/staff/products/$id/images" -Headers $auth).images.id); [array]::Reverse($ids)
+   Invoke-RestMethod -Method Put -Uri "$api/staff/products/$id/images/order" -Headers $auth -ContentType $json -Body (@{ ids = $ids } | ConvertTo-Json)
    # Delete it, with its files. Admins may too. A live product keeps at least one.
    Invoke-RestMethod -Method Delete -Uri "$api/staff/images/$($image.id)" -Headers $auth
    ```
@@ -574,7 +597,7 @@ On a laptop the files live in `apps/api/storage/media`, which Git ignores, and t
    ```
 7. **Sign out and clean up,** as in "Manage pack sizes and prices", step 7, then:
    ```powershell
-   Remove-Variable id, photo, image -ErrorAction SilentlyContinue
+   Remove-Variable id, photo, image, ids -ErrorAction SilentlyContinue
    ```
 
 - **To replace a photo,** upload the new one first, then delete the old one. A live product's last image cannot be deleted, and a 7th image is refused.
@@ -923,7 +946,7 @@ Each email is saved with the change it tells of, and sent within a second of it.
 │   │   └── src/
 │   │       ├── api/            the one API client: the access token in memory, renewal one at a time, answers checked
 │   │       ├── auth/           signing in, the session and its tabs, the role guards, the idle sign-out
-│   │       ├── catalog/        the catalog pages: categories, products, and ordering by drag and drop (ADR 0032)
+│   │       ├── catalog/        the catalog pages: categories, products with their pack sizes and images, and ordering by drag and drop (ADR 0032, ADR 0033)
 │   │       ├── components/, layout/, pages/   the screens, the menu and the pages
 │   │       ├── security-headers.ts   the page's Content Security Policy and security headers
 │   │       ├── motion.ts       the console's motion: durations and movements
@@ -993,7 +1016,9 @@ Each email is saved with the change it tells of, and sent within a second of it.
 - **`pnpm admin:dev` or `admin:preview` says port 5173 is in use:** the other one, or an earlier copy, is still running. Stop it first: the console must stay on 5173, its `ADMIN_ORIGIN`.
 - **No drag handles on the products list:** the order is changed within one category. Choose a category, set the status to "Live and drafts", empty the search, and click "Show more" until it disappears.
 - **"The categories (or products) changed while you were ordering them":** someone added, moved or deleted one meanwhile, perhaps in another tab. The list has been read again: drag once more.
-- **A product can't go live from the console ("Add an image first"):** it has no image yet. Images come to the console in part 12C; until then, add one as in "Manage product images".
+- **A product can't go live from the console ("Add an image first"):** it has no image yet. Add one in the page's Images section, then turn on "Customers see it" and save.
+- **"The product's pack sizes (or images) changed while you were ordering them":** one was added or deleted meanwhile, perhaps in another tab. The list has been read again: drag once more.
+- **An image row says "The server had a problem. Try again in a moment.":** the API may be busy checking other photos (2 at once, and 10 waiting). Click "Try again" after a few seconds. If it fails again, look at the API's log.
 - **The admin console signed you out unexpectedly:** after 30 minutes without activity it does so on purpose, and says so. Otherwise the session's 12 hours ran out, or you signed out in another tab.
 - **The API refuses to start: `MFA_ENCRYPTION_KEY: ...`:** add your own value to `.env` (see First-time setup, step 1). It must differ from `JWT_ACCESS_SECRET`.
 - **The API refuses to start: `RAZORPAY_KEY_ID: ...`, `RAZORPAY_KEY_SECRET: ...` or `RAZORPAY_WEBHOOK_SECRET: ...`:** put your Razorpay test keys and your own webhook secret into `.env` (see First-time setup, step 1). The webhook secret must differ from `JWT_ACCESS_SECRET` and `MFA_ENCRYPTION_KEY`.

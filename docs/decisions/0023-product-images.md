@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 4D)
 - Date: 2026-11-06
+- Updated: 2026-11-18 (part 12C: a new image goes after the last one, not at position 0, and staff put all of a product's images in a new order in one request, from the admin console, see ADR 0033)
 
 ## Context
 
