@@ -1,5 +1,13 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Package, Pencil, Plus, Trash2 } from 'lucide-react';
+import {
+  ChevronRight,
+  Clock,
+  Package,
+  Pencil,
+  Plus,
+  RefreshCw,
+  Trash2,
+} from 'lucide-react';
 import {
   AnimatePresence,
   Reorder,
@@ -7,12 +15,18 @@ import {
   useDragControls,
 } from 'motion/react';
 import { useId, useMemo, useState } from 'react';
-import type { KeyboardEvent } from 'react';
+import type { KeyboardEvent, ReactNode } from 'react';
+import { Link } from 'react-router';
 import { problemMessage } from '../../api/problems';
 import { Button } from '../../components/Button';
 import { Switch } from '../../components/Switch';
 import { useToasts } from '../../components/toast-context';
+import { useListSearch } from '../../list-search';
 import { DURATION, EASE_OUT, rise, transition } from '../../motion';
+import type { StockLine } from '../../stock/stock-api';
+import { dayName, packs } from '../../stock/stock-display';
+import { useProductStock } from '../../stock/stock-queries';
+import { LevelTag } from '../../stock/StockTags';
 import { MAX_POSITION, reorderVariants, updateVariant } from '../catalog-api';
 import type { Product, Variant } from '../catalog-api';
 import { catalogKeys, putVariant, useVariants } from '../catalog-queries';
@@ -60,6 +74,14 @@ export function PackSizesSection({
   }>({ open: false, variant: null });
 
   const rows = useMemo(() => variants.data?.map(named), [variants.data]);
+  // Each pack size's stock, read apart from the pack sizes: the list works
+  // without it.
+  const stock = useProductStock(product.id, (variants.data?.length ?? 0) > 0);
+  const lines = useMemo(
+    () => new Map(stock.data?.map((line) => [line.variant.id, line])),
+    [stock.data],
+  );
+  const listSearch = useListSearch();
   const order = useReorder({
     items: rows,
     send: async (ids) =>
@@ -154,6 +176,24 @@ export function PackSizesSection({
               can&apos;t buy it.
             </p>
           ) : null}
+          {stock.isError ? (
+            <div
+              role="alert"
+              className="mt-4 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-lg border border-line bg-surface-muted px-3 py-2 text-sm"
+            >
+              <p>
+                The stock could not be loaded: {problemMessage(stock.error)}
+              </p>
+              <Button
+                size="sm"
+                icon={RefreshCw}
+                busy={stock.isFetching}
+                onClick={() => void stock.refetch()}
+              >
+                Try again
+              </Button>
+            </div>
+          ) : null}
           <OrderBar order={order} noun="pack size" className="mt-4">
             Drag a handle to change the order.
           </OrderBar>
@@ -173,6 +213,16 @@ export function PackSizesSection({
                   index={index}
                   helpId={order.helpId}
                   canDelete={canDelete}
+                  stock={
+                    <PackStockLine
+                      name={row.name}
+                      variantId={row.id}
+                      product={product}
+                      line={lines.get(row.id)}
+                      loading={stock.isPending}
+                      listSearch={listSearch}
+                    />
+                  }
                   onKeyMove={(event) => order.keyMove(row, event)}
                   onDragStart={() => order.dragStart(row)}
                   onDrop={() => order.drop(row)}
@@ -209,11 +259,68 @@ export function PackSizesSection({
   );
 }
 
+// A pack size's stock in one line: out, low or in stock, what may be sold,
+// whether a batch stops selling soon, and the way to its batches (ADR
+// 0034). Nothing while the stock is not there.
+function PackStockLine({
+  name,
+  variantId,
+  product,
+  line,
+  loading,
+  listSearch,
+}: {
+  name: string;
+  variantId: string;
+  product: Product;
+  line: StockLine | undefined;
+  loading: boolean;
+  listSearch: string;
+}) {
+  if (loading) {
+    return (
+      <span
+        aria-hidden="true"
+        className="mt-1.5 block h-5 w-48 animate-pulse rounded-full bg-surface-muted"
+      />
+    );
+  }
+  if (!line) {
+    return null;
+  }
+  const { stock } = line;
+  return (
+    <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+      <LevelTag level={stock.level} />
+      {stock.sellable > 0 ? (
+        <span className="text-ink-muted">
+          {packs(stock.sellable)} may be sold
+        </span>
+      ) : null}
+      {stock.expiringSoon && stock.stopsSellingOn ? (
+        <span className="inline-flex items-center gap-1 font-medium text-warning">
+          <Clock aria-hidden="true" className="size-3.5 shrink-0" />
+          {`A batch stops selling on ${dayName(stock.stopsSellingOn)}`}
+        </span>
+      ) : null}
+      <Link
+        to={`/stock/${variantId}`}
+        state={{ product: { id: product.id, name: product.name }, listSearch }}
+        className="inline-flex items-center gap-0.5 font-medium text-primary hover:underline"
+      >
+        Batches <span className="sr-only">of {name}</span>
+        <ChevronRight aria-hidden="true" className="size-3.5" />
+      </Link>
+    </p>
+  );
+}
+
 interface RowProps {
   row: PackRow;
   index: number;
   helpId: string;
   canDelete: boolean;
+  stock: ReactNode;
   onKeyMove: (event: KeyboardEvent) => void;
   onDragStart: () => void;
   onDrop: () => void;
@@ -226,6 +333,7 @@ function PackRowItem({
   index,
   helpId,
   canDelete,
+  stock,
   onKeyMove,
   onDragStart,
   onDrop,
@@ -305,6 +413,7 @@ function PackRowItem({
             )}
           </span>
         </p>
+        {stock}
       </div>
 
       <div className="ml-12 flex items-center gap-1 sm:ml-0">

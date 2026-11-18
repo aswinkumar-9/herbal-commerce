@@ -19,8 +19,15 @@ import {
 } from '../../test/catalog-fixtures';
 import { heldBack, openSignedIn } from '../../test/console';
 import { RAVI, json } from '../../test/fake-api';
-import { LINES } from '../../test/stock-fixtures';
-import { stockKeys } from '../../stock/stock-queries';
+import {
+  BATCHES,
+  LATER,
+  LINES,
+  PRODUCT_STOCK,
+  SOON,
+  batchesOf,
+  linesOf,
+} from '../../test/stock-fixtures';
 
 const ALL = [ML_100, ML_200, ML_500];
 const POST = `POST /v1/staff/products/${SHAMPOO.id}/variants`;
@@ -42,12 +49,16 @@ async function openPacks(
       [PRODUCT(product)]: () => json(200, product),
       [VARIANTS(product)]: variantsOf(ALL),
       [IMAGES(product)]: imagesOf([]),
+      [PRODUCT_STOCK(product)]: linesOf(LINES),
       ...options.answers,
     },
   });
   await screen.findByRole('heading', { name: product.name, level: 1 });
   return console;
 }
+
+const STOCK_PATH = (product: { id: string }) =>
+  PRODUCT_STOCK(product).replace('GET ', '');
 
 const section = () => screen.getByRole('region', { name: 'Pack sizes' });
 
@@ -160,6 +171,126 @@ describe("a product's pack sizes", () => {
       screen.queryByRole('region', { name: 'Pack sizes' }),
     ).not.toBeInTheDocument();
     expect(api.unexpected).toEqual([]);
+  });
+});
+
+describe("a pack size's stock, on the product's page", () => {
+  it('shows each one: out, low or in stock, what may be sold, and a batch that stops selling soon', async () => {
+    await openPacks();
+    await waitForList();
+
+    await waitFor(() => expect(row('100 ml')).toHaveTextContent('In stock'));
+    expect(row('100 ml')).toHaveTextContent('40 packs may be sold');
+    expect(row('100 ml')).not.toHaveTextContent('stops selling');
+    expect(row('200 ml')).toHaveTextContent('Low');
+    expect(row('200 ml')).toHaveTextContent('4 packs may be sold');
+    expect(row('200 ml')).toHaveTextContent(
+      'A batch stops selling on 1 Dec 2026',
+    );
+    expect(row('500 ml')).toHaveTextContent('Out of stock');
+    expect(row('500 ml')).not.toHaveTextContent('may be sold');
+    expect(
+      within(row('200 ml')).getByRole('link', { name: 'Batches of 200 ml' }),
+    ).toHaveAttribute('href', `/stock/${ML_200.id}`);
+  });
+
+  it("opens a pack size's batches, and goes back to the product as it was left", async () => {
+    const { user, router } = openSignedIn(
+      {
+        pathname: `/catalog/products/${SHAMPOO.id}`,
+        state: { listSearch: 'status=draft' },
+      },
+      {
+        answers: {
+          [CATEGORIES]: categoriesOf([HAIR, SKIN]),
+          [PRODUCT(SHAMPOO)]: () => json(200, SHAMPOO),
+          [VARIANTS(SHAMPOO)]: variantsOf(ALL),
+          [IMAGES(SHAMPOO)]: imagesOf([]),
+          [PRODUCT_STOCK(SHAMPOO)]: linesOf(LINES),
+          [BATCHES(ML_100)]: batchesOf(ML_100, [SOON, LATER]),
+        },
+      },
+    );
+
+    await user.click(
+      await screen.findByRole('link', { name: 'Batches of 100 ml' }),
+    );
+    expect(
+      await screen.findByRole('heading', {
+        name: 'Amla Shampoo · 100 ml',
+        level: 1,
+      }),
+    ).toBeInTheDocument();
+    const main = within(screen.getByRole('main'));
+    expect(main.getByRole('link', { name: SHAMPOO.name })).toHaveAttribute(
+      'href',
+      `/catalog/products/${SHAMPOO.id}`,
+    );
+    expect(
+      main.getByRole('link', { name: 'Change it on the product’s page' }),
+    ).toHaveAttribute('href', `/catalog/products/${SHAMPOO.id}`);
+    await user.click(main.getByRole('link', { name: SHAMPOO.name }));
+
+    expect(
+      await screen.findByRole('heading', { name: SHAMPOO.name, level: 1 }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe(
+      `/catalog/products/${SHAMPOO.id}`,
+    );
+    const products = () =>
+      within(screen.getByRole('main')).getByRole('link', { name: 'Products' });
+    expect(products()).toHaveAttribute(
+      'href',
+      '/catalog/products?status=draft',
+    );
+
+    // The batches again, then the product by the link to its low stock.
+    await user.click(
+      await screen.findByRole('link', { name: 'Batches of 100 ml' }),
+    );
+    await user.click(
+      await screen.findByRole('link', {
+        name: 'Change it on the product’s page',
+      }),
+    );
+    expect(
+      await screen.findByRole('heading', { name: SHAMPOO.name, level: 1 }),
+    ).toBeInTheDocument();
+    expect(products()).toHaveAttribute(
+      'href',
+      '/catalog/products?status=draft',
+    );
+  });
+
+  it('asks for no stock when the product has no pack size', async () => {
+    const { api } = await openPacks({
+      product: OIL,
+      answers: { [VARIANTS(OIL)]: variantsOf([]) },
+    });
+
+    expect(
+      await within(section()).findByText('No pack sizes yet'),
+    ).toBeInTheDocument();
+    expect(api.to('GET', STOCK_PATH(OIL))).toHaveLength(0);
+  });
+
+  it('says when the stock could not be loaded, and tries again, while the pack sizes still work', async () => {
+    const { user } = await openPacks({
+      answers: { [PRODUCT_STOCK(SHAMPOO)]: [() => json(500), linesOf(LINES)] },
+    });
+    await waitForList();
+
+    expect(await within(section()).findByRole('alert')).toHaveTextContent(
+      'The stock could not be loaded',
+    );
+    expect(rowNames()).toEqual(['100 ml', '200 ml', '500 ml']);
+    expect(row('100 ml')).not.toHaveTextContent('In stock');
+    await user.click(
+      within(section()).getByRole('button', { name: 'Try again' }),
+    );
+
+    await waitFor(() => expect(row('100 ml')).toHaveTextContent('In stock'));
+    expect(within(section()).queryByRole('alert')).not.toBeInTheDocument();
   });
 });
 
@@ -375,13 +506,13 @@ describe('changing a pack size', () => {
   });
 
   it('changes when its stock shows as low, 0 for never, and stock is read again', async () => {
-    const { user, api, queryClient } = await openPacks({
+    const { user, api } = await openPacks({
       answers: {
         [PATCH(ML_100)]: () => json(200, { ...ML_100, lowStockAt: 0 }),
       },
     });
     await waitForList();
-    queryClient.setQueryData(stockKeys.productLines(SHAMPOO.id), LINES);
+    await waitFor(() => expect(row('100 ml')).toHaveTextContent('In stock'));
     await user.click(screen.getByRole('button', { name: 'Edit 100 ml' }));
     const dialog = screen.getByRole('dialog', { name: 'Edit 100 ml' });
     const field = within(dialog).getByLabelText('Low stock at (packs)');
@@ -413,10 +544,9 @@ describe('changing a pack size', () => {
     expect(api.to('PATCH', `/v1/staff/variants/${ML_100.id}`)[0]?.body).toEqual(
       { lowStockAt: 0 },
     );
-    expect(
-      queryClient.getQueryState(stockKeys.productLines(SHAMPOO.id))
-        ?.isInvalidated,
-    ).toBe(true);
+    await waitFor(() =>
+      expect(api.to('GET', STOCK_PATH(SHAMPOO))).toHaveLength(2),
+    );
   });
 
   it('sends nothing when nothing changed', async () => {

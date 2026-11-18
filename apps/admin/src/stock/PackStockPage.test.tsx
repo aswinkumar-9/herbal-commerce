@@ -45,7 +45,7 @@ beforeEach(() => {
 
 async function openPack(
   options: Parameters<typeof openSignedIn>[1] = {},
-  path = PAGE,
+  path: Parameters<typeof openSignedIn>[0] = PAGE,
 ) {
   const console = openSignedIn(path, {
     ...options,
@@ -93,20 +93,10 @@ describe("a pack size's stock", () => {
     });
 
     await user.click(
-      // Signing in, the Stock page, then this page: allow a busy computer
-      // more than the usual second.
-      await screen.findByRole(
-        'link',
-        { name: '100 ml, Amla Shampoo' },
-        { timeout: 3000 },
-      ),
+      await screen.findByRole('link', { name: '100 ml, Amla Shampoo' }),
     );
     expect(
-      await screen.findByRole(
-        'heading',
-        { name: 'Amla Shampoo · 100 ml' },
-        { timeout: 3000 },
-      ),
+      await screen.findByRole('heading', { name: 'Amla Shampoo · 100 ml' }),
     ).toBeInTheDocument();
     expect(document.title).toBe(
       'Amla Shampoo · 100 ml · Herbal Commerce Admin',
@@ -234,6 +224,47 @@ describe("a pack size's stock", () => {
     ).toBeInTheDocument();
     expect(
       screen.getByRole('link', { name: 'Back to the stock' }),
+    ).toHaveAttribute('href', '/stock');
+  });
+
+  it('goes back to the product it was opened from, even when there is no such pack size', async () => {
+    openSignedIn(
+      {
+        pathname: PAGE,
+        state: { product: { id: SHAMPOO.id, name: SHAMPOO.name } },
+      },
+      {
+        answers: {
+          [BATCHES(ML_100)]: () =>
+            json(404, { message: 'Pack size not found' }),
+        },
+      },
+    );
+
+    expect(
+      await screen.findByText('There is no such pack size'),
+    ).toBeInTheDocument();
+    const main = within(screen.getByRole('main'));
+    expect(main.getByRole('link', { name: SHAMPOO.name })).toHaveAttribute(
+      'href',
+      `/catalog/products/${SHAMPOO.id}`,
+    );
+    expect(
+      main.getByRole('link', { name: 'Back to the product' }),
+    ).toHaveAttribute('href', `/catalog/products/${SHAMPOO.id}`);
+  });
+
+  it('goes back to the Stock page when what it was given is not a product', async () => {
+    await openPack(
+      {},
+      {
+        pathname: PAGE,
+        state: { product: { id: SHAMPOO.id, name: 42 } },
+      },
+    );
+
+    expect(
+      within(screen.getByRole('main')).getByRole('link', { name: 'Stock' }),
     ).toHaveAttribute('href', '/stock');
   });
 

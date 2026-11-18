@@ -42,11 +42,13 @@ export function useStockPages(query: Omit<StockQuery, 'after'>) {
   });
 }
 
-// Every pack size of a product with its stock.
-export function useProductStock(productId: string) {
+// Every pack size of a product with its stock. Not asked while the product
+// has no pack size (enabled false).
+export function useProductStock(productId: string, enabled = true) {
   return useQuery({
     queryKey: stockKeys.productLines(productId),
     queryFn: ({ signal }) => listProductStock(productId, signal),
+    enabled,
   });
 }
 

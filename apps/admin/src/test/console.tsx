@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RouterProvider, createMemoryRouter } from 'react-router';
+import type { InitialEntry } from 'react-router';
 import { routes } from '../App';
 import { ASHA, RAVI, fakeApi, json, tokens } from './fake-api';
 
@@ -11,7 +12,8 @@ type Staff = typeof ASHA | typeof RAVI;
 // The whole console at a page, already signed in (the cookie still holds a
 // session), with the fake API answering the rest.
 export function openSignedIn(
-  path: string,
+  // A path, or a page with the state a link would give it.
+  path: InitialEntry,
   { staff = ASHA, answers = {} }: { staff?: Staff; answers?: Answers } = {},
 ) {
   const api = fakeApi({

@@ -11,7 +11,8 @@ import {
 import { AnimatePresence, motion } from 'motion/react';
 import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
+import type { To } from 'react-router';
 import { ApiError } from '../api/api-error';
 import { problemMessage } from '../api/problems';
 import { EmptyList, ListLoading, LoadFailed } from '../catalog/list-states';
@@ -52,9 +53,54 @@ export function PackStockPage() {
   return <PackStock key={variantId} variantId={variantId} />;
 }
 
+// The product staff came from, when they opened the batches from its page
+// (passed as the link's state).
+function cameFromProduct(state: unknown): { id: string; name: string } | null {
+  if (!state || typeof state !== 'object' || !('product' in state)) {
+    return null;
+  }
+  const { product } = state;
+  return product &&
+    typeof product === 'object' &&
+    'id' in product &&
+    'name' in product &&
+    typeof product.id === 'string' &&
+    typeof product.name === 'string'
+    ? { id: product.id, name: product.name }
+    : null;
+}
+
+interface WayBack {
+  to: To;
+  state?: { listSearch: string };
+  label: string;
+  again: string;
+}
+
+// Back to the product's page when staff came from it, with its own way
+// back to the products list as they left it; otherwise to the Stock page,
+// with its filters.
+function useWayBack(): WayBack {
+  const { state } = useLocation() as { state: unknown };
+  const listSearch = useListSearch();
+  const product = cameFromProduct(state);
+  return product
+    ? {
+        to: `/catalog/products/${encodeURIComponent(product.id)}`,
+        state: { listSearch },
+        label: product.name,
+        again: 'Back to the product',
+      }
+    : {
+        to: { pathname: '/stock', search: listSearch },
+        label: 'Stock',
+        again: 'Back to the stock',
+      };
+}
+
 function PackStock({ variantId }: { variantId: string }) {
   const list = useBatches(variantId);
-  const listSearch = useListSearch();
+  const back = useWayBack();
   const title = list.data
     ? `${list.data.product.name} · ${packName(list.data.variant)}`
     : 'Pack size';
@@ -64,11 +110,12 @@ function PackStock({ variantId }: { variantId: string }) {
   return (
     <section className="max-w-4xl">
       <Link
-        to={{ pathname: '/stock', search: listSearch }}
+        to={back.to}
+        state={back.state}
         className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink"
       >
         <ArrowLeft aria-hidden="true" className="size-4" />
-        Stock
+        {back.label}
       </Link>
       {list.isPending ? (
         <>
@@ -82,11 +129,8 @@ function PackStock({ variantId }: { variantId: string }) {
             icon={SearchX}
             title="There is no such pack size"
             action={
-              <Link
-                to={{ pathname: '/stock', search: listSearch }}
-                className={buttonClass()}
-              >
-                Back to the stock
+              <Link to={back.to} state={back.state} className={buttonClass()}>
+                {back.again}
               </Link>
             }
           >
@@ -104,13 +148,21 @@ function PackStock({ variantId }: { variantId: string }) {
           />
         </>
       ) : (
-        <Batches list={list.data} title={title} />
+        <Batches list={list.data} title={title} back={back} />
       )}
     </section>
   );
 }
 
-function Batches({ list, title }: { list: BatchList; title: string }) {
+function Batches({
+  list,
+  title,
+  back,
+}: {
+  list: BatchList;
+  title: string;
+  back: WayBack;
+}) {
   const { variant, product, stock, batches } = list;
   const [dialog, setDialog] = useState<DialogKind | null>(null);
   const [chosenId, setChosenId] = useState<string | null>(null);
@@ -145,6 +197,8 @@ function Batches({ list, title }: { list: BatchList; title: string }) {
             : `Shown as low at ${packs(variant.lowStockAt)} or fewer that may be sold.`}{' '}
           <Link
             to={`/catalog/products/${product.id}`}
+            // Came from that product: keep its way back to the list.
+            state={back.state}
             className="font-medium text-primary hover:underline"
           >
             Change it on the product’s page

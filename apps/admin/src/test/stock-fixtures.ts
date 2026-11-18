@@ -115,3 +115,9 @@ export const BATCHES = (pack: { id: string }) =>
   `GET /v1/staff/variants/${pack.id}/batches`;
 export const MOVEMENTS = (batch: { id: string }) =>
   `GET /v1/staff/batches/${batch.id}/movements`;
+
+// A product's pack sizes with their stock, as its page reads them.
+export const PRODUCT_STOCK = (product: { id: string }) =>
+  `GET /v1/staff/stock?productId=${product.id}&limit=100`;
+export const linesOf = (lines: object[]) => () =>
+  json(200, { lines, nextAfter: null });
