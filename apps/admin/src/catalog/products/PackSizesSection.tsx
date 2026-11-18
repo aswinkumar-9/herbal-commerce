@@ -298,8 +298,8 @@ function PackStockLine({
         </span>
       ) : null}
       {stock.expiringSoon && stock.stopsSellingOn ? (
-        <span className="inline-flex items-center gap-1 font-medium text-warning">
-          <Clock aria-hidden="true" className="size-3.5 shrink-0" />
+        <span className="inline-flex items-start gap-1 font-medium text-warning">
+          <Clock aria-hidden="true" className="mt-[3px] size-3.5 shrink-0" />
           {`A batch stops selling on ${dayName(stock.stopsSellingOn)}`}
         </span>
       ) : null}

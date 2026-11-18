@@ -308,12 +308,15 @@ function PackStock({
         <p className="mt-1 text-sm text-ink-muted">{stockCounts(stock)}</p>
         {stock.stopsSellingOn ? (
           <p
-            className={`mt-0.5 flex items-center gap-1.5 text-sm ${
+            className={`mt-0.5 flex items-start gap-1.5 text-sm ${
               stock.expiringSoon ? 'font-medium text-warning' : 'text-ink-muted'
             }`}
           >
             {stock.expiringSoon ? (
-              <Clock aria-hidden="true" className="size-3.5 shrink-0" />
+              <Clock
+                aria-hidden="true"
+                className="mt-[3px] size-3.5 shrink-0"
+              />
             ) : null}
             A batch stops selling on {dayName(stock.stopsSellingOn)}
             {stock.expiringSoon ? ', within 30 days' : ''}

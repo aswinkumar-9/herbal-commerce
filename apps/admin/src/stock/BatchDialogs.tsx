@@ -614,8 +614,9 @@ function CountForm({ batch, onDone }: { batch: Batch; onDone: () => void }) {
     note: '',
   });
   const { box, focus, focusFirst } = useBoxes(COUNT_FIELDS);
-  // What staff were shown should be on the shelf. If the batch changes
-  // while they count, they are told, and count against the new number.
+  // What should be on the shelf when staff last checked their count. If
+  // the batch changes while they count, the dialog shows the new number at
+  // once and says what it was, and the next save only acknowledges it.
   const [seen, setSeen] = useState(batch.onShelf);
   const moved = batch.onShelf !== seen;
 
@@ -679,20 +680,18 @@ function CountForm({ batch, onDone }: { batch: Batch; onDone: () => void }) {
       <div className="rounded-lg bg-surface-muted px-4 py-3 text-sm">
         <p>
           Should be on the shelf:{' '}
-          <strong className="text-base">{packs(seen)}</strong>
+          <strong className="text-base">{packs(batch.onShelf)}</strong>
         </p>
-        {moved ? null : (
-          <p className="mt-0.5 text-ink-muted">
-            {packs(batch.quantity)} free
-            {batch.awaitingPacking > 0
-              ? ` and ${packs(batch.awaitingPacking)} for orders not yet packed`
-              : ''}
-            .{' '}
-            {batch.packed > 0
-              ? `Leave out the ${packs(batch.packed)} already packed in boxes.`
-              : 'Packed orders are in their boxes: leave them out.'}
-          </p>
-        )}
+        <p className="mt-0.5 text-ink-muted">
+          {packs(batch.quantity)} free
+          {batch.awaitingPacking > 0
+            ? ` and ${packs(batch.awaitingPacking)} for orders not yet packed`
+            : ''}
+          .{' '}
+          {batch.packed > 0
+            ? `Leave out the ${packs(batch.packed)} already packed in boxes.`
+            : 'Packed orders are in their boxes: leave them out.'}
+        </p>
       </div>
       <Field
         ref={box('counted')}
@@ -702,7 +701,7 @@ function CountForm({ batch, onDone }: { batch: Batch; onDone: () => void }) {
         inputMode="numeric"
         maxLength={9}
         autoComplete="off"
-        hint={countHint(form.values, seen)}
+        hint={countHint(form.values, batch.onShelf)}
         error={form.errors.counted}
       />
       <TextAreaField

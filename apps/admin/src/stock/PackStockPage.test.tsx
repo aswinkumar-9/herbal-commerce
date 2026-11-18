@@ -787,6 +787,18 @@ describe('counting a shelf', () => {
     expect(await within(dialog).findByRole('alert')).toHaveTextContent(
       'The stock changed while you were counting: 31 packs should now be on the shelf, not 32 packs.',
     );
+    // Everything else in the dialog shows the batch as it now is.
+    expect(dialog).toHaveTextContent('Should be on the shelf: 31 packs');
+    expect(
+      within(dialog).getByText(
+        '29 packs free and 2 packs for orders not yet packed. Leave out the 1 pack already packed in boxes.',
+      ),
+    ).toBeVisible();
+    expect(
+      within(dialog).getByLabelText('Packs counted'),
+    ).toHaveAccessibleDescription(
+      expect.stringContaining('1 pack more than expected'),
+    );
     await user.click(
       within(dialog).getByRole('button', { name: 'Save the count' }),
     );

@@ -406,6 +406,8 @@ function BatchCard({
           aria-expanded={history}
           aria-controls={historyId}
           onClick={() => setHistory((shown) => !shown)}
+          // Open, it looks pressed, as the history below is its own.
+          className="aria-expanded:bg-surface-muted aria-expanded:text-ink"
         >
           {named('History')}
         </Button>
