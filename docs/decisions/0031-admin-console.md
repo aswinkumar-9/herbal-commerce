@@ -4,6 +4,7 @@
 - Date: 2026-11-12
 - Updated: 2026-11-13 (part 12B: the catalog pages, see ADR 0032)
 - Updated: 2026-11-18 (part 12C: pack sizes and images, and uploads with their progress, see ADR 0033)
+- Updated: 2026-11-19 (part 12D: the Stock area, see ADR 0034)
 
 ## Context
 
