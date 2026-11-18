@@ -1,4 +1,4 @@
-import type { StockLevel, StockSummary } from './stock-api';
+import type { StockLevel, StockReason, StockSummary } from './stock-api';
 
 // How stock reads on screen (ADR 0034).
 
@@ -51,4 +51,26 @@ export function stockCounts(stock: StockSummary): string {
     parts.push(`${packs(stock.packed)} packed for shipping`);
   }
   return parts.join(' · ');
+}
+
+// Why a batch's stock changed, as the history says it.
+export const REASON_NAMES: Record<StockReason, string> = {
+  RECEIVED: 'Received',
+  DAMAGED: 'Written off: damaged',
+  EXPIRED: 'Written off: expired',
+  CORRECTION: 'Corrected after a count',
+  ORDERED: 'Taken by an order',
+  RELEASED: 'Given back by an order',
+};
+
+// A change of packs with its sign: "+30", "−2" (a true minus sign).
+export function signed(change: number): string {
+  const amount = Math.abs(change).toLocaleString('en-IN');
+  return change < 0 ? `−${amount}` : `+${amount}`;
+}
+
+// When something happened, in India: "18 Nov 2026, 09:05".
+export function momentName(at: string): string {
+  const india = new Date(Date.parse(at) + 330 * 60_000).toISOString();
+  return `${dayName(india.slice(0, 10))}, ${india.slice(11, 16)}`;
 }

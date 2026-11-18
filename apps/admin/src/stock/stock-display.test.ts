@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { LOW, OUT, PLENTY } from '../test/stock-fixtures';
 import type { StockSummary } from './stock-api';
-import { dayName, packs, stockCounts } from './stock-display';
+import {
+  dayName,
+  momentName,
+  packs,
+  signed,
+  stockCounts,
+} from './stock-display';
 
 describe('stock on screen', () => {
   it.each([
@@ -11,6 +17,18 @@ describe('stock on screen', () => {
     ['2028-02-29', '29 Feb 2028'],
   ])('reads the label day %s as %s', (day, name) => {
     expect(dayName(day)).toBe(name);
+  });
+
+  it('signs a change with a true minus sign, grouped the Indian way', () => {
+    expect(signed(30)).toBe('+30');
+    expect(signed(-2)).toBe('−2');
+    expect(signed(-150000)).toBe('−1,50,000');
+  });
+
+  it('says when something happened in India time, the next day after 18:30 UTC', () => {
+    expect(momentName('2026-11-01T09:00:00.000Z')).toBe('1 Nov 2026, 14:30');
+    expect(momentName('2026-12-31T18:29:00.000Z')).toBe('31 Dec 2026, 23:59');
+    expect(momentName('2026-12-31T18:30:00.000Z')).toBe('1 Jan 2027, 00:00');
   });
 
   it('counts packs, grouped the Indian way', () => {

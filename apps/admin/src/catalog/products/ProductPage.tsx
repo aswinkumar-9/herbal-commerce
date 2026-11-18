@@ -1,10 +1,11 @@
 import { ArrowLeft, FolderPlus, SearchX } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { Link, useLocation, useParams, useSearchParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { ApiError } from '../../api/api-error';
 import { problemMessage } from '../../api/problems';
 import { useSession } from '../../auth/session-context';
 import { buttonClass } from '../../components/Button';
+import { useListSearch } from '../../list-search';
 import { usePageTitle } from '../../page-title';
 import type { Product } from '../catalog-api';
 import { useCategories, useProduct } from '../catalog-queries';
@@ -17,17 +18,6 @@ import { ProductForm } from './ProductForm';
 export function ProductPage() {
   const { id } = useParams();
   return id === undefined ? <NewProduct /> : <EditProduct key={id} id={id} />;
-}
-
-// The list's filters, when staff came from it, so "Products" goes back to
-// the list as they left it.
-function useListSearch(): string {
-  const { state } = useLocation() as { state: unknown };
-  const search =
-    state && typeof state === 'object' && 'listSearch' in state
-      ? state.listSearch
-      : '';
-  return typeof search === 'string' ? search : '';
 }
 
 function useCanDelete(): boolean {

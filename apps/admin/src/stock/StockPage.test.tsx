@@ -51,13 +51,13 @@ async function products() {
 function packsOf(product: { name: string }) {
   return within(screen.getByRole('list', { name: product.name }))
     .getAllByRole('listitem')
-    .map((row) => row.querySelector('span')?.textContent);
+    .map((row) => row.querySelector('a')?.firstChild?.textContent);
 }
 
 function row(product: { name: string }, pack: string) {
   const found = within(screen.getByRole('list', { name: product.name }))
     .getAllByRole('listitem')
-    .find((item) => item.querySelector('span')?.textContent === pack);
+    .find((item) => item.querySelector('a')?.firstChild?.textContent === pack);
   if (!found) {
     throw new Error(`No row ${pack}`);
   }

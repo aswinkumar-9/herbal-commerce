@@ -1,4 +1,11 @@
-import { Boxes, CircleCheck, Clock, Plus, Search } from 'lucide-react';
+import {
+  Boxes,
+  ChevronRight,
+  CircleCheck,
+  Clock,
+  Plus,
+  Search,
+} from 'lucide-react';
 import { motion } from 'motion/react';
 import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
@@ -209,7 +216,7 @@ export function StockPage() {
               }}
               className="overflow-hidden rounded-card border border-line bg-surface"
             >
-              <ProductStock group={group} />
+              <ProductStock group={group} listSearch={params.toString()} />
             </motion.li>
           ))}
         </ul>
@@ -236,7 +243,13 @@ export function StockPage() {
 }
 
 // One product's pack sizes, with a way to its page in the catalog.
-function ProductStock({ group: { product, lines } }: { group: ProductGroup }) {
+function ProductStock({
+  group: { product, lines },
+  listSearch,
+}: {
+  group: ProductGroup;
+  listSearch: string;
+}) {
   const headingId = `stock-${product.id}`;
   return (
     <>
@@ -254,7 +267,11 @@ function ProductStock({ group: { product, lines } }: { group: ProductGroup }) {
       </div>
       <ul aria-labelledby={headingId} className="divide-y divide-line">
         {lines.map((line) => (
-          <PackStock key={line.variant.id} line={line} />
+          <PackStock
+            key={line.variant.id}
+            line={line}
+            listSearch={listSearch}
+          />
         ))}
       </ul>
     </>
@@ -262,13 +279,27 @@ function ProductStock({ group: { product, lines } }: { group: ProductGroup }) {
 }
 
 // One pack size: what may be sold and what orders hold, when its next
-// batch stops selling, and whether it is out, low or in stock.
-function PackStock({ line: { variant, stock } }: { line: StockLine }) {
+// batch stops selling, and whether it is out, low or in stock. The whole
+// row opens its batches.
+function PackStock({
+  line: { variant, product, stock },
+  listSearch,
+}: {
+  line: StockLine;
+  listSearch: string;
+}) {
   return (
-    <li className="flex items-start gap-4 px-4 py-3">
+    <li className="relative flex items-start gap-4 px-4 py-3 transition-colors duration-150 hover:bg-surface-muted/40">
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="font-medium">{packName(variant)}</span>
+          <Link
+            to={`/stock/${variant.id}`}
+            state={{ listSearch }}
+            className="font-medium after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-primary focus-visible:after:ring-inset"
+          >
+            {packName(variant)}
+            <span className="sr-only">, {product.name}</span>
+          </Link>
           <span className="font-mono text-xs text-ink-muted">
             {variant.sku}
           </span>
@@ -290,6 +321,10 @@ function PackStock({ line: { variant, stock } }: { line: StockLine }) {
         ) : null}
       </div>
       <LevelTag level={stock.level} />
+      <ChevronRight
+        aria-hidden="true"
+        className="mt-0.5 size-4 shrink-0 text-ink-muted"
+      />
     </li>
   );
 }
