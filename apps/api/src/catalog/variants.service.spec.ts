@@ -348,3 +348,119 @@ describe('VariantsService.remove', () => {
     expect(logger.info).not.toHaveBeenCalled();
   });
 });
+
+describe('VariantsService.reorder', () => {
+  const SECOND = '8d0f7780-8536-41ef-a55c-f18c2b01bf18';
+  const THIRD = '9e1a8891-9647-42f0-b66d-0a9d3c12c029';
+
+  // The product's lock answers first, then the variants with their places.
+  function reorderSetup(positions: Record<string, number>, product = [{ id: PRODUCT }]) {
+    const ready = setup();
+    ready.tx.$queryRaw
+      .mockResolvedValueOnce(product)
+      .mockResolvedValueOnce(
+        Object.entries(positions).map(([id, position]) => ({ id, position })),
+      );
+    return ready;
+  }
+
+  it('gives each pack size its place in the list, records each one that moved, and answers the new list', async () => {
+    const { service, tx, audit, logger } = reorderSetup({
+      [ID]: 0,
+      [SECOND]: 5,
+      [THIRD]: 2,
+    });
+
+    await expect(
+      service.reorder(PRODUCT, { ids: [SECOND, ID, THIRD] }, context),
+    ).resolves.toEqual({ variants: [stored()] });
+
+    expect(tx.productVariant.update.mock.calls).toEqual([
+      [{ where: { id: SECOND }, data: { position: 0 }, select: { id: true } }],
+      [{ where: { id: ID }, data: { position: 1 }, select: { id: true } }],
+    ]);
+    expect(audit.record.mock.calls).toEqual([
+      [
+        tx,
+        {
+          ...context,
+          action: 'variant.updated',
+          targetType: 'variant',
+          targetId: SECOND,
+          before: { position: 5 },
+          after: { position: 0 },
+        },
+      ],
+      [
+        tx,
+        {
+          ...context,
+          action: 'variant.updated',
+          targetType: 'variant',
+          targetId: ID,
+          before: { position: 0 },
+          after: { position: 1 },
+        },
+      ],
+    ]);
+    expect(logger.info).toHaveBeenCalledWith(
+      { productId: PRODUCT, moved: 2, actorId: context.actorId },
+      'Pack sizes reordered',
+    );
+  });
+
+  it('keeps the product, then locks its pack sizes in the order of their IDs, letting stock and carts point at them meanwhile', async () => {
+    const { service, tx } = reorderSetup({ [ID]: 0 });
+
+    await service.reorder(PRODUCT, { ids: [ID] }, context);
+
+    const [product, variants] = tx.$queryRaw.mock.calls as [
+      [TemplateStringsArray, ...unknown[]],
+      [TemplateStringsArray, ...unknown[]],
+    ];
+    expect(product[0].join('?')).toMatch(/FROM products WHERE id = \?::uuid FOR KEY SHARE/);
+    expect(product.slice(1)).toEqual([PRODUCT]);
+    expect(variants[0].join('?')).toMatch(
+      /FROM product_variants\s+WHERE "productId" = \?::uuid\s+ORDER BY id FOR NO KEY UPDATE/,
+    );
+    expect(variants.slice(1)).toEqual([PRODUCT]);
+  });
+
+  it('changes and records nothing when the order is the same', async () => {
+    const { service, tx, audit, logger } = reorderSetup({ [ID]: 0, [SECOND]: 1 });
+
+    await expect(
+      service.reorder(PRODUCT, { ids: [ID, SECOND] }, context),
+    ).resolves.toEqual({ variants: [stored()] });
+    expect(tx.productVariant.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['a pack size is missing', [ID]],
+    ['a pack size is unknown', [ID, THIRD]],
+    ['the list is longer', [ID, SECOND, THIRD]],
+  ])('answers 409 and changes nothing when %s', async (_case, ids) => {
+    const { service, tx, audit } = reorderSetup({ [ID]: 0, [SECOND]: 1 });
+
+    await expect(service.reorder(PRODUCT, { ids }, context)).rejects.toThrow(
+      new ConflictException(
+        "The product's pack sizes changed while you were ordering them. Reload and try again.",
+      ),
+    );
+    expect(tx.productVariant.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 for an unknown product, and changes nothing', async () => {
+    const { service, tx, audit } = reorderSetup({}, []);
+
+    await expect(
+      service.reorder(PRODUCT, { ids: [ID] }, context),
+    ).rejects.toThrow(new NotFoundException('Product not found'));
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(tx.productVariant.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+});

@@ -113,6 +113,7 @@ describe('rate-limited routes', () => {
     expect(routeLimits(StaffVariantsController)).toStrictEqual({
       list: undefined,
       create: undefined,
+      reorder: undefined,
       update: undefined,
       remove: undefined,
     });
@@ -120,6 +121,7 @@ describe('rate-limited routes', () => {
     expect(routeLimits(StaffImagesController)).toStrictEqual({
       list: undefined,
       create: ['imageUploads'],
+      reorder: undefined,
       update: undefined,
       remove: undefined,
     });

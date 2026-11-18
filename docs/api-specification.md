@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.24.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.25.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -1625,6 +1625,7 @@ A product's packs, such as 60 capsules or 100 g, each with its MRP and price (AD
 | `GET /v1/staff/products/:productId/variants` | List every pack of a product, off sale ones too |
 | `POST /v1/staff/products/:productId/variants` | Add a pack |
 | `PATCH /v1/staff/variants/:id` | Change it: its prices, SKU, size or position, or take it off sale |
+| `PUT /v1/staff/products/:productId/variants/order` | Put all of a product's packs in a new order, as staff dragged them (ADR 0033) |
 | `DELETE /v1/staff/variants/:id` | Delete a pack (Super Users only) |
 
 A pack, as these endpoints return it:
@@ -1720,6 +1721,33 @@ Errors:
 | `409` | the two clashes of `POST` | The new SKU or size is taken |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
+### PUT `/v1/staff/products/:productId/variants/order`
+
+Puts a product's packs in a new order, the one its page shows: what staff dragged in the admin console (ADR 0033).
+
+Request: **every pack of the product, off sale ones too, each once,** first to last:
+```json
+{ "ids": ["b2c4e6f8-1a3c-4e5f-9a7b-2c4d6e8f0a1b", "5d7f9b1c-3e5a-4c7e-8b9d-1f3a5c7e9b2d"] }
+```
+
+- Each pack's `position` becomes its place in the list: `0`, `1`, `2` and so on.
+- Only the packs that moved are changed, each with its own audit entry (`variant.updated`, the position before and after). All of it is saved in one transaction.
+- The product can't be deleted meanwhile. Its packs can still be sold, put in carts and given stock: the lock doesn't hold them up.
+- The same order again changes nothing and writes no audit entry.
+
+Response `200`: `{ "variants": [...] }`, every pack of the product in the new order, in the form above.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The product ID is not a UUID |
+| `400` | `Validation failed` | No list (`List the pack sizes`), an ID that is not a UUID (`Each pack size by its ID`), an ID twice (`List each pack size once`), or more than 100 |
+| `401` | see above | No staff access token, or a customer's |
+| `404` | `Product not found` | No product with this ID |
+| `409` | `The product's pack sizes changed while you were ordering them. Reload and try again.` | The list is not exactly the product's packs: one was added or deleted since the list was read, or an ID is not one of them |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
 ### DELETE `/v1/staff/variants/:id`
 
 Deletes a pack for good. **Super Users only.** An Admin takes it off sale instead. The audit log keeps everything the pack was. **A pack that still holds stock is never deleted:** write the stock off first (see "Managing stock").
@@ -1737,6 +1765,7 @@ A product's photos (ADR 0023). These endpoints need a **staff** access token. **
 | `GET /v1/staff/products/:productId/images` | List every image of a product, main photo first |
 | `POST /v1/staff/products/:productId/images` | Upload one image |
 | `PATCH /v1/staff/images/:id` | Describe it, or move it |
+| `PUT /v1/staff/products/:productId/images/order` | Put all of a product's images in a new order, as staff dragged them (ADR 0033) |
 | `DELETE /v1/staff/images/:id` | Delete it, with its files |
 
 An image, as these endpoints return it:
@@ -1791,7 +1820,7 @@ The API checks the file and keeps only a new copy of its pixels (ADR 0023):
 - at most 50 megapixels, and at least 400 pixels on each side, both read before anything is decoded;
 - two WebP files are made, at most 1600 and 400 pixels on their longest side, never enlarged and turned upright. The photo's hidden details, such as its GPS location, are not kept.
 
-The new image gets `position` `0`, so it comes after the images already at position 0. To make it the main photo, give the others a higher position.
+The new image goes after the last one: its `position` is one more than the highest of the product's images (at most 9999), or `0` for the first. Until part 12C it got `0`, which put it second once staff had ordered the images (ADR 0033). To make it the main photo, put the images in a new order.
 
 Response `201`: the image.
 
@@ -1828,6 +1857,33 @@ Errors:
 | `400` | `Validation failed` | An invalid field, or an empty change (`Nothing to change`) |
 | `401` | see above | No staff access token, or a customer's |
 | `404` | `Image not found` | No image with this ID |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### PUT `/v1/staff/products/:productId/images/order`
+
+Puts a product's images in a new order, as staff dragged them in the admin console (ADR 0033). **The first becomes the main photo,** the one on the product's card in the shop.
+
+Request: **every image of the product, each once,** first to last:
+```json
+{ "ids": ["9e783ece-f6d7-4547-a609-bfd8b4b21829", "2b4d6f8a-0c1e-4a3b-9d5f-7e9a1c3b5d7f"] }
+```
+
+- Each image's `position` becomes its place in the list: `0`, `1`, `2` and so on.
+- Only the images that moved are changed, each with its own audit entry (`image.updated`, the position before and after). All of it is saved in one transaction.
+- The product is locked as for an upload or a deletion, so no image is added or deleted meanwhile.
+- The same order again changes nothing and writes no audit entry.
+
+Response `200`: `{ "images": [...] }`, every image of the product in the new order, in the form above.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The product ID is not a UUID |
+| `400` | `Validation failed` | No list (`List the images`), an ID that is not a UUID (`Each image by its ID`), an ID twice (`List each image once`), or more than 6 |
+| `401` | see above | No staff access token, or a customer's |
+| `404` | `Product not found` | No product with this ID |
+| `409` | `The product's images changed while you were ordering them. Reload and try again.` | The list is not exactly the product's images: one was uploaded or deleted since the list was read, or an ID is not one of them |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
 ### DELETE `/v1/staff/images/:id`

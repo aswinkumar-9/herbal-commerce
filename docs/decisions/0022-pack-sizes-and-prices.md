@@ -6,6 +6,7 @@
 - Updated: 2026-11-06 (part 5: each pack on a product's page says whether it is in stock, and a pack that still holds stock cannot be deleted, see ADR 0024)
 - Updated: 2026-11-06 (part 6: a customer's cart names a pack by its SKU, and always shows today's price, see ADR 0025)
 - Updated: 2026-11-08 (part 7: orders keep whole rupees too, the GST rounded to the nearest rupee, by the owner's choice: the plan for paise below is dropped, see ADR 0026)
+- Updated: 2026-11-18 (part 12C: staff put all of a product's packs in a new order in one request, from the admin console, see ADR 0033)
 
 ## Context
 

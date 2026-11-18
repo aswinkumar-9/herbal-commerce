@@ -11,9 +11,13 @@ import {
   SHAMPOO,
   SKIN,
   SOAP,
+  IMAGES,
+  VARIANTS,
   categoriesOf,
   fieldsRefused,
+  imagesOf,
   productsOf,
+  variantsOf,
 } from '../../test/catalog-fixtures';
 import { heldBack, openSignedIn } from '../../test/console';
 import { RAVI, json } from '../../test/fake-api';
@@ -31,6 +35,8 @@ async function openProduct(
     answers: {
       [CATEGORIES]: categoriesOf([HAIR, SKIN]),
       [PRODUCT(product)]: () => json(200, product),
+      [VARIANTS(product)]: variantsOf([]),
+      [IMAGES(product)]: imagesOf([]),
       ...options.answers,
     },
   });
@@ -60,6 +66,7 @@ const liveSwitch = () =>
   screen.getByRole('switch', { name: 'Customers see it' });
 
 describe('a new product', () => {
+  // It types a whole product, which takes a while on a busy machine.
   it('is added as a draft, after the last product of its category', async () => {
     const NEW = {
       ...OIL,
@@ -75,6 +82,8 @@ describe('a new product', () => {
         [PRODUCTS_IN(HAIR)]: productsOf([OIL, SHAMPOO]),
         [CREATE]: () => json(201, NEW),
         [PRODUCT(NEW)]: () => json(200, NEW),
+        [VARIANTS(NEW)]: variantsOf([]),
+        [IMAGES(NEW)]: imagesOf([]),
       },
     });
     await waitFor(() =>
@@ -128,7 +137,7 @@ describe('a new product', () => {
       gstRate: null,
       position: 2,
     });
-  });
+  }, 15_000);
 
   it('starts in the category the list had chosen', async () => {
     await openNew({}, `/catalog/products/new?category=${SKIN.id}`);
@@ -544,6 +553,8 @@ describe('a product that is not there', () => {
       answers: {
         [CATEGORIES]: categoriesOf([HAIR]),
         [PRODUCT(OIL)]: [() => json(500), () => json(200, OIL)],
+        [VARIANTS(OIL)]: variantsOf([]),
+        [IMAGES(OIL)]: imagesOf([]),
       },
     });
 
@@ -614,6 +625,8 @@ describe('deleting a product (Super Users)', () => {
         [CATEGORIES]: categoriesOf([HAIR, SKIN]),
         [ALL_PRODUCTS]: [productsOf([OIL, SHAMPOO]), again.answer],
         [PRODUCT(OIL)]: () => json(200, OIL),
+        [VARIANTS(OIL)]: variantsOf([]),
+        [IMAGES(OIL)]: imagesOf([]),
         [`DELETE /v1/staff/products/${OIL.id}`]: () =>
           new Response(null, { status: 204 }),
       },

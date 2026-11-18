@@ -1,12 +1,15 @@
 import { z } from 'zod';
 import { ApiError } from '../api/api-error';
-import { apiRequest } from '../api/client';
+import { apiRequest, apiUpload } from '../api/client';
 
-// The staff catalog API (ADR 0020 to 0023, and 0032 for ordering and search): what the
-// console reads and sends. Every answer is checked against these shapes.
+// The staff catalog API (ADR 0020 to 0023, 0032 for ordering and search,
+// 0033 for the order of pack sizes and images): what the console reads and
+// sends. Every answer is checked against these shapes.
 
 const CATEGORIES = '/v1/staff/categories';
 const PRODUCTS = '/v1/staff/products';
+const VARIANTS = '/v1/staff/variants';
+const IMAGES = '/v1/staff/images';
 
 export const categorySchema = z.object({
   id: z.string(),
@@ -222,4 +225,197 @@ export async function reorderProducts(categoryId: string, ids: string[]) {
     schema: productListSchema,
   });
   return products;
+}
+
+// Pack sizes (ADR 0022): the net quantity on the label, in its unit, and
+// its prices in whole rupees.
+export const PACK_UNITS = [
+  'G',
+  'KG',
+  'ML',
+  'L',
+  'CAPSULES',
+  'TABLETS',
+  'PIECES',
+] as const;
+export type PackUnit = (typeof PACK_UNITS)[number];
+export const PACK_UNIT_NAMES: Record<PackUnit, string> = {
+  G: 'g',
+  KG: 'kg',
+  ML: 'ml',
+  L: 'L',
+  CAPSULES: 'capsules',
+  TABLETS: 'tablets',
+  PIECES: 'pieces',
+};
+
+export const variantSchema = z.object({
+  id: z.string(),
+  productId: z.string(),
+  sku: z.string(),
+  quantity: z.number().int(),
+  unit: z.enum(PACK_UNITS),
+  mrpRupees: z.number().int(),
+  priceRupees: z.number().int(),
+  isActive: z.boolean(),
+  position: z.number().int(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type Variant = z.infer<typeof variantSchema>;
+const variantListSchema = z.object({ variants: z.array(variantSchema) });
+
+// What staff set on a pack size. It is on sale unless isActive is false.
+export type VariantFields = Pick<
+  Variant,
+  'sku' | 'quantity' | 'unit' | 'mrpRupees' | 'priceRupees' | 'isActive'
+>;
+
+// A product's pack sizes, off sale ones too, first to last.
+export async function listVariants(productId: string, signal?: AbortSignal) {
+  const { variants } = await apiRequest(
+    `${idInPath(PRODUCTS, productId)}/variants`,
+    { schema: variantListSchema, signal },
+  );
+  return variants;
+}
+
+export async function createVariant(
+  productId: string,
+  input: VariantFields & { position?: number },
+) {
+  return apiRequest(`${idInPath(PRODUCTS, productId)}/variants`, {
+    method: 'POST',
+    body: input,
+    schema: variantSchema,
+  });
+}
+
+export async function updateVariant(
+  id: string,
+  changes: Partial<VariantFields>,
+) {
+  return apiRequest(idInPath(VARIANTS, id), {
+    method: 'PATCH',
+    body: changes,
+    schema: variantSchema,
+  });
+}
+
+// Super Users only; the API refuses Admins, and a pack size with stock.
+export async function deleteVariant(id: string) {
+  return apiRequest(idInPath(VARIANTS, id), { method: 'DELETE' });
+}
+
+// Every pack size of the product, off sale ones too, first to last.
+export async function reorderVariants(productId: string, ids: string[]) {
+  const { variants } = await apiRequest(
+    `${idInPath(PRODUCTS, productId)}/variants/order`,
+    { method: 'PUT', body: { ids }, schema: variantListSchema },
+  );
+  return variants;
+}
+
+// Images (ADR 0023): the API re-encodes each upload into two WebP files,
+// and answers their addresses. Only http and https addresses are shown.
+const mediaUrl = z.url({ protocol: /^https?$/ });
+
+export const imageSchema = z.object({
+  id: z.string(),
+  productId: z.string(),
+  width: z.number().int(),
+  height: z.number().int(),
+  altText: z.string().nullable(),
+  position: z.number().int(),
+  url: mediaUrl,
+  thumbnailUrl: mediaUrl,
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type ProductImage = z.infer<typeof imageSchema>;
+const imageListSchema = z.object({ images: z.array(imageSchema) });
+
+// What the API takes (ADR 0023): at most 6 images a product, each a JPEG,
+// PNG or WebP of at most 10 MB.
+export const MAX_IMAGES = 6;
+export const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'] as const;
+export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+// Why a file cannot be uploaded as it is, or null when it can. The API
+// checks it again, and checks the picture itself (at least 400 pixels on
+// each side).
+export function imageFileProblem(file: File): string | null {
+  if (!(IMAGE_TYPES as readonly string[]).includes(file.type)) {
+    // iPhones save photos as HEIC unless set to "Most Compatible".
+    return /^image\/hei[cf]/.test(file.type) || /\.hei[cf]$/i.test(file.name)
+      ? 'HEIC photos cannot be used. Save it as a JPEG first.'
+      : 'Choose a JPEG, PNG or WebP image.';
+  }
+  if (file.size === 0) {
+    return 'The file is empty.';
+  }
+  if (file.size > MAX_IMAGE_BYTES) {
+    // Rounded up, so a file just over the limit never reads as 10.0 MB.
+    const megabytes = (
+      Math.ceil((file.size * 10) / (1024 * 1024)) / 10
+    ).toFixed(1);
+    return `The file is ${megabytes} MB. An image may be at most 10 MB.`;
+  }
+  return null;
+}
+
+// A product's images, the main photo first.
+export async function listImages(productId: string, signal?: AbortSignal) {
+  const { images } = await apiRequest(
+    `${idInPath(PRODUCTS, productId)}/images`,
+    { schema: imageListSchema, signal },
+  );
+  return images;
+}
+
+// Uploads one image; it goes after the product's last one. A file the API
+// would refuse is not sent.
+export async function uploadImage(
+  productId: string,
+  file: File,
+  options: { onProgress?: (sent: number) => void; signal?: AbortSignal } = {},
+) {
+  const path = `${idInPath(PRODUCTS, productId)}/images`;
+  const problem = imageFileProblem(file);
+  if (problem) {
+    const status = !(IMAGE_TYPES as readonly string[]).includes(file.type)
+      ? 415
+      : file.size > MAX_IMAGE_BYTES
+        ? 413
+        : 400;
+    throw new ApiError(status, problem);
+  }
+  return apiUpload(path, file, { ...options, schema: imageSchema });
+}
+
+// An image's description, for people who cannot see it. Empty is none.
+export async function updateImage(
+  id: string,
+  changes: { altText: string | null },
+) {
+  return apiRequest(idInPath(IMAGES, id), {
+    method: 'PATCH',
+    body: changes,
+    schema: imageSchema,
+  });
+}
+
+// Admins may too (ADR 0023). The API refuses the last image of a live
+// product.
+export async function deleteImage(id: string) {
+  return apiRequest(idInPath(IMAGES, id), { method: 'DELETE' });
+}
+
+// Every image of the product, first to last: the first is the main photo.
+export async function reorderImages(productId: string, ids: string[]) {
+  const { images } = await apiRequest(
+    `${idInPath(PRODUCTS, productId)}/images/order`,
+    { method: 'PUT', body: { ids }, schema: imageListSchema },
+  );
+  return images;
 }

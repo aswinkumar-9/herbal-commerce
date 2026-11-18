@@ -55,11 +55,17 @@ function shown(changes: object = {}) {
   };
 }
 
+// What counting a product's images answers: how many, and the last place.
+function images(count: number, lastPosition: number | null) {
+  return { _count: { _all: count }, _max: { position: lastPosition } };
+}
+
 function setup() {
   const tx = {
     $queryRaw: jest.fn().mockResolvedValue([{ id: PRODUCT }]),
     productImage: {
       count: jest.fn().mockResolvedValue(0),
+      aggregate: jest.fn().mockResolvedValue(images(0, null)),
       create: jest.fn((args: { data: object }) =>
         Promise.resolve(stored(args.data)),
       ),
@@ -163,7 +169,13 @@ describe('ImagesService.create', () => {
       expect(detectImageType(file)).toBe('image/webp');
     }
     expect(tx.productImage.create).toHaveBeenCalledWith({
-      data: { productId: PRODUCT, fileKey: key, width: 800, height: 600 },
+      data: {
+        productId: PRODUCT,
+        fileKey: key,
+        width: 800,
+        height: 600,
+        position: 0,
+      },
       select: expect.any(Object),
     });
     expect(audit.record).toHaveBeenCalledWith(tx, {
@@ -227,20 +239,47 @@ describe('ImagesService.create', () => {
     const [sql, id] = tx.$queryRaw.mock.calls[0] as [string[], string];
     expect(sql.join('?')).toMatch(/FROM products WHERE id = \?::uuid FOR UPDATE/);
     expect(id).toBe(PRODUCT);
-    expect(tx.productImage.count).toHaveBeenCalledWith({
+    expect(tx.productImage.aggregate).toHaveBeenCalledWith({
       where: { productId: PRODUCT },
+      _count: { _all: true },
+      _max: { position: true },
     });
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
-      tx.productImage.count.mock.invocationCallOrder[0],
+      tx.productImage.aggregate.mock.invocationCallOrder[0],
     );
-    expect(tx.productImage.count.mock.invocationCallOrder[0]).toBeLessThan(
-      tx.productImage.create.mock.invocationCallOrder[0],
-    );
+    expect(
+      tx.productImage.aggregate.mock.invocationCallOrder[0],
+    ).toBeLessThan(tx.productImage.create.mock.invocationCallOrder[0]);
+  });
+
+  it('puts a new image after the last one, also once staff have ordered them', async () => {
+    const { service, tx } = setup();
+    const position = () => {
+      const [args] = tx.productImage.create.mock.lastCall as [
+        { data: { position: number } },
+      ];
+      return args.data.position;
+    };
+
+    // Ordered: in places 0, 1 and 2.
+    tx.productImage.aggregate.mockResolvedValue(images(3, 2));
+    await service.create(PRODUCT, photo, 'image/jpeg', context);
+    expect(position()).toBe(3);
+
+    // Never ordered: all in place 0, oldest first, so 1 is still last.
+    tx.productImage.aggregate.mockResolvedValue(images(2, 0));
+    await service.create(PRODUCT, photo, 'image/jpeg', context);
+    expect(position()).toBe(1);
+
+    // No place after the last one: the same, and the newest goes last.
+    tx.productImage.aggregate.mockResolvedValue(images(1, 9999));
+    await service.create(PRODUCT, photo, 'image/jpeg', context);
+    expect(position()).toBe(9999);
   });
 
   it('takes a sixth image, refuses a seventh with 409, and deletes its files', async () => {
     const { service, tx, audit, files, media } = setup();
-    tx.productImage.count.mockResolvedValue(5);
+    tx.productImage.aggregate.mockResolvedValue(images(5, 4));
     await service.create(PRODUCT, photo, 'image/jpeg', context);
     expect(files.size).toBe(2);
 
@@ -248,7 +287,7 @@ describe('ImagesService.create', () => {
     media.save.mockClear();
     tx.productImage.create.mockClear();
     audit.record.mockClear();
-    tx.productImage.count.mockResolvedValue(6);
+    tx.productImage.aggregate.mockResolvedValue(images(6, 5));
 
     await expect(
       service.create(PRODUCT, photo, 'image/jpeg', context),
@@ -287,7 +326,7 @@ describe('ImagesService.create', () => {
 
   it('still answers with the first error when the files cannot be deleted, and logs them', async () => {
     const { service, tx, media, logger } = setup();
-    tx.productImage.count.mockResolvedValue(6);
+    tx.productImage.aggregate.mockResolvedValue(images(6, 5));
     media.remove.mockRejectedValue(new Error('Disk unavailable'));
 
     await expect(
@@ -480,5 +519,121 @@ describe('ImagesService.update', () => {
       service.update(ID, { position: 1 }, context),
     ).rejects.toThrow(new NotFoundException(IMAGE_NOT_FOUND));
     expect(tx.productImage.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('ImagesService.reorder', () => {
+  const SECOND = '8d0f7780-8536-41ef-a55c-f18c2b01bf18';
+  const THIRD = '9e1a8891-9647-42f0-b66d-0a9d3c12c029';
+
+  // The product's lock answers first, then the images with their places.
+  function reorderSetup(positions: Record<string, number>, product = [{ id: PRODUCT }]) {
+    const ready = setup();
+    ready.tx.$queryRaw
+      .mockResolvedValueOnce(product)
+      .mockResolvedValueOnce(
+        Object.entries(positions).map(([id, position]) => ({ id, position })),
+      );
+    return ready;
+  }
+
+  it('gives each image its place in the list, records each one that moved, and answers the new list', async () => {
+    const { service, tx, audit, logger } = reorderSetup({
+      [ID]: 0,
+      [SECOND]: 5,
+      [THIRD]: 2,
+    });
+
+    await expect(
+      service.reorder(PRODUCT, { ids: [SECOND, ID, THIRD] }, context),
+    ).resolves.toEqual({ images: [shown()] });
+
+    expect(tx.productImage.update.mock.calls).toEqual([
+      [{ where: { id: SECOND }, data: { position: 0 }, select: { id: true } }],
+      [{ where: { id: ID }, data: { position: 1 }, select: { id: true } }],
+    ]);
+    expect(audit.record.mock.calls).toEqual([
+      [
+        tx,
+        {
+          ...context,
+          action: 'image.updated',
+          targetType: 'image',
+          targetId: SECOND,
+          before: { position: 5 },
+          after: { position: 0 },
+        },
+      ],
+      [
+        tx,
+        {
+          ...context,
+          action: 'image.updated',
+          targetType: 'image',
+          targetId: ID,
+          before: { position: 0 },
+          after: { position: 1 },
+        },
+      ],
+    ]);
+    expect(logger.info).toHaveBeenCalledWith(
+      { productId: PRODUCT, moved: 2, actorId: context.actorId },
+      'Images reordered',
+    );
+  });
+
+  it('locks the product as uploads and deletions do, then its images in the order of their IDs', async () => {
+    const { service, tx } = reorderSetup({ [ID]: 0 });
+
+    await service.reorder(PRODUCT, { ids: [ID] }, context);
+
+    const [product, images] = tx.$queryRaw.mock.calls as [
+      [TemplateStringsArray, ...unknown[]],
+      [TemplateStringsArray, ...unknown[]],
+    ];
+    expect(product[0].join('?')).toMatch(/FROM products WHERE id = \?::uuid FOR UPDATE/);
+    expect(product.slice(1)).toEqual([PRODUCT]);
+    expect(images[0].join('?')).toMatch(
+      /FROM product_images\s+WHERE "productId" = \?::uuid\s+ORDER BY id FOR NO KEY UPDATE/,
+    );
+    expect(images.slice(1)).toEqual([PRODUCT]);
+  });
+
+  it('changes and records nothing when the order is the same', async () => {
+    const { service, tx, audit, logger } = reorderSetup({ [ID]: 0, [SECOND]: 1 });
+
+    await expect(
+      service.reorder(PRODUCT, { ids: [ID, SECOND] }, context),
+    ).resolves.toEqual({ images: [shown()] });
+    expect(tx.productImage.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['an image is missing', [ID]],
+    ['an image is unknown', [ID, THIRD]],
+    ['the list is longer', [ID, SECOND, THIRD]],
+  ])('answers 409 and changes nothing when %s', async (_case, ids) => {
+    const { service, tx, audit } = reorderSetup({ [ID]: 0, [SECOND]: 1 });
+
+    await expect(service.reorder(PRODUCT, { ids }, context)).rejects.toThrow(
+      new ConflictException(
+        "The product's images changed while you were ordering them. Reload and try again.",
+      ),
+    );
+    expect(tx.productImage.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('answers 404 for an unknown product, and changes nothing', async () => {
+    const { service, tx, audit } = reorderSetup({}, []);
+
+    await expect(
+      service.reorder(PRODUCT, { ids: [ID] }, context),
+    ).rejects.toThrow(new NotFoundException('Product not found'));
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(tx.productImage.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
   });
 });

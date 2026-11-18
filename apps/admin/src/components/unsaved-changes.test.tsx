@@ -9,8 +9,12 @@ import {
   createMemoryRouter,
   useNavigate,
 } from 'react-router';
-import { describe, expect, it } from 'vitest';
-import { useUnsavedChanges } from './unsaved-changes';
+import { describe, expect, it, vi } from 'vitest';
+import {
+  UnsavedParts,
+  useUnsavedChanges,
+  useUnsavedPart,
+} from './unsaved-changes';
 
 let endSession: () => void = () => undefined;
 
@@ -181,5 +185,107 @@ describe('a page with changes not saved', () => {
     await user.clear(screen.getByLabelText('Name'));
     await user.type(screen.getByLabelText('Name'), 'Hair Care');
     expect(leaving()).toBe(false);
+  });
+});
+
+// A note with changes of its own, like a dialog's form on a page.
+function Note() {
+  const [note, setNote] = useState('');
+  useUnsavedPart(note !== '');
+  return (
+    <label>
+      Note
+      <input value={note} onChange={(event) => setNote(event.target.value)} />
+    </label>
+  );
+}
+
+function PageWithNote() {
+  const [name, setName] = useState('Hair Care');
+  const [noting, setNoting] = useState(false);
+  const { prompt, report } = useUnsavedChanges(name !== 'Hair Care');
+  return (
+    <>
+      <h1>Edit Hair Care</h1>
+      <label>
+        Name
+        <input value={name} onChange={(event) => setName(event.target.value)} />
+      </label>
+      <button type="button" onClick={() => setNoting((open) => !open)}>
+        {noting ? 'Close the note' : 'Add a note'}
+      </button>
+      <UnsavedParts report={report}>{noting ? <Note /> : null}</UnsavedParts>
+      <Link to="/catalog">Catalog</Link>
+      {prompt}
+    </>
+  );
+}
+
+function openPageWithNote() {
+  const router = createMemoryRouter(
+    [
+      { path: '/catalog', element: <h1>Catalog</h1> },
+      { path: '/catalog/hair-care', element: <PageWithNote /> },
+    ],
+    { initialEntries: ['/catalog', '/catalog/hair-care'] },
+  );
+  render(<RouterProvider router={router} />);
+  return { user: userEvent.setup(), router };
+}
+
+describe('a part of a page with changes not saved', () => {
+  it('holds staff on the page as its own changes do', async () => {
+    const { user } = openPageWithNote();
+    await user.click(screen.getByRole('button', { name: 'Add a note' }));
+    await user.type(screen.getByLabelText('Note'), 'Check the label');
+
+    await user.click(screen.getByRole('link', { name: 'Catalog' }));
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Leave without saving?' }),
+    ).toBeInTheDocument();
+  });
+
+  it("still holds them for the page's own changes while a part is open", async () => {
+    const { user, router } = openPageWithNote();
+    await change(user);
+    await user.click(screen.getByRole('button', { name: 'Add a note' }));
+
+    await act(() => router.navigate(-1));
+
+    expect(
+      await screen.findByRole('dialog', { name: 'Leave without saving?' }),
+    ).toBeInTheDocument();
+    expect(router.state.location.pathname).toBe('/catalog/hair-care');
+  });
+
+  it('lets staff go once the part with the changes has closed', async () => {
+    const { user } = openPageWithNote();
+    const leaving = () => {
+      const event = new Event('beforeunload', { cancelable: true });
+      window.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    await user.click(screen.getByRole('button', { name: 'Add a note' }));
+    await user.type(screen.getByLabelText('Note'), 'Check the label');
+    expect(leaving()).toBe(true);
+
+    await user.click(screen.getByRole('button', { name: 'Close the note' }));
+    expect(leaving()).toBe(false);
+    await user.click(screen.getByRole('link', { name: 'Catalog' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Catalog' }),
+    ).toBeInTheDocument();
+  });
+
+  it('is a mistake outside UnsavedParts', () => {
+    // React reports the error too.
+    const quiet = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+    expect(() => render(<Note />)).toThrow(
+      'useUnsavedPart is used outside UnsavedParts',
+    );
+    quiet.mockRestore();
   });
 });

@@ -8,8 +8,10 @@ import { fakeApi, json } from '../test/fake-api';
 import {
   catalogKeys,
   useCategories,
+  useImages,
   useProduct,
   useProductPages,
+  useVariants,
 } from './catalog-queries';
 
 const CATEGORY_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
@@ -112,5 +114,72 @@ describe('the catalog data', () => {
       ),
     );
     expect(api.sent).toHaveLength(1);
+  });
+});
+
+describe("a product's pack sizes and images", () => {
+  const PACK = {
+    id: SECOND,
+    productId: FIRST,
+    sku: 'HAIR-OIL-100',
+    quantity: 100,
+    unit: 'ML',
+    mrpRupees: 350,
+    priceRupees: 320,
+    isActive: true,
+    position: 0,
+    createdAt: '2026-11-01T09:00:00.000Z',
+    updatedAt: '2026-11-01T09:00:00.000Z',
+  };
+  const PHOTO = {
+    id: SECOND,
+    productId: FIRST,
+    width: 1600,
+    height: 1600,
+    altText: null,
+    position: 0,
+    url: 'http://127.0.0.1:3000/media/products/a-large.webp',
+    thumbnailUrl: 'http://127.0.0.1:3000/media/products/a-small.webp',
+    createdAt: '2026-11-01T09:00:00.000Z',
+    updatedAt: '2026-11-01T09:00:00.000Z',
+  };
+
+  it('reads each into the cache under its product, and asks nothing for an ID that is not one', async () => {
+    setAccessToken('t1');
+    const api = fakeApi({
+      [`GET /v1/staff/products/${FIRST}/variants`]: () =>
+        json(200, { variants: [PACK] }),
+      [`GET /v1/staff/products/${FIRST}/images`]: () =>
+        json(200, { images: [PHOTO] }),
+    });
+    const { queryClient, wrapper } = withCache();
+
+    const packs = renderHook(() => useVariants(FIRST), { wrapper });
+    const photos = renderHook(() => useImages(FIRST), { wrapper });
+    const oddPacks = renderHook(() => useVariants('..'), { wrapper });
+    const oddPhotos = renderHook(() => useImages('..'), { wrapper });
+
+    await waitFor(() => expect(packs.result.current.data).toEqual([PACK]));
+    await waitFor(() => expect(photos.result.current.data).toEqual([PHOTO]));
+    await waitFor(() =>
+      expect(oddPacks.result.current.error).toEqual(
+        new ApiError(404, 'There is no such item.'),
+      ),
+    );
+    await waitFor(() =>
+      expect(oddPhotos.result.current.error).toEqual(
+        new ApiError(404, 'There is no such item.'),
+      ),
+    );
+    expect(api.sent).toHaveLength(2);
+
+    // Refreshing the product refreshes its pack sizes and images too.
+    await act(() =>
+      queryClient.invalidateQueries({ queryKey: catalogKeys.product(FIRST) }),
+    );
+    expect(api.to('GET', `/v1/staff/products/${FIRST}/variants`)).toHaveLength(
+      2,
+    );
+    expect(api.to('GET', `/v1/staff/products/${FIRST}/images`)).toHaveLength(2);
   });
 });

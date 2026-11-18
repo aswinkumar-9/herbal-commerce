@@ -1,4 +1,4 @@
-import { imageUpdateSchema } from './images.schemas';
+import { imageOrderSchema, imageUpdateSchema } from './images.schemas';
 
 // The fields an invalid change is refused for.
 function refusedFields(input: object): string[] {
@@ -36,5 +36,34 @@ describe('imageUpdateSchema', () => {
   it('refuses a change with nothing in it', () => {
     expect(refusedFields({})).toEqual(['']);
     expect(refusedFields({ fileKey: 'anything' })).toEqual(['']);
+  });
+});
+
+describe('imageOrderSchema', () => {
+  const A = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+  const B = '8d0f7780-8536-41ef-a55c-f18c2b01bf18';
+  const refused = (input: object) => {
+    const result = imageOrderSchema.safeParse(input);
+    return result.success
+      ? []
+      : result.error.issues.map((issue) => [issue.path.join('.'), issue.message]);
+  };
+  const ids = (count: number) =>
+    Array.from(
+      { length: count },
+      (_, n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    );
+
+  it('takes every image, first to last, and drops unknown fields', () => {
+    expect(imageOrderSchema.parse({ ids: [B, A], productId: A })).toEqual({ ids: [B, A] });
+    expect(refused({ ids: ids(6) })).toEqual([]);
+  });
+
+  it('refuses an empty list, a image twice, a bad ID and more than 6', () => {
+    expect(refused({ ids: [] })).toEqual([['ids', 'List the images']]);
+    expect(refused({ ids: [A, B, A] })).toEqual([['ids', 'List each image once']]);
+    expect(refused({ ids: ['main-photo'] })).toEqual([['ids.0', 'Each image by its ID']]);
+    expect(refused({ ids: ids(7) })).toEqual([['ids', 'At most 6 images']]);
+    expect(refused({})).toEqual([['ids', expect.any(String)]]);
   });
 });

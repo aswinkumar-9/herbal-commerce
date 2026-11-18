@@ -1,20 +1,31 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { setAccessToken } from '../api/access-token';
 import { ApiError } from '../api/api-error';
 import { fakeApi, json } from '../test/fake-api';
 import {
   createCategory,
   createProduct,
+  createVariant,
   deleteCategory,
+  deleteImage,
   deleteProduct,
+  deleteVariant,
   getProduct,
+  imageFileProblem,
   listCategories,
+  listImages,
   listProducts,
+  listVariants,
   nextProductPosition,
   reorderCategories,
+  reorderImages,
   reorderProducts,
+  reorderVariants,
   updateCategory,
+  updateImage,
   updateProduct,
+  updateVariant,
+  uploadImage,
 } from './catalog-api';
 
 const CATEGORY_ID = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
@@ -267,6 +278,16 @@ describe('an ID from the address bar', () => {
       deleteProduct(id),
       updateCategory(id, { name: 'x' }),
       deleteCategory(id),
+      listVariants(id),
+      createVariant(id, PACK_FIELDS),
+      updateVariant(id, { isActive: false }),
+      deleteVariant(id),
+      reorderVariants(id, [PACK_ID]),
+      listImages(id),
+      uploadImage(id, photo()),
+      updateImage(id, { altText: null }),
+      deleteImage(id),
+      reorderImages(id, [IMAGE_ID]),
     ];
 
     for (const read of reads) {
@@ -274,6 +295,235 @@ describe('an ID from the address bar', () => {
         new ApiError(404, 'There is no such item.'),
       );
     }
+    expect(api.sent).toEqual([]);
+  });
+});
+
+const PACK_ID = '2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e';
+const IMAGE_ID = '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b';
+
+const PACK_FIELDS = {
+  sku: 'BHR-OIL-100',
+  quantity: 100,
+  unit: 'ML',
+  mrpRupees: 350,
+  priceRupees: 320,
+  isActive: true,
+} as const;
+
+const PACK = {
+  ...PACK_FIELDS,
+  id: PACK_ID,
+  productId: PRODUCT_ID,
+  position: 0,
+  createdAt: '2026-11-01T09:00:00.000Z',
+  updatedAt: '2026-11-01T09:00:00.000Z',
+};
+
+const PHOTO = {
+  id: IMAGE_ID,
+  productId: PRODUCT_ID,
+  width: 1600,
+  height: 1200,
+  altText: null,
+  position: 0,
+  url: `http://127.0.0.1:3000/media/products/${IMAGE_ID}-large.webp`,
+  thumbnailUrl: `http://127.0.0.1:3000/media/products/${IMAGE_ID}-small.webp`,
+  createdAt: '2026-11-01T09:00:00.000Z',
+  updatedAt: '2026-11-01T09:00:00.000Z',
+};
+
+function photo(
+  name = 'oil.jpg',
+  type = 'image/jpeg',
+  contents: BlobPart = 'jpeg bytes',
+) {
+  return new File([contents], name, { type });
+}
+
+describe('the pack sizes', () => {
+  it('lists, adds, changes and deletes them', async () => {
+    signedIn();
+    const api = fakeApi({
+      [`GET /v1/staff/products/${PRODUCT_ID}/variants`]: () =>
+        json(200, { variants: [PACK] }),
+      [`POST /v1/staff/products/${PRODUCT_ID}/variants`]: () => json(201, PACK),
+      [`PATCH /v1/staff/variants/${PACK_ID}`]: () =>
+        json(200, { ...PACK, isActive: false }),
+      [`DELETE /v1/staff/variants/${PACK_ID}`]: () =>
+        new Response(null, { status: 204 }),
+    });
+
+    await expect(listVariants(PRODUCT_ID)).resolves.toEqual([PACK]);
+    await expect(createVariant(PRODUCT_ID, PACK_FIELDS)).resolves.toEqual(PACK);
+    await expect(
+      updateVariant(PACK_ID, { isActive: false }),
+    ).resolves.toMatchObject({ isActive: false });
+    await expect(deleteVariant(PACK_ID)).resolves.toBeUndefined();
+
+    expect(api.sent.map((request) => [request.method, request.body])).toEqual([
+      ['GET', undefined],
+      ['POST', PACK_FIELDS],
+      ['PATCH', { isActive: false }],
+      ['DELETE', undefined],
+    ]);
+    expect(api.sent.every((r) => r.authorization === 'Bearer t1')).toBe(true);
+  });
+
+  it('sends a new order, every pack size first to last', async () => {
+    signedIn();
+    const api = fakeApi({
+      [`PUT /v1/staff/products/${PRODUCT_ID}/variants/order`]: () =>
+        json(200, { variants: [PACK] }),
+    });
+
+    await expect(
+      reorderVariants(PRODUCT_ID, [OTHER_ID, PACK_ID]),
+    ).resolves.toEqual([PACK]);
+    expect(api.sent[0]?.body).toEqual({ ids: [OTHER_ID, PACK_ID] });
+  });
+
+  it('refuses a unit it does not know', async () => {
+    signedIn();
+    fakeApi({
+      [`GET /v1/staff/products/${PRODUCT_ID}/variants`]: () =>
+        json(200, { variants: [{ ...PACK, unit: 'BOTTLES' }] }),
+    });
+
+    await expect(listVariants(PRODUCT_ID)).rejects.toThrow(
+      'The server sent an answer the console does not understand.',
+    );
+  });
+});
+
+describe('the images', () => {
+  it('lists them, changes a description and deletes one', async () => {
+    signedIn();
+    const api = fakeApi({
+      [`GET /v1/staff/products/${PRODUCT_ID}/images`]: () =>
+        json(200, { images: [PHOTO] }),
+      [`PATCH /v1/staff/images/${IMAGE_ID}`]: () =>
+        json(200, { ...PHOTO, altText: 'The back label' }),
+      [`DELETE /v1/staff/images/${IMAGE_ID}`]: () =>
+        new Response(null, { status: 204 }),
+    });
+
+    await expect(listImages(PRODUCT_ID)).resolves.toEqual([PHOTO]);
+    await expect(
+      updateImage(IMAGE_ID, { altText: 'The back label' }),
+    ).resolves.toMatchObject({ altText: 'The back label' });
+    await expect(deleteImage(IMAGE_ID)).resolves.toBeUndefined();
+
+    expect(api.sent.map((request) => request.body)).toEqual([
+      undefined,
+      { altText: 'The back label' },
+      undefined,
+    ]);
+  });
+
+  it('uploads one, the file itself with its type, and says how much has gone', async () => {
+    signedIn();
+    const api = fakeApi({
+      [`POST /v1/staff/products/${PRODUCT_ID}/images`]: () => json(201, PHOTO),
+    });
+    const file = photo('oil.png', 'image/png');
+    const progress = vi.fn();
+
+    await expect(
+      uploadImage(PRODUCT_ID, file, { onProgress: progress }),
+    ).resolves.toEqual(PHOTO);
+
+    expect(api.sent[0]?.body).toBe(file);
+    expect(new Headers(api.sent[0]?.init.headers).get('Content-Type')).toBe(
+      'image/png',
+    );
+    expect(progress).toHaveBeenLastCalledWith(1);
+  });
+
+  it('sends a new order, every image first to last', async () => {
+    signedIn();
+    const api = fakeApi({
+      [`PUT /v1/staff/products/${PRODUCT_ID}/images/order`]: () =>
+        json(200, { images: [PHOTO] }),
+    });
+
+    await expect(
+      reorderImages(PRODUCT_ID, [OTHER_ID, IMAGE_ID]),
+    ).resolves.toEqual([PHOTO]);
+    expect(api.sent[0]?.body).toEqual({ ids: [OTHER_ID, IMAGE_ID] });
+  });
+
+  it.each([
+    // oxlint-disable-next-line no-script-url -- checks such an address is refused
+    ['javascript:alert(1)'],
+    ['data:image/png;base64,AAAA'],
+    ['/media/products/x.webp'],
+  ])(
+    'shows no image from an address that is not http or https: %s',
+    async (url) => {
+      signedIn();
+      fakeApi({
+        [`GET /v1/staff/products/${PRODUCT_ID}/images`]: [
+          () => json(200, { images: [{ ...PHOTO, url }] }),
+          () => json(200, { images: [{ ...PHOTO, thumbnailUrl: url }] }),
+        ],
+      });
+
+      // The large photo's address, then the small one's.
+      await expect(listImages(PRODUCT_ID)).rejects.toThrow(
+        'The server sent an answer the console does not understand.',
+      );
+      await expect(listImages(PRODUCT_ID)).rejects.toThrow(
+        'The server sent an answer the console does not understand.',
+      );
+    },
+  );
+});
+
+describe('a file to upload', () => {
+  const big = new Uint8Array(10 * 1024 * 1024 + 1);
+  const HEIC = 'HEIC photos cannot be used. Save it as a JPEG first.';
+  const NOT_AN_IMAGE = 'Choose a JPEG, PNG or WebP image.';
+
+  it.each([
+    ['a JPEG', photo('oil.jpg', 'image/jpeg'), null],
+    ['a WebP', photo('oil.webp', 'image/webp'), null],
+    [
+      'a PNG of exactly 10 MB',
+      photo('oil.png', 'image/png', new Uint8Array(10 * 1024 * 1024)),
+      null,
+    ],
+    ['a HEIC photo', photo('IMG_0042.HEIC', 'image/heic'), HEIC],
+    // Some browsers give a HEIC file no type at all.
+    ['a HEIC photo with no type', photo('IMG_0042.heic', ''), HEIC],
+    // And a photo shared from a phone may have no file extension.
+    ['a HEIF photo with no extension', photo('IMG_0042', 'image/heif'), HEIC],
+    ['a GIF', photo('oil.gif', 'image/gif'), NOT_AN_IMAGE],
+    ['an SVG', photo('oil.svg', 'image/svg+xml'), NOT_AN_IMAGE],
+    ['a PDF', photo('notes.pdf', 'application/pdf'), NOT_AN_IMAGE],
+    ['an empty file', photo('oil.jpg', 'image/jpeg', ''), 'The file is empty.'],
+    [
+      'a file over 10 MB',
+      photo('oil.jpg', 'image/jpeg', big),
+      'The file is 10.1 MB. An image may be at most 10 MB.',
+    ],
+  ])('%s', (_name, file, problem) => {
+    expect(imageFileProblem(file)).toBe(problem);
+  });
+
+  it('is not sent when the API would refuse it', async () => {
+    signedIn();
+    const api = fakeApi({});
+
+    await expect(
+      uploadImage(PRODUCT_ID, photo('oil.gif', 'image/gif')),
+    ).rejects.toEqual(new ApiError(415, NOT_AN_IMAGE));
+    await expect(
+      uploadImage(PRODUCT_ID, photo('oil.jpg', 'image/jpeg', big)),
+    ).rejects.toMatchObject({ status: 413 });
+    await expect(
+      uploadImage(PRODUCT_ID, photo('oil.jpg', 'image/jpeg', '')),
+    ).rejects.toMatchObject({ status: 400, message: 'The file is empty.' });
     expect(api.sent).toEqual([]);
   });
 });

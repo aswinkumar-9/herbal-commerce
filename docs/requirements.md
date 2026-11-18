@@ -68,7 +68,7 @@ Assumptions to confirm: Admin handles delivery and return approval but never mon
 - Payments through a gateway (sandbox first), server-verified, idempotent. Razorpay, chosen by the owner on 2026-11-08 (ADR 0027)
 - Order lifecycle, cancellations, returns, refunds. Since part 9: packed, shipped and delivered, typed in by staff, and cancelling until shipped with the payment back in full, by the owner's choices on 2026-11-09 (ADR 0028). Returns are still to come.
 - GST invoices (system-generated, sequential per financial year)
-- Admin console: catalog, prices, stock, orders, returns, customers (limited). Since part 12A: React and Vite, staff sign-in, the menu for each role, and signing out after 30 minutes without activity, by the owner's choices on 2026-11-11 and 2026-11-12 (ADR 0031). Since part 12B: categories and products, with search by name, ordering by drag and drop, a page for each product, and deleting for Super Users after a dialog that says what is lost (ADR 0032). Its other pages follow: pack sizes, images and stock, then orders and refunds.
+- Admin console: catalog, prices, stock, orders, returns, customers (limited). Since part 12A: React and Vite, staff sign-in, the menu for each role, and signing out after 30 minutes without activity, by the owner's choices on 2026-11-11 and 2026-11-12 (ADR 0031). Since part 12B: categories and products, with search by name, ordering by drag and drop, a page for each product, and deleting for Super Users after a dialog that says what is lost (ADR 0032). Since part 12C: each product's pack sizes, edited in a dialog, and its images, several uploaded at once with their progress, both ordered by drag and drop, so a product goes live from the console, by the owner's choices on 2026-11-13 (ADR 0033). Its other pages follow: stock, then orders and refunds.
 - Super User console sections: admin management, invoices, payments, audit log, settings
 - Email and in-app notifications; basic support tickets. Since part 10, order emails: to the customer when an order is paid (a full summary), packed, shipped (with the courier and tracking number, again if corrected), delivered or cancelled, and when a refund is complete; and to the Super Users when a refund fails, by the owner's choices on 2026-11-11 (ADR 0029). In-app notifications and support tickets are still to come.
 
@@ -100,3 +100,74 @@ GST (HSN codes, invoices), FSSAI/AYUSH licence numbers on products, Legal Metrol
 6. API style: REST + OpenAPI (leaning) or GraphQL.
 7. Who is the business owner in the role model: a Super User or an Admin?
 8. Confirm the permission matrix in section 4. For orders, delivery and refunds, the owner decided part 9's share on 2026-11-09 (ADR 0028).
+
+## 10. Planned requirements (owner, 2026-11-18)
+
+The owner added these for later parts. They are not built yet. Everything built from now on must stay compatible with them.
+
+### 10.1 Analytics and reports
+
+For Super Users, an interactive dashboard:
+- **Figures:** sales overall, revenue and order trends, customer growth, new and returning customers, top products and categories, low stock, inventory performance, profit and loss, and the average order value.
+- **Reports, with drill-down, by:**
+  - place: overall, country, state, division and city;
+  - catalog: category, subcategory, product, brand, and vendor or supplier;
+  - customer;
+  - date range: daily, weekly, monthly, quarterly and yearly;
+  - payment method and order status.
+- **Charts:** bar, line, pie, donut, area and heat maps, KPI cards, comparisons, and growth percentages.
+- **Export** to PDF, Excel and CSV. The PDF has a professional layout, fit for presentations and audits.
+
+**What the data needs first.** Some of these figures need data the system does not keep yet:
+
+| For | Missing today |
+|---|---|
+| Profit and loss | Any cost. A stock batch has no purchase or making cost (open decision 2). |
+| Payment method | The method (UPI, card, netbanking, wallet) and Razorpay's fee are not stored. Razorpay sends both with each payment. |
+| Category, subcategory and product | An order line keeps the product's name and SKU, but not the product or its category at the time of the sale. |
+| Subcategory | Categories have one level only (ADR 0020). |
+| Brand, vendor or supplier | Neither exists. Multi-vendor is deferred (section 6), and D1 rules out dealers. A supplier per stock batch would fit products bought from makers. |
+| Division | Not stored. It can come from the PIN code, with India Post's directory. Orders keep the city, state and PIN code. |
+| Country | Delivery is to India only (ADR 0026), so for now it is the same as overall. |
+| Low stock | No threshold. Customers see only "in stock" or "out of stock" (ADR 0024). |
+
+These are best added before launch: an order placed without them can't be reported on them later.
+
+**How it will be built:**
+- Super Users only, with each export written to the audit log.
+- Reports read daily summaries, counted in Indian time, not the live order tables, so the shop stays fast.
+- Amounts in whole rupees, as everywhere.
+- CSV and Excel files never start a cell with `=`, `+`, `-` or `@` unescaped, so a spreadsheet can't run a cell as a formula.
+- PDFs are made by the API, so they look the same every time.
+- Charts run under the console's security policy, checked in a real browser.
+
+### 10.2 The website and the apps
+
+For the website and the Android and iOS apps:
+- **Style:** a blend of minimalism, glassmorphism, neumorphism or claymorphism, flat design and Material principles, responsive and mobile first.
+- **Experience:**
+  - one consistent design system, and smooth animations and micro-interactions;
+  - accessibility, and dark and light modes;
+  - fast rendering, modern typography and a professional palette;
+  - intuitive navigation and touch-friendly controls.
+- **More:**
+  - a personalised dashboard, and real-time notifications;
+  - advanced search and filters;
+  - an installable web app (PWA), offline where it makes sense, and several languages;
+  - clear security steps, and faster checkout;
+  - skeleton screens while pages load.
+
+**How it will be built:**
+- One set of design tokens for the console, the website and the apps. The console's herbal green in light and dark is the start.
+- Glass and soft depth only on a few surfaces, such as bars and sheets. Every text keeps WCAG 2.2 AA contrast. They switch off for people who ask the system for less transparency or motion. Blur is used sparingly, as it slows low-end Android phones.
+- Offline means browsing only: the app never keeps a signed-in customer's data for offline use, and checkout and payment stay online.
+- The website's and the apps' texts are kept apart from the code from the first page, so languages can be added. The admin console stays in English.
+
+### 10.3 Questions for the owner
+
+1. Should each stock batch keep its cost, in whole rupees? This depends on open decision 2.
+2. Subcategories: one level under each category?
+3. Is there more than one brand? Should each batch name its supplier?
+4. Low stock: one threshold for all, or one per pack size?
+5. Several languages are on the deferred list (section 6). Do they come into scope, and which languages?
+6. The apps: React Native (Expo) would share TypeScript, the API's types and the design tokens with the website. Choose when the apps start.

@@ -9,14 +9,23 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
 } from '@nestjs/common';
 import type { AuditContext } from '../audit/audit-context';
 import { CurrentAuditContext } from '../audit/audit-context.decorator';
 import { StaffOnly } from '../auth/staff-only.decorator';
 import { SuperUserOnly } from '../auth/super-user-only.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
-import { variantSchema, variantUpdateSchema } from './variants.schemas';
-import type { VariantInput, VariantUpdateInput } from './variants.schemas';
+import {
+  variantOrderSchema,
+  variantSchema,
+  variantUpdateSchema,
+} from './variants.schemas';
+import type {
+  VariantInput,
+  VariantOrderInput,
+  VariantUpdateInput,
+} from './variants.schemas';
 import { VariantsService } from './variants.service';
 
 // Pack sizes and their prices, for staff (ADR 0022). Admins and Super Users
@@ -44,6 +53,17 @@ export class StaffVariantsController {
     @CurrentAuditContext() context: AuditContext,
   ) {
     return this.variants.create(productId, body, context);
+  }
+
+  // A new order for a product's pack sizes: all of them, first to last
+  // (ADR 0033).
+  @Put('products/:productId/variants/order')
+  reorder(
+    @Param('productId', new ParseUUIDPipe()) productId: string,
+    @Body(new ZodValidationPipe(variantOrderSchema)) body: VariantOrderInput,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.variants.reorder(productId, body, context);
   }
 
   // Changes a pack size: its prices, its SKU, its size, or whether it is
