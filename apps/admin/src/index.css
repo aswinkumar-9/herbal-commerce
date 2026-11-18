@@ -21,6 +21,9 @@
   --danger-strong: #912018;
   --danger-soft: #fdecea;
   --on-danger: #ffffff;
+  /* Needs attention soon, such as low stock: 5.2:1 on its soft colour. */
+  --warning: #8a5a12;
+  --warning-soft: #fbf0dc;
   --focus: #3f8f5c;
 }
 
@@ -41,6 +44,8 @@
     --danger-strong: #f5a89f;
     --danger-soft: #3a1d1a;
     --on-danger: #2a0d0a;
+    --warning: #e3b363;
+    --warning-soft: #33281a;
     --focus: #86c99d;
   }
 }
@@ -61,6 +66,8 @@
   --color-danger-strong: var(--danger-strong);
   --color-danger-soft: var(--danger-soft);
   --color-on-danger: var(--on-danger);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
   --color-focus: var(--focus);
   --radius-card: 0.875rem;
   --shadow-soft:

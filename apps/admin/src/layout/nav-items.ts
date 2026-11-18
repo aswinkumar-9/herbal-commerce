@@ -37,7 +37,6 @@ export const NAV_ITEMS: NavItem[] = [
     to: '/stock',
     label: 'Stock',
     icon: Boxes,
-    arrives: 'Part 12D',
     summary: 'Batches received, expiry dates and what is in stock.',
   },
   {
