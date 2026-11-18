@@ -527,10 +527,10 @@ function ChangeForm({ batch, onDone }: { batch: Batch; onDone: () => void }) {
           {kinds.map(({ kind, label, hint }) => (
             <label
               key={kind}
-              className={`flex cursor-pointer flex-col gap-0.5 rounded-lg border p-3 text-sm transition-colors duration-150 has-focus-visible:ring-2 has-focus-visible:ring-primary ${
+              className={`flex cursor-pointer flex-col gap-0.5 rounded-control border p-3 text-sm transition-[background-color,border-color,box-shadow] duration-150 has-focus-visible:ring-2 has-focus-visible:ring-primary ${
                 form.values.kind === kind
-                  ? 'border-primary bg-primary-soft'
-                  : 'border-line bg-surface hover:bg-surface-muted'
+                  ? 'border-primary bg-primary-soft inset-shadow-pressed'
+                  : 'border-line bg-surface shadow-clay-sm inset-shadow-clay hover:bg-surface-muted'
               }`}
             >
               <span className="flex items-center gap-2 font-medium">
@@ -677,7 +677,7 @@ function CountForm({ batch, onDone }: { batch: Batch; onDone: () => void }) {
           save it again.
         </Problem>
       ) : null}
-      <div className="rounded-lg bg-surface-muted px-4 py-3 text-sm">
+      <div className="rounded-lg bg-surface-muted px-4 py-3 text-sm inset-shadow-well">
         <p>
           Should be on the shelf:{' '}
           <strong className="text-base">{packs(batch.onShelf)}</strong>

@@ -115,7 +115,7 @@ export function SignInPage() {
         initial="hidden"
         animate="shown"
         aria-labelledby="sign-in-title"
-        className="w-full max-w-sm rounded-card border border-line bg-surface p-8 shadow-soft"
+        className="w-full max-w-sm rounded-card border border-line bg-surface p-8 shadow-clay-lg inset-shadow-clay"
       >
         <Brand />
         <h1 id="sign-in-title" className="mt-8 text-xl font-semibold">
@@ -215,7 +215,7 @@ export function SignInPage() {
             type="submit"
             disabled={busy}
             whileTap={busy ? undefined : { scale: 0.98 }}
-            className="flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary font-medium text-on-primary transition-colors hover:bg-primary-strong disabled:cursor-wait disabled:opacity-80"
+            className="flex h-11 w-full items-center justify-center gap-2 rounded-control bg-primary bg-linear-to-b from-white/15 to-white/0 font-medium text-on-primary shadow-clay-sm inset-shadow-clay-solid transition-colors hover:bg-primary-strong disabled:cursor-wait disabled:opacity-80"
           >
             {busy ? (
               <>

@@ -130,10 +130,10 @@ export function StockPage() {
                   type="button"
                   aria-pressed={pressed}
                   onClick={() => setFilter('status', filter.value)}
-                  className={`relative h-11 rounded-full px-4 text-sm font-medium transition-colors duration-150 ${
+                  className={`relative h-11 rounded-full px-4 text-sm font-medium transition-[color,background-color,box-shadow] duration-150 ${
                     pressed
                       ? 'text-primary-strong'
-                      : 'border border-line bg-surface text-ink-muted hover:bg-surface-muted hover:text-ink'
+                      : 'border border-line bg-surface text-ink-muted shadow-clay-sm inset-shadow-clay hover:bg-surface-muted hover:text-ink'
                   }`}
                 >
                   {pressed ? (
@@ -141,7 +141,7 @@ export function StockPage() {
                       layoutId="stock-filter"
                       transition={transition}
                       aria-hidden="true"
-                      className="absolute inset-0 rounded-full border border-primary/60 bg-primary-soft"
+                      className="absolute inset-0 rounded-full border border-primary/50 bg-primary-soft inset-shadow-pressed"
                     />
                   ) : null}
                   <span className="relative">{filter.label}</span>
@@ -214,7 +214,7 @@ export function StockPage() {
                   delay: Math.min(index, 10) * 0.03,
                 },
               }}
-              className="overflow-hidden rounded-card border border-line bg-surface"
+              className="overflow-hidden rounded-card border border-line bg-surface shadow-clay inset-shadow-clay"
             >
               <ProductStock group={group} listSearch={params.toString()} />
             </motion.li>

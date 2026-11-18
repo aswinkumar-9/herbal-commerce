@@ -506,7 +506,7 @@ function FormSection({
     <motion.section
       variants={rise}
       aria-labelledby={id}
-      className="rounded-card border border-line bg-surface p-5 sm:p-6"
+      className="rounded-card border border-line bg-surface p-5 shadow-clay inset-shadow-clay sm:p-6"
     >
       <h2 id={id} className="font-semibold">
         {title}
@@ -537,7 +537,7 @@ function SaveBar({
   onDiscard: () => void;
 }) {
   return (
-    <div className="sticky bottom-0 z-20 -mx-6 border-t border-line bg-canvas/90 px-6 py-3 backdrop-blur lg:-mx-10 lg:px-10">
+    <div className="glass sticky bottom-0 z-20 -mx-6 border-t border-line/70 px-6 py-3 inset-shadow-glass lg:-mx-10 lg:px-10">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-h-5 text-sm">
           <AnimatePresence mode="wait" initial={false}>

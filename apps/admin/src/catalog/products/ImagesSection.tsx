@@ -136,7 +136,7 @@ export function ImagesSection({ product }: { product: Product }) {
       initial="hidden"
       animate="shown"
       aria-labelledby={titleId}
-      className="mt-6 rounded-card border border-line bg-surface p-5 sm:p-6"
+      className="mt-6 rounded-card border border-line bg-surface p-5 shadow-clay inset-shadow-clay sm:p-6"
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -332,7 +332,7 @@ function ImageRowItem({
             {row.altText ?? 'No description'}
           </p>
           {index === 0 ? (
-            <span className="shrink-0 rounded-full bg-primary-soft px-2 py-0.5 text-xs font-medium text-primary-strong">
+            <span className="shrink-0 rounded-full bg-primary-soft px-2 py-0.5 text-xs font-medium text-primary-strong shadow-chip inset-shadow-clay">
               Main photo
             </span>
           ) : null}

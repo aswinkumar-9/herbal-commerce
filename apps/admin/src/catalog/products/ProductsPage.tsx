@@ -223,7 +223,7 @@ export function ProductsPage() {
                     delay: Math.min(index % PAGE_SIZE, 10) * 0.03,
                   },
                 }}
-                className="relative flex items-center gap-3 rounded-card border border-line bg-surface p-3 transition-colors duration-150 hover:border-primary/40"
+                className="relative flex items-center gap-3 rounded-card border border-line bg-surface p-3 shadow-clay-sm inset-shadow-clay transition-[border-color,box-shadow] duration-150 hover:border-primary/40 hover:shadow-clay"
               >
                 <ProductSummary
                   product={product}
@@ -422,7 +422,7 @@ function OrderedRow({
         transition: { duration: DURATION.fast, ease: EASE_OUT },
       }}
       whileDrag={{ scale: 1.01, boxShadow: '0 12px 32px rgb(16 24 18 / 0.16)' }}
-      className="relative flex items-center gap-3 rounded-card border border-line bg-surface p-3 transition-colors duration-150 hover:border-primary/40"
+      className="relative flex items-center gap-3 rounded-card border border-line bg-surface p-3 shadow-clay-sm inset-shadow-clay transition-[border-color,box-shadow] duration-150 hover:border-primary/40 hover:shadow-clay"
     >
       <DragHandle
         label={`Move ${product.name}`}

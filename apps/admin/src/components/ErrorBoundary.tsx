@@ -24,7 +24,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, State> {
 export function CrashScreen() {
   return (
     <main className="grid min-h-dvh place-items-center p-6">
-      <section className="w-full max-w-sm rounded-card border border-line bg-surface p-8 text-center shadow-soft">
+      <section className="w-full max-w-sm rounded-card border border-line bg-surface p-8 text-center shadow-clay-lg inset-shadow-clay">
         <h1 className="text-lg font-semibold">Something went wrong</h1>
         <p className="mt-2 text-sm text-ink-muted">
           The page could not be shown. Reloading usually helps.

@@ -220,7 +220,7 @@ function CategoryRow({
         transition: { duration: DURATION.fast, ease: EASE_OUT },
       }}
       whileDrag={{ scale: 1.01, boxShadow: '0 12px 32px rgb(16 24 18 / 0.16)' }}
-      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border border-line bg-surface p-3 sm:flex-nowrap"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-card border border-line bg-surface p-3 shadow-clay-sm inset-shadow-clay sm:flex-nowrap"
     >
       <DragHandle
         label={`Move ${category.name}`}
