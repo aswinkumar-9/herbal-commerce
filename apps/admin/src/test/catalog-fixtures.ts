@@ -103,6 +103,7 @@ export const ML_100 = {
   mrpRupees: 250,
   priceRupees: 225,
   isActive: true,
+  lowStockAt: 10,
   position: 0,
   createdAt: at,
   updatedAt: at,

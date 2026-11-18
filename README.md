@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries and write stock off, every change is kept as a movement, and a batch sells only with at least 6 months left. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. The admin console has begun (part 12A): staff sign in with the password and the authenticator code, stay signed in through a cookie the page cannot read, see the menu for their role, and are signed out after 30 minutes without activity. Since part 12B, staff run the categories and products there: they find products by name, filter them, drag them into the order customers see, edit each product on its own page with the same checks as the API, and Super Users delete them after a dialog that says what is lost. Since part 12C, each product's page has its pack sizes and images too: staff add and change pack sizes in a dialog, put them and the images in order by dragging, and upload several photos at once, each with its progress, so a product now goes live from the console. Stock comes next. There is no customer app or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries, write stock off and put it right after counting a shelf, every change is kept as a movement, and a batch sells only with at least 6 months left. Each pack size has its own low-stock number, 10 packs unless staff change it. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. The admin console has begun (part 12A): staff sign in with the password and the authenticator code, stay signed in through a cookie the page cannot read, see the menu for their role, and are signed out after 30 minutes without activity. Since part 12B, staff run the categories and products there: they find products by name, filter them, drag them into the order customers see, edit each product on its own page with the same checks as the API, and Super Users delete them after a dialog that says what is lost. Since part 12C, each product's page has its pack sizes and images too: staff add and change pack sizes in a dialog, put them and the images in order by dragging, and upload several photos at once, each with its progress, so a product now goes live from the console. Since part 12D, the Stock page lists every pack size with its stock, filtered to those out of stock, low or with a batch that stops selling within 30 days, and each pack size has its own page: its batches, receiving a delivery, correcting a label, writing packs off, counting a shelf, and each batch's history. A count that went stale while staff typed it is never saved. Each product's page shows its pack sizes' stock too. Orders and refunds come next. There is no customer app or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -204,7 +204,7 @@ Remove-Variable secure, code, body, login
 
 ## Open the admin console
 
-The admin console is a web app for staff (ADR 0031). Since part 12B its Catalog area has the categories and products (ADR 0032), and since part 12C each product's pack sizes and images (ADR 0033): see "Manage the catalog in the console" and "Manage pack sizes and images in the console" below. Its other areas come in the next parts.
+The admin console is a web app for staff (ADR 0031). Since part 12B its Catalog area has the categories and products (ADR 0032), since part 12C each product's pack sizes and images (ADR 0033), and since part 12D its Stock area (ADR 0034): see "Manage the catalog in the console", "Manage pack sizes and images in the console" and "Manage stock in the console" below. Its other areas come in the next parts.
 
 1. Start the API (`pnpm api:dev`), then, in a second terminal:
    ```powershell
@@ -259,6 +259,23 @@ On a product's page, below "In the shop", are two more sections: **Pack sizes** 
   - Delete is there for Admins too. A live product's only image can't be deleted: add another first.
 - **Changing the order** of pack sizes or images works as for categories: drag a row by its handle, or focus the handle with Tab and press Up, Down, Home or End. The first image is the main photo, shown on the product's card in the shop.
 - **A photo dropped beside the box is ignored,** with a "no drop" pointer, so it never opens in the tab in place of the console.
+
+### Manage stock in the console
+
+Open **Stock** in the menu (ADR 0034). Admins and Super Users both have it.
+
+- **The Stock page** lists every pack size, drafts and those off sale too, by product:
+  - each row says how many packs may be sold, how many are for orders still to pack and how many are packed for shipping, and when its next batch stops selling. A tag says "In stock", "Low" or "Out of stock";
+  - "Show" filters it: Out of stock, Low or out, or Expiring soon (a batch stops selling within 30 days). Search finds a product's name or a SKU. Both stay in the page's address;
+  - click a row to open that pack size. "Stock" at the top of its page brings the list back as you left it.
+- **A pack size's page** has its batches, the first to expire first, the order in which orders take them. Each shows its label dates, when it stops selling, and four numbers: free to sell, for orders to pack, on the shelf, and packed for shipping. Empty batches are folded away under "N empty batches".
+  - **Receive a delivery:** the batch number, the two dates from the label, and how many packs came. A batch with less than 6 months left is received but never sold, and the dialog says so first;
+  - **Change stock:** "Damaged or lost" and "Expired" write packs off, at most the batch's free packs. "More arrived" adds packs to the same batch;
+  - **Correct label:** fixes the batch number or a date. The stock never changes here;
+  - **Count:** count the packs on the shelf, leaving out those already packed in boxes, and type the number. The dialog shows what should be there and whether the stock goes up or down. A count that differs needs a reason. If an order takes or gives back packs while you count, the dialog shows the new number, and nothing is saved until you check your count and save again;
+  - **History:** the batch's changes, newest first, orders' included.
+- **When a pack size counts as low:** at its "Low stock at (packs)" or fewer packs that may be sold, set in the pack size's dialog on the product's page. 10 by default; 0 means never low, only out of stock.
+- **On a product's page,** each pack size shows its stock in one line, and "Batches" opens its page. From there, the way back is to the product.
 
 ## Invite an Admin
 
@@ -607,7 +624,7 @@ On a laptop the files live in `apps/api/storage/media`, which Git ignores, and t
 
 ## Manage stock
 
-Each pack size's stock is kept in batches, in one warehouse (ADR 0024). A batch is one delivery, with the batch number, manufacturing date and expiry date from its label. **A batch sells only with at least 6 months left** before it expires. Customers see only whether a pack is in stock, never how many. Admins and Super Users receive batches, correct them and change their stock. Every change is a movement that is kept for good, and nothing in stock is ever deleted.
+Each pack size's stock is kept in batches, in one warehouse (ADR 0024). A batch is one delivery, with the batch number, manufacturing date and expiry date from its label. **A batch sells only with at least 6 months left** before it expires. Customers see only whether a pack is in stock, never how many. Admins and Super Users receive batches, correct them and change their stock. Every change is a movement that is kept for good, and nothing in stock is ever deleted. The admin console is the everyday way (see "Manage stock in the console"); this is the same by hand.
 
 Dates are written like `2028-09-30` (year, month, day), and "today" is India's date.
 
@@ -625,9 +642,10 @@ Dates are written like `2028-09-30` (year, month, day), and "today" is India's d
 3. **See the pack size's stock,** the first to expire first:
    ```powershell
    $stock = Invoke-RestMethod -Uri "$api/staff/variants/$variantId/batches" -Headers $auth
-   $stock.batches | Format-Table batchNumber, manufacturedOn, expiresOn, quantity, sellable, id
-   "$($stock.quantity) on hand, $($stock.sellableQuantity) sellable"
+   $stock.batches | Format-Table batchNumber, expiresOn, stopsSellingOn, quantity, awaitingPacking, packed, onShelf, sellable, id
+   "$($stock.stock.free) free, $($stock.stock.sellable) sellable: $($stock.stock.level)"
    ```
+   `onShelf` is what a count of the batch's shelf should find: its free packs and those of orders not yet packed. Packs of packed orders are in their boxes.
    To work on another batch, take its ID from this list: `$batchId = '<its id>'`.
 4. **Run only the line you need:**
    ```powershell
@@ -639,6 +657,9 @@ Dates are written like `2028-09-30` (year, month, day), and "today" is India's d
    Invoke-RestMethod -Method Post -Uri "$api/staff/batches/$batchId/movements" -Headers $auth -ContentType $json -Body '{"change":-10,"reason":"EXPIRED"}'
    # A count found a difference: either way, and always with a note.
    Invoke-RestMethod -Method Post -Uri "$api/staff/batches/$batchId/movements" -Headers $auth -ContentType $json -Body '{"change":-1,"reason":"CORRECTION","note":"Count on 6 Nov"}'
+   # Put it right from a count of the shelf: what you counted, and the onShelf you were shown. A difference needs a note.
+   $onShelf = ($stock.batches | Where-Object id -eq $batchId).onShelf
+   Invoke-RestMethod -Method Post -Uri "$api/staff/batches/$batchId/count" -Headers $auth -ContentType $json -Body (@{ counted = 117; onShelf = $onShelf; note = '3 found broken' } | ConvertTo-Json)
    # Correct the label details, never the stock.
    Invoke-RestMethod -Method Patch -Uri "$api/staff/batches/$batchId" -Headers $auth -ContentType $json -Body '{"expiresOn":"2028-10-31"}'
    ```
@@ -646,19 +667,25 @@ Dates are written like `2028-09-30` (year, month, day), and "today" is India's d
    ```powershell
    (Invoke-RestMethod -Uri "$api/staff/batches/$batchId/movements" -Headers $auth).movements | Format-Table createdAt, change, reason, note
    ```
-6. **What customers see,** without a token:
+6. **Every pack size's stock,** as the console's Stock page lists it. `status` may be `out`, `low` or `expiring`, and `q` looks in product names and SKUs:
+   ```powershell
+   (Invoke-RestMethod -Uri "$api/staff/stock?status=low" -Headers $auth).lines | ForEach-Object { "$($_.product.name) $($_.variant.sku): $($_.stock.sellable) sellable, $($_.stock.level)" }
+   ```
+   To change when a pack size counts as low (0 for never): `Invoke-RestMethod -Method Patch -Uri "$api/staff/variants/$variantId" -Headers $auth -ContentType $json -Body '{"lowStockAt":5}'`
+7. **What customers see,** without a token:
    ```powershell
    (Invoke-RestMethod "$api/products/ashwagandha-capsules").variants | Format-Table sku, priceRupees, inStock
    ```
-7. **Sign out and clean up,** as in "Manage pack sizes and prices", step 7, then:
+8. **Sign out and clean up,** as in "Manage pack sizes and prices", step 7, then:
    ```powershell
-   Remove-Variable batchId, stock -ErrorAction SilentlyContinue
+   Remove-Variable batchId, stock, onShelf -ErrorAction SilentlyContinue
    ```
 
 - **"In stock" needs 6 months of shelf life.** A pack with only short-dated batches shows `inStock` `False` in the shop, even with packs on the shelf. Staff see such a batch as `sellable` `False`, and write it off when it expires.
 - **Mistakes are put right by another movement,** never by deleting one: a correction with a note.
 - **A pack size or product that still holds stock cannot be deleted.** Write its batches off to 0 first, then delete it.
-- Every change is in the audit log: `batch.received`, `batch.updated` (with only what changed) and `stock.changed` (with the quantity before and after). Read a batch's story with `?targetId=$batchId` (see "Read the audit log").
+- **A count refuses to save if the stock changed meanwhile** (`409`): an order took or gave back packs of the batch after you read `onShelf`. Read the batches again and count again.
+- Every change is in the audit log: `batch.received`, `batch.updated` (with only what changed), `stock.changed` (with the quantity before and after) and `stock.counted` (with what should have been on the shelf, what was counted, and why). Read a batch's story with `?targetId=$batchId` (see "Read the audit log").
 
 ## Search the shop
 
@@ -947,6 +974,7 @@ Each email is saved with the change it tells of, and sent within a second of it.
 │   │       ├── api/            the one API client: the access token in memory, renewal one at a time, answers checked
 │   │       ├── auth/           signing in, the session and its tabs, the role guards, the idle sign-out
 │   │       ├── catalog/        the catalog pages: categories, products with their pack sizes and images, and ordering by drag and drop (ADR 0032, ADR 0033)
+│   │       ├── stock/          the Stock page, each pack size's batches, and their dialogs: receive, change, correct, count (ADR 0034)
 │   │       ├── components/, layout/, pages/   the screens, the menu and the pages
 │   │       ├── security-headers.ts   the page's Content Security Policy and security headers
 │   │       ├── motion.ts       the console's motion: durations and movements
@@ -961,7 +989,7 @@ Each email is saved with the change it tells of, and sent within a second of it.
 │           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset and change, access and roles guards, /v1/me
 │           ├── cart/           signed-in customers' carts: the rules (4 packs of one product, 50 pack sizes, totals) and the routes
 │           ├── catalog/        categories, products, pack sizes and images: their rules (slug, going live, prices, image checks), the staff routes and the public shop
-│           ├── inventory/      stock per batch: the rules (dates, 6-month shelf life), the staff routes, "in stock" for the shop, and taking and giving back stock for orders
+│           ├── inventory/      stock per batch: the rules (dates, 6-month shelf life, when a batch stops selling, low stock), the staff routes and the Stock page's list, counts of a shelf, what orders hold of each batch, "in stock" for the shop, and taking and giving back stock for orders
 │           ├── orders/         checkout and customers' orders: the rules (totals, delivery, GST, references), the routes, paying for them and Razorpay's webhooks, the job that expires unpaid orders, and staff taking orders through their steps
 │           ├── payments/       payments and refunds, the Super Users' list of refunds, and the only code that talks to Razorpay
 │           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
@@ -1018,6 +1046,9 @@ Each email is saved with the change it tells of, and sent within a second of it.
 - **"The categories (or products) changed while you were ordering them":** someone added, moved or deleted one meanwhile, perhaps in another tab. The list has been read again: drag once more.
 - **A product can't go live from the console ("Add an image first"):** it has no image yet. Add one in the page's Images section, then turn on "Customers see it" and save.
 - **"The product's pack sizes (or images) changed while you were ordering them":** one was added or deleted meanwhile, perhaps in another tab. The list has been read again: drag once more.
+- **A count says "The stock changed while you were counting":** an order took or gave back packs of that batch meanwhile. The dialog now shows what should be on the shelf: check your count against it, then save again.
+- **A count is refused: "Orders waiting to be packed need N packs of this batch":** fewer packs were counted than unpacked orders still need. Find those packs, or check those orders (see "Handle orders"), before correcting the count.
+- **A pack size shows "Low" or "Out of stock" with plenty on the shelf:** its batches may be too near expiry to sell (the Stock page says "too near expiry to sell"), or its "Low stock at" is set high. Change that in the pack size's dialog on the product's page.
 - **An image row says "The server had a problem. Try again in a moment.":** the API may be busy checking other photos (2 at once, and 10 waiting). Click "Try again" after a few seconds. If it fails again, look at the API's log.
 - **The admin console signed you out unexpectedly:** after 30 minutes without activity it does so on purpose, and says so. Otherwise the session's 12 hours ran out, or you signed out in another tab.
 - **The API refuses to start: `MFA_ENCRYPTION_KEY: ...`:** add your own value to `.env` (see First-time setup, step 1). It must differ from `JWT_ACCESS_SECRET`.

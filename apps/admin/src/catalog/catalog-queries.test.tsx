@@ -127,6 +127,7 @@ describe("a product's pack sizes and images", () => {
     mrpRupees: 350,
     priceRupees: 320,
     isActive: true,
+    lowStockAt: 10,
     position: 0,
     createdAt: '2026-11-01T09:00:00.000Z',
     updatedAt: '2026-11-01T09:00:00.000Z',

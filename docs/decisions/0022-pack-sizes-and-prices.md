@@ -7,6 +7,7 @@
 - Updated: 2026-11-06 (part 6: a customer's cart names a pack by its SKU, and always shows today's price, see ADR 0025)
 - Updated: 2026-11-08 (part 7: orders keep whole rupees too, the GST rounded to the nearest rupee, by the owner's choice: the plan for paise below is dropped, see ADR 0026)
 - Updated: 2026-11-18 (part 12C: staff put all of a product's packs in a new order in one request, from the admin console, see ADR 0033)
+- Updated: 2026-11-19 (part 12D: each pack has its own low-stock number, `lowStockAt`, see ADR 0034)
 
 ## Context
 

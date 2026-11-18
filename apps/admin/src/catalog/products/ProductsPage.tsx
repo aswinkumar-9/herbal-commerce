@@ -7,12 +7,13 @@ import {
   motion,
   useDragControls,
 } from 'motion/react';
-import { useEffect, useId, useRef, useState } from 'react';
-import type { FormEvent, KeyboardEvent } from 'react';
+import { useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { problemMessage } from '../../api/problems';
 import { Button, buttonClass } from '../../components/Button';
 import { SelectField } from '../../components/Field';
+import { SearchBox, searchWords, tidyWords } from '../../components/SearchBox';
 import { useToasts } from '../../components/toast-context';
 import { DURATION, EASE_OUT, transition } from '../../motion';
 import { usePageTitle } from '../../page-title';
@@ -30,20 +31,8 @@ import { missingToGoLive } from './product-form';
 // A page holds this many: most categories fit on one, so their order can
 // be changed straight away.
 const PAGE_SIZE = 100;
-// Typing pauses this long before the search is sent.
-const SEARCH_PAUSE_MS = 300;
-const SEARCH_MAX = 100;
 
 type Status = 'live' | 'draft';
-
-// The words as the API reads them: each run of spaces made one.
-const tidyWords = (text: string) => text.trim().replace(/\s+/g, ' ');
-
-// At least two characters, else no search.
-function searchWords(text: string): string | undefined {
-  const words = tidyWords(text);
-  return words.length >= 2 ? words : undefined;
-}
 
 // Every product, drafts too: found by name, or by category and status. With
 // one category chosen and nothing else, staff drag its products into the
@@ -124,6 +113,7 @@ export function ProductsPage() {
 
       <div className="mt-6 grid gap-4 sm:grid-cols-[1fr_12rem_10rem]">
         <SearchBox
+          label="Search by name"
           text={searchText}
           onText={setSearchText}
           onSearch={(text) => setFilter('q', tidyWords(text) || undefined)}
@@ -270,75 +260,6 @@ export function ProductsPage() {
         </div>
       ) : null}
     </section>
-  );
-}
-
-// Search by name: sent once typing pauses, or at once with Enter.
-function SearchBox({
-  text,
-  onText,
-  onSearch,
-  current,
-}: {
-  text: string;
-  onText: (text: string) => void;
-  onSearch: (text: string) => void;
-  current: string;
-}) {
-  const id = useId();
-  const hintId = `${id}-hint`;
-  const short = tidyWords(text).length === 1;
-  const changed = tidyWords(text) !== tidyWords(current);
-  const search = useRef(onSearch);
-  useEffect(() => {
-    search.current = onSearch;
-  });
-
-  useEffect(() => {
-    if (!changed) {
-      return;
-    }
-    const timer = setTimeout(() => search.current(text), SEARCH_PAUSE_MS);
-    return () => clearTimeout(timer);
-  }, [text, changed]);
-
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (changed) {
-      onSearch(text);
-    }
-  }
-
-  return (
-    <search>
-      <form onSubmit={submit}>
-        <label htmlFor={id} className="text-sm font-medium">
-          Search by name
-        </label>
-        <div className="relative mt-1.5">
-          <Search
-            aria-hidden="true"
-            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-ink-muted"
-          />
-          <input
-            id={id}
-            type="search"
-            value={text}
-            onChange={(event) => onText(event.target.value)}
-            maxLength={SEARCH_MAX}
-            autoComplete="off"
-            spellCheck={false}
-            aria-describedby={short ? hintId : undefined}
-            className="h-11 w-full rounded-lg border border-line bg-surface pr-3 pl-9 text-ink transition-colors duration-150 outline-none placeholder:text-ink-muted/70 focus:border-primary focus:ring-3 focus:ring-primary/15"
-          />
-        </div>
-        {short ? (
-          <p id={hintId} className="mt-1.5 text-xs text-ink-muted">
-            Type at least 2 characters.
-          </p>
-        ) : null}
-      </form>
-    </search>
   );
 }
 

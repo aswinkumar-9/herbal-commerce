@@ -3,6 +3,7 @@ import type { Variant } from '../catalog-api';
 import {
   changes,
   check,
+  lowStockHint,
   packName,
   priceHint,
   rupees,
@@ -21,6 +22,7 @@ const PACK: Variant = {
   mrpRupees: 250,
   priceRupees: 225,
   isActive: true,
+  lowStockAt: 10,
   position: 0,
   createdAt: '2026-11-01T09:00:00.000Z',
   updatedAt: '2026-11-01T09:00:00.000Z',
@@ -32,6 +34,7 @@ const filled: PackValues = {
   sku: 'aml-sha-100',
   mrpRupees: '250',
   priceRupees: '225',
+  lowStockAt: '10',
   isActive: true,
 };
 
@@ -110,6 +113,23 @@ describe('checking a pack size', () => {
     ).toEqual({});
   });
 
+  it('takes a low-stock number of packs from 0 (never) to 10,00,000', () => {
+    expect(check({ ...filled, lowStockAt: ' ' })).toEqual({
+      lowStockAt: 'Enter a number of packs, or 0 for never',
+    });
+    expect(check({ ...filled, lowStockAt: '2.5' })).toEqual({
+      lowStockAt: 'A whole number, like 10',
+    });
+    expect(check({ ...filled, lowStockAt: '-1' })).toEqual({
+      lowStockAt: 'A whole number, like 10',
+    });
+    expect(check({ ...filled, lowStockAt: '1000001' })).toEqual({
+      lowStockAt: 'Between 0 and 10,00,000',
+    });
+    expect(check({ ...filled, lowStockAt: '0' })).toEqual({});
+    expect(check({ ...filled, lowStockAt: '10,00,000' })).toEqual({});
+  });
+
   it('never lets the price go above the MRP', () => {
     expect(check({ ...filled, priceRupees: '251' })).toEqual({
       priceRupees: 'The price may not be more than the MRP',
@@ -155,6 +175,7 @@ describe('what is sent', () => {
       unit: 'ML',
       mrpRupees: 1250,
       priceRupees: 225,
+      lowStockAt: 10,
       isActive: true,
     });
   });
@@ -167,6 +188,36 @@ describe('what is sent', () => {
     expect(
       changes({ ...start, priceRupees: '199', isActive: false }, PACK),
     ).toEqual({ priceRupees: 199, isActive: false });
+    expect(changes({ ...start, lowStockAt: '0' }, PACK)).toEqual({
+      lowStockAt: 0,
+    });
+  });
+
+  it('starts a new pack size low at 10 packs, as the API does', () => {
+    expect(startingValues(null).lowStockAt).toBe('10');
+    expect(startingValues({ ...PACK, lowStockAt: 0 }).lowStockAt).toBe('0');
+  });
+});
+
+describe('the low-stock hint', () => {
+  it('says when the pack size shows as low, as staff type', () => {
+    expect(lowStockHint(filled)).toBe(
+      'Shown as low at 10 packs or fewer that may be sold.',
+    );
+    expect(lowStockHint({ ...filled, lowStockAt: '1' })).toBe(
+      'Shown as low at 1 pack or fewer that may be sold.',
+    );
+    expect(lowStockHint({ ...filled, lowStockAt: '1500' })).toBe(
+      'Shown as low at 1,500 packs or fewer that may be sold.',
+    );
+    expect(lowStockHint({ ...filled, lowStockAt: '0' })).toBe(
+      'Never shown as low; only as out of stock.',
+    );
+    for (const lowStockAt of ['', 'abc', '1000001']) {
+      expect(lowStockHint({ ...filled, lowStockAt })).toBe(
+        'The Stock page shows it as low at this many packs or fewer.',
+      );
+    }
   });
 });
 

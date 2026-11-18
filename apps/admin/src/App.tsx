@@ -18,6 +18,8 @@ import { ComingSoonPage } from './pages/ComingSoonPage';
 import { NotFoundPage } from './pages/NotFoundPage';
 import { OverviewPage } from './pages/OverviewPage';
 import { SignInPage } from './pages/SignInPage';
+import { PackStockPage } from './stock/PackStockPage';
+import { StockPage } from './stock/StockPage';
 
 const forEveryone = NAV_ITEMS.filter((item) => item.arrives && !item.role);
 const forSuperUsers = NAV_ITEMS.filter(
@@ -61,6 +63,8 @@ export const routes = createRoutesFromElements(
         </Route>
         <Route path="catalog/products/new" element={<ProductPage />} />
         <Route path="catalog/products/:id" element={<ProductPage />} />
+        <Route path="stock" element={<StockPage />} />
+        <Route path="stock/:variantId" element={<PackStockPage />} />
         {forEveryone.map(comingSoon)}
         <Route element={<RequireRole only="SUPER_USER" />}>
           {forSuperUsers.map(comingSoon)}

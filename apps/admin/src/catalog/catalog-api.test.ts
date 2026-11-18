@@ -309,6 +309,7 @@ const PACK_FIELDS = {
   mrpRupees: 350,
   priceRupees: 320,
   isActive: true,
+  lowStockAt: 10,
 } as const;
 
 const PACK = {

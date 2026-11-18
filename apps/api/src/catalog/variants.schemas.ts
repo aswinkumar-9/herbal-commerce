@@ -26,6 +26,9 @@ const unit = z.enum(
 const rupees = z.number().int().min(1).max(1_000_000);
 // The order on the product's page.
 const position = z.number().int().min(0).max(9999);
+// Its stock counts as low at this many packs that may be sold, or fewer;
+// 0 never (ADR 0034).
+const lowStockAt = z.number().int().min(0).max(1_000_000);
 
 // What stops a pack size from being saved with these prices: the law
 // forbids charging more than the MRP printed on the pack (ADR 0022).
@@ -48,6 +51,7 @@ export const variantSchema = z
     priceRupees: rupees,
     isActive: z.boolean().optional(),
     position: position.optional(),
+    lowStockAt: lowStockAt.optional(),
   })
   .refine((input) => priceIssues(input).length === 0, {
     message: PRICE_ABOVE_MRP,
@@ -70,6 +74,7 @@ export const variantUpdateSchema = z
     priceRupees: rupees.optional(),
     isActive: z.boolean().optional(),
     position: position.optional(),
+    lowStockAt: lowStockAt.optional(),
   })
   .refine(
     (input) => Object.values(input).some((value) => value !== undefined),

@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.25.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.26.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -1639,6 +1639,7 @@ A pack, as these endpoints return it:
   "mrpRupees": 500,
   "priceRupees": 449,
   "isActive": true,
+  "lowStockAt": 10,
   "position": 0,
   "createdAt": "2026-11-05T05:12:44.018Z",
   "updatedAt": "2026-11-05T05:12:44.018Z"
@@ -1655,6 +1656,7 @@ The rules for each field:
 | `mrpRupees` | The MRP printed on the pack, in whole rupees: a whole number from 1 to 10,00,000. `449.50` is refused. Required to add. |
 | `priceRupees` | The shop's price, with the same rules, and **never more than `mrpRupees`**. Required to add. |
 | `isActive` | `true` while on sale. Default `true`. |
+| `lowStockAt` | When staff see the pack as low on stock: at this many packs that may be sold, or fewer. A whole number from 0 to 1,000,000; `0` means never low, only out of stock. Default `10` (ADR 0034). Customers never see it. |
 | `position` | A whole number from 0 to 9999, the order on the product's page. Default `0`. Packs with the same position are ordered by quantity. |
 
 A product has each size once: a second pack of 60 `CAPSULES` is refused.
@@ -1900,11 +1902,13 @@ The stock of each pack size, batch by batch, in one warehouse (ADR 0024). These 
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /v1/staff/variants/:variantId/batches` | List a pack size's batches, with its packs on hand and how many may be sold |
+| `GET /v1/staff/stock` | Every pack size with its stock, for the Stock page: out of stock, low, or a batch that stops selling soon (ADR 0034) |
+| `GET /v1/staff/variants/:variantId/batches` | List a pack size's batches, with its stock |
 | `POST /v1/staff/variants/:variantId/batches` | Receive a delivery: a new batch |
 | `PATCH /v1/staff/batches/:id` | Correct a batch's label details |
 | `GET /v1/staff/batches/:id/movements` | A batch's history, newest first |
 | `POST /v1/staff/batches/:id/movements` | Change a batch's stock |
+| `POST /v1/staff/batches/:id/count` | Put a batch's stock right from a count of its shelf (ADR 0034) |
 
 A batch, as these endpoints return it:
 ```json
@@ -1917,7 +1921,11 @@ A batch, as these endpoints return it:
   "quantity": 118,
   "createdAt": "2026-11-06T05:49:34.102Z",
   "updatedAt": "2026-11-06T05:51:55.417Z",
-  "sellable": true
+  "sellable": true,
+  "stopsSellingOn": "2028-04-01",
+  "awaitingPacking": 2,
+  "packed": 1,
+  "onShelf": 120
 }
 ```
 
@@ -1927,17 +1935,86 @@ A batch, as these endpoints return it:
 | `manufacturedOn`, `expiresOn` | Dates as on the label, such as `2026-10-31`. Another form, or an impossible date, answers `Use a date like 2026-10-31`. The expiry is after the manufacturing date, and the manufacturing date is not in the future. "Today" is India's date. |
 | `quantity` | The packs on hand and free to sell: changed only by movements, never below 0. Packs held by orders waiting for payment are not counted (ADR 0026). |
 | `sellable` | Whether the batch may be sold today: it expires on or after today plus 6 months (on 6 November 2026, from 6 May 2027) |
+| `stopsSellingOn` | The first day the batch may no longer be sold: from then on it has less than 6 months left (ADR 0034). For a batch expiring on 30 September 2028, that is 1 April 2028: on 31 March it still has 6 months left. |
+| `awaitingPacking` | Packs orders took and have not packed yet: waiting for payment, or paid. They are still on the shelf. |
+| `packed` | Packs of orders packed but not shipped: in their boxes, off the shelf. |
+| `onShelf` | What a count of the shelf should find: `quantity` plus `awaitingPacking`. |
 
-### GET `/v1/staff/variants/:variantId/batches`
+A pack size's stock, summed over its batches (ADR 0034):
+```json
+{
+  "free": 148,
+  "sellable": 118,
+  "awaitingPacking": 2,
+  "packed": 1,
+  "level": "OK",
+  "stopsSellingOn": "2026-12-03",
+  "expiringSoon": true
+}
+```
+- `free`: packs free to sell, in every batch; `sellable`: those in batches that may be sold today;
+- `awaitingPacking`, `packed`: as for a batch, summed;
+- `level`: `OUT` when no pack may be sold, `LOW` at the pack size's `lowStockAt` or fewer (never, when it is `0`), otherwise `OK`;
+- `stopsSellingOn`: the next day a batch that may be sold today and still holds packs stops selling, or `null`;
+- `expiringSoon`: whether that day is within 30 days.
 
-Every batch of the pack size, the first to expire first, which is the order in which orders take them.
+### GET `/v1/staff/stock`
+
+Every pack size with its stock: drafts and packs off sale too, by product name, then in each product's own order. The stock is summed from the batches each time, so it is never out of date.
+
+Query parameters, all optional:
+
+| Parameter | Rules | Meaning |
+|---|---|---|
+| `status` | `out`, `low` or `expiring` | Only the pack sizes out of stock; low or out; or with a batch that stops selling within 30 days |
+| `productId` | UUID | Only this product's pack sizes |
+| `q` | 2 to 100 characters, spaces tidied | Words in the product's name or the SKU, as typed: `%` and `_` are plain characters |
+| `limit` | Whole number, 1 to 100, default 100 | Pack sizes per page |
+| `after` | UUID | The `nextAfter` of the previous page: continue after that pack size |
 
 Response `200`:
 ```json
-{ "batches": [...], "quantity": 148, "sellableQuantity": 118 }
+{
+  "lines": [
+    {
+      "variant": { "id": "…", "sku": "ASH-CAP-60", "quantity": 60, "unit": "CAPSULES", "isActive": true, "lowStockAt": 10, "position": 0 },
+      "product": { "id": "…", "name": "Ashwagandha Capsules", "isActive": true },
+      "stock": { "free": 148, "sellable": 118, "awaitingPacking": 2, "packed": 1, "level": "OK", "stopsSellingOn": "2026-12-03", "expiringSoon": true }
+    }
+  ],
+  "nextAfter": null
+}
 ```
-- `quantity`: every pack on hand and free to sell, in all batches;
-- `sellableQuantity`: those in sellable batches. The shop shows the pack size as in stock while this is above 0.
+
+A page goes on after the pack size the last one ended with, even if its stock changed since and it no longer matches the filter.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | A bad parameter, such as `Choose out, low or expiring` or `Search with at least 2 characters` |
+| `400` | `This pack size is no longer in the list: start from the first page` (field `after`) | The `after` pack size is no longer in the list: deleted, or no longer matching `productId` or `q` |
+| `401` | see "Authentication errors on protected endpoints" | No staff access token, or a customer's |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### GET `/v1/staff/variants/:variantId/batches`
+
+Every batch of the pack size, the first to expire first, which is the order in which orders take them, with the pack size and its stock.
+
+Response `200`:
+```json
+{
+  "variant": { "id": "…", "sku": "ASH-CAP-60", "quantity": 60, "unit": "CAPSULES", "isActive": true, "lowStockAt": 10, "position": 0 },
+  "product": { "id": "…", "name": "Ashwagandha Capsules", "isActive": true },
+  "stock": { "free": 148, "sellable": 118, "awaitingPacking": 2, "packed": 1, "level": "OK", "stopsSellingOn": "2026-12-03", "expiringSoon": true },
+  "batches": [...],
+  "quantity": 148,
+  "sellableQuantity": 118
+}
+```
+- `variant`, `product` and `stock`: as a line of `GET /v1/staff/stock` (since part 12D);
+- `quantity`: every pack on hand and free to sell, in all batches (the same as `stock.free`);
+- `sellableQuantity`: those in sellable batches (the same as `stock.sellable`). The shop shows the pack size as in stock while this is above 0.
 
 Errors: `400` (the ID is not a UUID); `401` (see "Authentication errors on protected endpoints"), also for a customer access token; `404 Pack size not found`; `429` (the 600 per minute limit).
 
@@ -2023,6 +2100,46 @@ Errors:
 | `401` | see above | No staff access token, or a customer's |
 | `404` | `Batch not found` | No batch with this ID |
 | `409` | `Not enough stock: this batch holds 118.` | The change would take the batch below 0 |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### POST `/v1/staff/batches/:id/count`
+
+Puts a batch's stock right from a count of its shelf (ADR 0034). Staff send what they counted, and what they were shown should be there when they started: the batch's `onShelf`. The API works out the difference.
+
+Request:
+```json
+{ "counted": 117, "onShelf": 120, "note": "3 found broken" }
+```
+
+| Field | Rules |
+|---|---|
+| `counted` | The packs found on the shelf, leaving out those packed in boxes: a whole number from 0 to 1,000,000 |
+| `onShelf` | The batch's `onShelf` as staff were shown it |
+| `note` | Up to 200 characters. **Required when the count differs.** |
+
+The batch is locked first. Then:
+- if its `onShelf` is no longer what was sent, an order took or gave back packs while staff counted, and nothing is saved (`409`);
+- if the count matches, nothing is saved, and `change` is `0`;
+- otherwise one `CORRECTION` movement puts the difference right, with the note, and the audit log gets `stock.counted`, with the packs and what should have been on the shelf before and after.
+
+A count can't go below the packs that orders waiting to be packed still need from the batch.
+
+Response `200`:
+```json
+{ "batch": { ... }, "change": -3 }
+```
+- `batch`: the batch, as it is now;
+- `change`: the packs added (above 0) or taken off (below 0), or `0`.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | An invalid field, or a count that differs without a note (`Say why the count differs`) |
+| `401` | see above | No staff access token, or a customer's |
+| `404` | `Batch not found` | No batch with this ID |
+| `409` | `This batch's stock changed while you were counting. Check the new numbers and count again.` | `onShelf` is no longer the batch's |
+| `409` | `Orders waiting to be packed need 3 packs of this batch, more than the count found. Check those orders before correcting the count.` | Fewer packs counted than those orders need |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
 ## Handling orders (staff)

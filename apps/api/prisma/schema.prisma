@@ -271,6 +271,9 @@ model ProductVariant {
   isActive    Boolean  @default(true)
   // The order on the product's page.
   position    Int      @default(0)
+  // Staff see its stock as low at this many packs that may be sold, or
+  // fewer; 0 never (ADR 0034).
+  lowStockAt  Int      @default(10)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 

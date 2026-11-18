@@ -14,14 +14,25 @@ import {
 } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import {
+  holdsOf,
+  labelDay,
+  LINE_FIELDS,
+  NO_HOLDS,
+  stockLine,
+  summarise,
+} from './stock-lines';
+import type { Holds, StockLine } from './stock-lines';
+import {
   batchDateIssues,
   expiredIssues,
   isSellable,
   sellableFrom,
+  stopsSellingOn,
 } from './stock-rules';
 import type {
   BatchInput,
   BatchUpdateInput,
+  CountInput,
   MovementInput,
   MovementListQuery,
 } from './stock.schemas';
@@ -32,6 +43,11 @@ export const BATCH_NUMBER_TAKEN =
   'This pack size already has a batch with this number.';
 export const notEnoughStock = (held: number) =>
   `Not enough stock: this batch holds ${held}.`;
+export const COUNT_CHANGED =
+  "This batch's stock changed while you were counting. Check the new numbers and count again.";
+export const COUNT_NEEDS_NOTE = 'Say why the count differs';
+export const fewerThanOrdersNeed = (packs: number) =>
+  `Orders waiting to be packed need ${packs} packs of this batch, more than the count found. Check those orders before correcting the count.`;
 
 // An order wanted more of a pack size than its sellable batches hold
 // (ADR 0026). Orders turn it into an answer that names the pack.
@@ -72,11 +88,25 @@ const BATCH_ORDER = [
 ] satisfies Prisma.StockBatchOrderByWithRelationInput[];
 
 // A batch as staff see it: its dates as on the label, such as 2028-09-30,
-// and whether it may be sold today.
+// whether it may be sold today and from when it no longer may, and the
+// packs orders took but have not shipped (ADR 0034). Those waiting to be
+// packed are still on the shelf, with the free ones.
 export type StaffBatch = Omit<BatchRow, 'manufacturedOn' | 'expiresOn'> & {
   manufacturedOn: string;
   expiresOn: string;
   sellable: boolean;
+  stopsSellingOn: string;
+  awaitingPacking: number;
+  packed: number;
+  onShelf: number;
+};
+
+// A pack size's batches, with the pack size and its stock summed up.
+export type BatchList = StockLine & {
+  batches: StaffBatch[];
+  // As before part 12D: the same as stock.free and stock.sellable.
+  quantity: number;
+  sellableQuantity: number;
 };
 
 // The label details of a batch, the part staff may correct.
@@ -99,26 +129,37 @@ export class StockService {
     private readonly logger: PinoLogger,
   ) {}
 
-  // Every batch of a pack size, the first to expire first, with how many
-  // packs are on hand and how many of them may be sold today.
-  async listBatches(variantId: string): Promise<{
-    batches: StaffBatch[];
-    quantity: number;
-    sellableQuantity: number;
-  }> {
-    const variant = await this.prisma.productVariant.findUnique({
+  // Every batch of a pack size, the first to expire first, with the pack
+  // size, how many packs are on hand, how many of them may be sold today,
+  // and those orders hold until they ship.
+  async listBatches(variantId: string): Promise<BatchList> {
+    const found = await this.prisma.productVariant.findUnique({
       where: { id: variantId },
-      select: { batches: { orderBy: BATCH_ORDER, select: BATCH_FIELDS } },
+      select: {
+        ...LINE_FIELDS,
+        batches: { orderBy: BATCH_ORDER, select: BATCH_FIELDS },
+      },
     });
-    if (!variant) {
+    if (!found) {
       throw new NotFoundException(PACK_NOT_FOUND);
     }
     const now = new Date();
-    const batches = variant.batches.map((batch) => staffView(batch, now));
+    const { batches: rows, ...variant } = found;
+    const holds = await holdsOf(
+      this.prisma,
+      rows.map((batch) => batch.id),
+    );
+    const held = (batch: BatchRow) => holds.get(batch.id) ?? NO_HOLDS;
+    const stock = summarise(
+      rows.map((batch) => ({ ...batch, holds: held(batch) })),
+      variant.lowStockAt,
+      now,
+    );
     return {
-      batches,
-      quantity: total(batches),
-      sellableQuantity: total(batches.filter((batch) => batch.sellable)),
+      ...stockLine(variant, stock),
+      batches: rows.map((batch) => staffView(batch, held(batch), now)),
+      quantity: stock.free,
+      sellableQuantity: stock.sellable,
     };
   }
 
@@ -198,7 +239,8 @@ export class StockService {
       { batchId: batch.id, variantId, actorId: context.actorId },
       'Batch received',
     );
-    return staffView(batch, now);
+    // A new batch: no order has taken any of it yet.
+    return staffView(batch, NO_HOLDS, now);
   }
 
   // Corrects a batch's label details, checked on the batch as it will be.
@@ -252,7 +294,7 @@ export class StockService {
         'Batch changed',
       );
     }
-    return staffView(batch, now);
+    return staffView(batch, await this.holdsOfBatch(id), now);
   }
 
   // Changes a batch's stock by one movement. The batch is locked first, so
@@ -310,7 +352,78 @@ export class StockService {
       { batchId, actorId: context.actorId, reason: input.reason },
       'Stock changed',
     );
-    return staffView(batch, now);
+    return staffView(batch, await this.holdsOfBatch(batchId), now);
+  }
+
+  // Puts right a batch's stock from a count of its shelf (ADR 0034). Staff
+  // send what they counted, and what the console said should be there: the
+  // free packs and those waiting to be packed. If that changed meanwhile,
+  // an order took or gave back packs while they counted, and nothing is
+  // saved. Otherwise the difference becomes a correction, with its note.
+  async count(
+    batchId: string,
+    input: CountInput,
+    context: AuditContext,
+  ): Promise<{ batch: StaffBatch; change: number }> {
+    const now = new Date();
+    const counted = await this.prisma.$transaction(async (tx) => {
+      // Locked first: an order takes or gives back packs only after it.
+      const current = await this.lockedBatch(tx, batchId);
+      const holds = (await holdsOf(tx, [batchId])).get(batchId) ?? NO_HOLDS;
+      const onShelf = current.quantity + holds.awaitingPacking;
+      if (onShelf !== input.onShelf) {
+        throw new ConflictException(COUNT_CHANGED);
+      }
+      const change = input.counted - onShelf;
+      if (change === 0) {
+        return { batch: current, holds, change };
+      }
+      const note = input.note ?? null;
+      if (!note) {
+        throw validationFailed([{ field: 'note', message: COUNT_NEEDS_NOTE }]);
+      }
+      // Fewer on the shelf than the orders still to pack need: the count or
+      // the orders are wrong, and staff must find out which.
+      if (current.quantity + change < 0) {
+        throw new ConflictException(fewerThanOrdersNeed(holds.awaitingPacking));
+      }
+      await tx.stockMovement.create({
+        data: {
+          batchId,
+          change,
+          reason: 'CORRECTION',
+          note,
+          actorId: context.actorId ?? null,
+        },
+        select: { id: true },
+      });
+      const updated = await tx.stockBatch.findUniqueOrThrow({
+        where: { id: batchId },
+        select: BATCH_FIELDS,
+      });
+      await this.audit.record(tx, {
+        ...context,
+        action: 'stock.counted',
+        targetType: 'batch',
+        targetId: batchId,
+        before: { quantity: current.quantity, onShelf },
+        after: {
+          quantity: updated.quantity,
+          onShelf: input.counted,
+          change,
+          note,
+        },
+      });
+      return { batch: updated, holds, change };
+    });
+    this.logger.info(
+      { batchId, actorId: context.actorId, change: counted.change },
+      counted.change === 0 ? 'Count matched' : 'Stock counted',
+    );
+    return {
+      batch: staffView(counted.batch, counted.holds, now),
+      change: counted.change,
+    };
   }
 
   // A batch's movements, newest first, one page at a time.
@@ -420,6 +533,11 @@ export class StockService {
     }
   }
 
+  // What orders hold of one batch, read after a change to it is saved.
+  private async holdsOfBatch(batchId: string): Promise<Holds> {
+    return (await holdsOf(this.prisma, [batchId])).get(batchId) ?? NO_HOLDS;
+  }
+
   // Locks one batch until the transaction ends, or answers false when
   // there is no such batch. The ID is sent as a parameter, never pasted
   // into the SQL.
@@ -466,11 +584,6 @@ export class StockService {
   }
 }
 
-// A date as on a label: 2028-09-30.
-function labelDay(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
 function labelOf(batch: {
   batchNumber: string;
   manufacturedOn: Date;
@@ -487,15 +600,15 @@ function only(label: BatchLabel, fields: (keyof BatchLabel)[]) {
   return Object.fromEntries(fields.map((field) => [field, label[field]]));
 }
 
-function staffView(batch: BatchRow, now: Date): StaffBatch {
+function staffView(batch: BatchRow, holds: Holds, now: Date): StaffBatch {
   return {
     ...batch,
     manufacturedOn: labelDay(batch.manufacturedOn),
     expiresOn: labelDay(batch.expiresOn),
     sellable: isSellable(batch.expiresOn, now),
+    stopsSellingOn: labelDay(stopsSellingOn(batch.expiresOn)),
+    awaitingPacking: holds.awaitingPacking,
+    packed: holds.packed,
+    onShelf: batch.quantity + holds.awaitingPacking,
   };
-}
-
-function total(batches: { quantity: number }[]): number {
-  return batches.reduce((sum, batch) => sum + batch.quantity, 0);
 }

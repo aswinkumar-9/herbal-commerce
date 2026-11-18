@@ -106,7 +106,7 @@ export const MAX_POSITION = 9999;
 // its ID from the address bar, so "..", "/" or "?" must never reach the
 // path: such an ID is a product that does not exist. (The functions that
 // use it are async, so this comes back as a rejected promise too.)
-function idInPath(base: string, id: string): string {
+export function idInPath(base: string, id: string): string {
   if (!isId(id)) {
     throw new ApiError(404, 'There is no such item.');
   }
@@ -258,6 +258,9 @@ export const variantSchema = z.object({
   mrpRupees: z.number().int(),
   priceRupees: z.number().int(),
   isActive: z.boolean(),
+  // Staff see its stock as low at this many packs that may be sold, or
+  // fewer; 0 never (ADR 0034).
+  lowStockAt: z.number().int(),
   position: z.number().int(),
   createdAt: z.string(),
   updatedAt: z.string(),
@@ -268,7 +271,13 @@ const variantListSchema = z.object({ variants: z.array(variantSchema) });
 // What staff set on a pack size. It is on sale unless isActive is false.
 export type VariantFields = Pick<
   Variant,
-  'sku' | 'quantity' | 'unit' | 'mrpRupees' | 'priceRupees' | 'isActive'
+  | 'sku'
+  | 'quantity'
+  | 'unit'
+  | 'mrpRupees'
+  | 'priceRupees'
+  | 'isActive'
+  | 'lowStockAt'
 >;
 
 // A product's pack sizes, off sale ones too, first to last.

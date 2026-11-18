@@ -68,7 +68,7 @@ Assumptions to confirm: Admin handles delivery and return approval but never mon
 - Payments through a gateway (sandbox first), server-verified, idempotent. Razorpay, chosen by the owner on 2026-11-08 (ADR 0027)
 - Order lifecycle, cancellations, returns, refunds. Since part 9: packed, shipped and delivered, typed in by staff, and cancelling until shipped with the payment back in full, by the owner's choices on 2026-11-09 (ADR 0028). Returns are still to come.
 - GST invoices (system-generated, sequential per financial year)
-- Admin console: catalog, prices, stock, orders, returns, customers (limited). Since part 12A: React and Vite, staff sign-in, the menu for each role, and signing out after 30 minutes without activity, by the owner's choices on 2026-11-11 and 2026-11-12 (ADR 0031). Since part 12B: categories and products, with search by name, ordering by drag and drop, a page for each product, and deleting for Super Users after a dialog that says what is lost (ADR 0032). Since part 12C: each product's pack sizes, edited in a dialog, and its images, several uploaded at once with their progress, both ordered by drag and drop, so a product goes live from the console, by the owner's choices on 2026-11-13 (ADR 0033). Its other pages follow: stock, then orders and refunds.
+- Admin console: catalog, prices, stock, orders, returns, customers (limited). Since part 12A: React and Vite, staff sign-in, the menu for each role, and signing out after 30 minutes without activity, by the owner's choices on 2026-11-11 and 2026-11-12 (ADR 0031). Since part 12B: categories and products, with search by name, ordering by drag and drop, a page for each product, and deleting for Super Users after a dialog that says what is lost (ADR 0032). Since part 12C: each product's pack sizes, edited in a dialog, and its images, several uploaded at once with their progress, both ordered by drag and drop, so a product goes live from the console, by the owner's choices on 2026-11-13 (ADR 0033). Since part 12D: stock, by the owner's choices on 2026-11-18 (ADR 0034): a Stock page of every pack size, filtered to out of stock, low or expiring soon; each pack size's batches, where staff receive deliveries, correct labels, write packs off and count a shelf by typing what they counted, never saved if the stock changed meanwhile; a low-stock number for each pack size; and each pack size's stock on its product's page. Its other pages follow: orders and refunds, then Admins and the audit log.
 - Super User console sections: admin management, invoices, payments, audit log, settings
 - Email and in-app notifications; basic support tickets. Since part 10, order emails: to the customer when an order is paid (a full summary), packed, shipped (with the courier and tracking number, again if corrected), delivered or cancelled, and when a refund is complete; and to the Super Users when a refund fails, by the owner's choices on 2026-11-11 (ADR 0029). In-app notifications and support tickets are still to come.
 
@@ -129,7 +129,7 @@ For Super Users, an interactive dashboard:
 | Brand, vendor or supplier | Neither exists. Multi-vendor is deferred (section 6), and D1 rules out dealers. A supplier per stock batch would fit products bought from makers. |
 | Division | Not stored. It can come from the PIN code, with India Post's directory. Orders keep the city, state and PIN code. |
 | Country | Delivery is to India only (ADR 0026), so for now it is the same as overall. |
-| Low stock | No threshold. Customers see only "in stock" or "out of stock" (ADR 0024). |
+| Low stock | Done in part 12D: each pack size has its own low-stock number, 10 by default (ADR 0034). Customers still see only "in stock" or "out of stock" (ADR 0024). |
 
 These are best added before launch: an order placed without them can't be reported on them later.
 
@@ -163,11 +163,13 @@ For the website and the Android and iOS apps:
 - Offline means browsing only: the app never keeps a signed-in customer's data for offline use, and checkout and payment stay online.
 - The website's and the apps' texts are kept apart from the code from the first page, so languages can be added. The admin console stays in English.
 
+**The owner's order, 2026-11-18:** first the admin console gets glass and clay touches, keeping its text easy to read; then a design system shared by the console, the website and the apps is planned as a part of its own, before the website.
+
 ### 10.3 Questions for the owner
 
 1. Should each stock batch keep its cost, in whole rupees? This depends on open decision 2.
 2. Subcategories: one level under each category?
 3. Is there more than one brand? Should each batch name its supplier?
-4. Low stock: one threshold for all, or one per pack size?
+4. ~~Low stock: one threshold for all, or one per pack size?~~ Answered on 2026-11-18: one per pack size, 10 by default, 0 for never (ADR 0034).
 5. Several languages are on the deferred list (section 6). Do they come into scope, and which languages?
 6. The apps: React Native (Expo) would share TypeScript, the API's types and the design tokens with the website. Choose when the apps start.

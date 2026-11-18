@@ -27,6 +27,7 @@ const packFields = {
   priceRupees: 450,
   isActive: true,
   position: 0,
+  lowStockAt: 10,
 };
 const input = {
   sku: 'ASH-CAP-60',
@@ -218,6 +219,27 @@ describe('VariantsService.update', () => {
       { variantId: ID, actorId: context.actorId },
       'Pack size changed',
     );
+  });
+
+  it('changes when its stock counts as low, and records it like any change', async () => {
+    const { service, tx, audit } = setup();
+    tx.productVariant.update.mockResolvedValue(stored({ lowStockAt: 25 }));
+
+    await expect(service.update(ID, { lowStockAt: 25 }, context)).resolves.toEqual(
+      stored({ lowStockAt: 25 }),
+    );
+
+    expect(tx.productVariant.update).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: ID }, data: { lowStockAt: 25 } }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...context,
+      action: 'variant.updated',
+      targetType: 'variant',
+      targetId: ID,
+      before: { lowStockAt: 10 },
+      after: { lowStockAt: 25 },
+    });
   });
 
   it('refuses a lower MRP that falls below the stored price, and a price above the stored MRP', async () => {

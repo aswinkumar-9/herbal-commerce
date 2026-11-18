@@ -43,6 +43,7 @@ const STAFF_FIELDS = [
   'priceRupees',
   'isActive',
   'position',
+  'lowStockAt',
 ] as const;
 
 const VARIANT_FIELDS = {
@@ -55,6 +56,7 @@ const VARIANT_FIELDS = {
   priceRupees: true,
   isActive: true,
   position: true,
+  lowStockAt: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.ProductVariantSelect;

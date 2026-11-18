@@ -7,6 +7,7 @@
 - Updated: 2026-11-09 (part 8: an expired order paid late takes its stock again, see ADR 0027)
 - Updated: 2026-11-10 (part 9: a paid or packed order cancelled before it ships gives its stock back, see ADR 0028)
 - Updated: 2026-11-11 (part 11: the search asks the inventory which packs are in stock, and puts products in stock first, see ADR 0030)
+- Updated: 2026-11-19 (part 12D: the Stock page's list, what orders hold of each batch, the day a batch stops selling, counts of a shelf, and a low-stock number for each pack size, see ADR 0034)
 
 ## Context
 

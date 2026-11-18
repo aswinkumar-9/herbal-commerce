@@ -13,6 +13,7 @@ import { Field, SelectField } from '../../components/Field';
 import { Switch } from '../../components/Switch';
 import { useToasts } from '../../components/toast-context';
 import { useUnsavedPart } from '../../components/unsaved-changes';
+import { stockKeys } from '../../stock/stock-queries';
 import {
   PACK_UNITS,
   PACK_UNIT_NAMES,
@@ -28,6 +29,7 @@ import {
   SKU_TAKEN,
   changes,
   check,
+  lowStockHint,
   packName,
   priceHint,
   startingValues,
@@ -121,6 +123,9 @@ function PackSizeForm({
             input as VariantFields & { position: number },
           ),
     onSuccess: (saved) => {
+      // The Stock page shows its SKU, whether it is on sale and when it is
+      // low.
+      void queryClient.invalidateQueries({ queryKey: stockKeys.all });
       if (variant) {
         putVariant(queryClient, saved);
         toasts.show(`${packName(saved)} saved`);
@@ -284,6 +289,17 @@ function PackSizeForm({
           error={errors.priceRupees}
         />
       </div>
+      <Field
+        ref={box('lowStockAt')}
+        label="Low stock at (packs)"
+        value={values.lowStockAt}
+        onChange={(event) => set('lowStockAt', event.target.value)}
+        inputMode="numeric"
+        maxLength={9}
+        autoComplete="off"
+        hint={lowStockHint(values)}
+        error={errors.lowStockAt}
+      />
       <Switch
         label="On sale"
         hint="Customers can buy it while the product is live."
