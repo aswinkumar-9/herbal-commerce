@@ -1050,6 +1050,9 @@ async function main() {
     ['PATCH', `/v1/staff/batches/${anyId}`, { batchNumber: 'SMOKE2' }],
     ['GET', `/v1/staff/batches/${anyId}/movements`],
     ['POST', `/v1/staff/batches/${anyId}/movements`, { change: 1, reason: 'RECEIVED' }],
+    // Since part 12D: the Stock page, and a count of a batch's shelf.
+    ['GET', '/v1/staff/stock'],
+    ['POST', `/v1/staff/batches/${anyId}/count`, { counted: 1, onShelf: 1 }],
   ];
   const stockAnswers = [];
   for (const [method, path, json] of stockRoutes) {

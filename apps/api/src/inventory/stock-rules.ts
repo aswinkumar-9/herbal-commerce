@@ -73,3 +73,49 @@ export function expiredIssues(expiresOn: Date, now: Date): StockIssue[] {
     ? [{ field: 'expiresOn', message: 'This batch has already expired' }]
     : [];
 }
+
+// Staff are told a batch is expiring soon this many days before it stops
+// selling (ADR 0034), so they can sell or move it first.
+export const EXPIRING_SOON_DAYS = 30;
+
+const DAY_MS = 86_400_000;
+
+function nextDay(date: Date): Date {
+  return new Date(date.getTime() + DAY_MS);
+}
+
+// The first day on which a batch with this expiry date no longer sells: the
+// day it has less than 6 months left. A batch that expires on 30 September
+// 2028 sells until 31 March 2028, and stops on 1 April.
+export function stopsSellingOn(expiresOn: Date): Date {
+  // About 6 months earlier. A month's last days can move it on by up to
+  // three days: 31 August still sells a batch that expires on 28 February.
+  let last = addMonths(expiresOn, -MIN_SHELF_LIFE_MONTHS);
+  while (
+    addMonths(nextDay(last), MIN_SHELF_LIFE_MONTHS).getTime() <=
+    expiresOn.getTime()
+  ) {
+    last = nextDay(last);
+  }
+  return nextDay(last);
+}
+
+// Whether a batch that sells today stops selling within EXPIRING_SOON_DAYS.
+export function isExpiringSoon(expiresOn: Date, now: Date): boolean {
+  return (
+    isSellable(expiresOn, now) &&
+    stopsSellingOn(expiresOn).getTime() - todayInIndia(now).getTime() <=
+      EXPIRING_SOON_DAYS * DAY_MS
+  );
+}
+
+// How a pack size's stock stands, by the packs that may be sold: none, low
+// (at its lowStockAt or fewer, which 0 turns off), or enough.
+export type StockLevel = 'OUT' | 'LOW' | 'OK';
+
+export function stockLevel(sellable: number, lowStockAt: number): StockLevel {
+  if (sellable === 0) {
+    return 'OUT';
+  }
+  return sellable <= lowStockAt ? 'LOW' : 'OK';
+}

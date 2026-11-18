@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { searchWords } from '../catalog/product-search.schemas';
 import { StockReason } from '../generated/prisma/enums';
 
 // As printed on the pack, with spaces dropped and letters made capitals:
@@ -109,3 +110,29 @@ export const movementListQuerySchema = z.object({
   before: z.uuid().optional(),
 });
 export type MovementListQuery = z.infer<typeof movementListQuerySchema>;
+
+// A count of a batch's shelf (ADR 0034): what staff counted, and what the
+// console showed should be there when they started. A count that differs
+// must say why, which the service checks once it knows.
+export const countSchema = z.object({
+  counted: z.number().int().min(0).max(1_000_000),
+  onShelf: z.number().int().min(0).max(2_147_483_647),
+  note: note.optional(),
+});
+export type CountInput = z.infer<typeof countSchema>;
+
+// The Stock page's filters (ADR 0034): pack sizes out of stock, low or out,
+// or with a batch that stops selling soon.
+export const STOCK_FILTERS = ['out', 'low', 'expiring'] as const;
+export type StockFilter = (typeof STOCK_FILTERS)[number];
+
+// What staff may ask of the Stock page: a filter, one product, words in the
+// product's name or the SKU, and a page, continued after a pack size's ID.
+export const stockListQuerySchema = z.object({
+  status: z.enum(STOCK_FILTERS, 'Choose out, low or expiring').optional(),
+  productId: z.uuid().optional(),
+  q: searchWords.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(100),
+  after: z.uuid().optional(),
+});
+export type StockListQuery = z.infer<typeof stockListQuerySchema>;

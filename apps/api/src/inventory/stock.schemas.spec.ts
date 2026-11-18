@@ -1,8 +1,10 @@
 import {
   batchSchema,
   batchUpdateSchema,
+  countSchema,
   movementListQuerySchema,
   movementSchema,
+  stockListQuerySchema,
 } from './stock.schemas';
 
 const day = (value: string) => new Date(`${value}T00:00:00.000Z`);
@@ -148,6 +150,74 @@ describe('movementListQuerySchema', () => {
     ).toEqual({ limit: 100, before: '6c5b4a39-2817-4f06-b5e4-d3c2b1a09f8e' });
     for (const query of [{ limit: '0' }, { limit: '101' }, { limit: 'many' }, { before: 'last' }]) {
       expect([query, movementListQuerySchema.safeParse(query).success]).toEqual([query, false]);
+    }
+  });
+});
+
+describe('countSchema', () => {
+  it('takes what staff counted and what should be on the shelf, and drops unknown fields', () => {
+    expect(countSchema.parse({ counted: 117, onShelf: 123, note: ' Shelf count ', change: 5 })).toEqual({
+      counted: 117,
+      onShelf: 123,
+      note: 'Shelf count',
+    });
+    expect(countSchema.parse({ counted: 0, onShelf: 0 })).toEqual({ counted: 0, onShelf: 0 });
+    // An empty note is none: the service asks for one if the count differs.
+    expect(countSchema.parse({ counted: 1, onShelf: 2, note: '  ' }).note).toBeNull();
+  });
+
+  it('wants whole numbers of packs, not below 0', () => {
+    for (const counted of [-1, 1.5, '3', null, 1_000_001]) {
+      expect([counted, fields(countSchema, { counted, onShelf: 3 })]).toEqual([
+        counted,
+        ['counted'],
+      ]);
+    }
+    for (const onShelf of [-1, 2.5, '3', undefined]) {
+      expect([onShelf, fields(countSchema, { counted: 3, onShelf })]).toEqual([
+        onShelf,
+        ['onShelf'],
+      ]);
+    }
+    expect(refusals(countSchema, { counted: 3, onShelf: 3, note: 'x'.repeat(201) })).toHaveLength(1);
+  });
+});
+
+describe('stockListQuerySchema', () => {
+  it('pages 100 at a time, and takes a filter, a product and words', () => {
+    expect(stockListQuerySchema.parse({})).toEqual({ limit: 100 });
+    expect(
+      stockListQuerySchema.parse({
+        status: 'low',
+        productId: '3f2b8c1d-5e6a-4b7c-8d9e-0f1a2b3c4d5e',
+        q: '  ashwa   cap ',
+        limit: '20',
+        after: '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d',
+      }),
+    ).toEqual({
+      status: 'low',
+      productId: '3f2b8c1d-5e6a-4b7c-8d9e-0f1a2b3c4d5e',
+      q: 'ashwa cap',
+      limit: 20,
+      after: '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d',
+    });
+    expect(stockListQuerySchema.parse({ q: '' })).toEqual({ limit: 100 });
+  });
+
+  it('refuses another filter, a bad ID, one letter and a page too large', () => {
+    for (const [query, field] of [
+      [{ status: 'LOW' }, 'status'],
+      [{ status: 'ok' }, 'status'],
+      [{ productId: '../x' }, 'productId'],
+      [{ after: 'x' }, 'after'],
+      [{ q: 'a' }, 'q'],
+      [{ limit: '101' }, 'limit'],
+      [{ limit: '0' }, 'limit'],
+    ] as const) {
+      expect([query, fields(stockListQuerySchema, query)]).toEqual([
+        query,
+        [field],
+      ]);
     }
   });
 });

@@ -1,10 +1,14 @@
 import {
   addMonths,
   batchDateIssues,
+  EXPIRING_SOON_DAYS,
   expiredIssues,
+  isExpiringSoon,
   isSellable,
   MIN_SHELF_LIFE_MONTHS,
   sellableFrom,
+  stockLevel,
+  stopsSellingOn,
   todayInIndia,
 } from './stock-rules';
 
@@ -111,5 +115,65 @@ describe('expiredIssues', () => {
     expect(expiredIssues(day('2026-11-05'), NOW)).toEqual(expired);
     expect(expiredIssues(day('2026-11-06'), NOW)).toEqual(expired);
     expect(expiredIssues(day('2026-11-07'), NOW)).toEqual([]);
+  });
+});
+
+describe('stopsSellingOn', () => {
+  it('is the day the batch has less than 6 months left', () => {
+    expect(stopsSellingOn(day('2028-09-30'))).toEqual(day('2028-04-01'));
+    expect(stopsSellingOn(day('2027-05-06'))).toEqual(day('2026-11-07'));
+    expect(stopsSellingOn(day('2027-05-05'))).toEqual(day('2026-11-06'));
+  });
+
+  it("goes past a month's end when a shorter month ends the 6 months", () => {
+    // 29, 30 and 31 August all reach 28 February, so they still sell it.
+    expect(stopsSellingOn(day('2027-02-28'))).toEqual(day('2026-09-01'));
+    // A leap year's 29 February is reached from 29 August to 31 August.
+    expect(stopsSellingOn(day('2028-02-29'))).toEqual(day('2027-09-01'));
+    expect(stopsSellingOn(day('2028-02-28'))).toEqual(day('2027-08-29'));
+    expect(stopsSellingOn(day('2027-04-30'))).toEqual(day('2026-11-01'));
+  });
+
+  it('agrees with isSellable on every day, for expiry dates over four years', () => {
+    const DAY = 86_400_000;
+    for (let expiry = day('2027-01-01').getTime(); expiry < day('2031-01-01').getTime(); expiry += DAY) {
+      const expiresOn = new Date(expiry);
+      const stops = stopsSellingOn(expiresOn);
+      // The day before, at noon in India, it still sells; that day, it no
+      // longer does.
+      const noon = (date: Date) => new Date(date.getTime() + 6.5 * 3_600_000);
+      expect([expiresOn, isSellable(expiresOn, noon(new Date(stops.getTime() - DAY)))]).toEqual([expiresOn, true]);
+      expect([expiresOn, isSellable(expiresOn, noon(stops))]).toEqual([expiresOn, false]);
+    }
+  });
+});
+
+describe('isExpiringSoon', () => {
+  it(`is a batch that sells today and stops within ${EXPIRING_SOON_DAYS} days`, () => {
+    // Stops on 6 December 2026: in 30 days.
+    expect(isExpiringSoon(day('2027-06-05'), NOW)).toBe(true);
+    // Stops on 7 December: in 31 days.
+    expect(isExpiringSoon(day('2027-06-06'), NOW)).toBe(false);
+    // Stops tomorrow.
+    expect(isExpiringSoon(day('2027-05-06'), NOW)).toBe(true);
+  });
+
+  it('is never a batch that no longer sells', () => {
+    expect(isExpiringSoon(day('2027-05-05'), NOW)).toBe(false);
+    expect(isExpiringSoon(day('2026-11-01'), NOW)).toBe(false);
+  });
+});
+
+describe('stockLevel', () => {
+  it('is out with nothing to sell, low at its number or fewer, and otherwise enough', () => {
+    expect(stockLevel(0, 10)).toBe('OUT');
+    expect(stockLevel(1, 10)).toBe('LOW');
+    expect(stockLevel(10, 10)).toBe('LOW');
+    expect(stockLevel(11, 10)).toBe('OK');
+  });
+
+  it('is never low at 0, but still out', () => {
+    expect(stockLevel(1, 0)).toBe('OK');
+    expect(stockLevel(0, 0)).toBe('OUT');
   });
 });

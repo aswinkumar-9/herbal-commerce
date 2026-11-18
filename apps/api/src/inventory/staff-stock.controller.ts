@@ -14,17 +14,22 @@ import type { AuditContext } from '../audit/audit-context';
 import { CurrentAuditContext } from '../audit/audit-context.decorator';
 import { StaffOnly } from '../auth/staff-only.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { StockOverviewService } from './stock-overview.service';
 import {
   batchSchema,
   batchUpdateSchema,
+  countSchema,
   movementListQuerySchema,
   movementSchema,
+  stockListQuerySchema,
 } from './stock.schemas';
 import type {
   BatchInput,
   BatchUpdateInput,
+  CountInput,
   MovementInput,
   MovementListQuery,
+  StockListQuery,
 } from './stock.schemas';
 import { StockService } from './stock.service';
 
@@ -34,7 +39,18 @@ import { StockService } from './stock.service';
 @StaffOnly()
 @Controller('staff')
 export class StaffStockController {
-  constructor(private readonly stock: StockService) {}
+  constructor(
+    private readonly stock: StockService,
+    private readonly overview: StockOverviewService,
+  ) {}
+
+  // Every pack size with its stock, for the Stock page (ADR 0034).
+  @Get('stock')
+  list(
+    @Query(new ZodValidationPipe(stockListQuerySchema)) query: StockListQuery,
+  ) {
+    return this.overview.list(query);
+  }
 
   // Every batch of a pack size, the first to expire first, with the packs
   // on hand and those that may be sold. Reading is not audited.
@@ -84,5 +100,16 @@ export class StaffStockController {
     @CurrentAuditContext() context: AuditContext,
   ) {
     return this.stock.addMovement(id, body, context);
+  }
+
+  // Puts right a batch's stock from a count of its shelf (ADR 0034).
+  @Post('batches/:id/count')
+  @HttpCode(HttpStatus.OK)
+  count(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Body(new ZodValidationPipe(countSchema)) body: CountInput,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.stock.count(id, body, context);
   }
 }

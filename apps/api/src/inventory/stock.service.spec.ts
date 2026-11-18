@@ -9,12 +9,16 @@ import { PrismaService } from '../prisma/prisma.service';
 import {
   BATCH_NOT_FOUND,
   BATCH_NUMBER_TAKEN,
+  COUNT_CHANGED,
+  COUNT_NEEDS_NOTE,
+  fewerThanOrdersNeed,
   NotEnoughStockError,
   PACK_NOT_FOUND,
   StockService,
 } from './stock.service';
 
 const VARIANT = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d';
+const PRODUCT = '3f2b8c1d-5e6a-4b7c-8d9e-0f1a2b3c4d5e';
 const BATCH = 'b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1';
 // 6 November 2026, 10:00 in India: batches expiring from 6 May 2027 sell.
 const NOW = new Date('2026-11-06T04:30:00.000Z');
@@ -42,15 +46,41 @@ function row(changes: object = {}) {
     ...changes,
   };
 }
-// The same batch as staff see it.
-function shown(changes: object = {}) {
-  return {
+// The same batch as staff see it. It sells until 31 March 2028, 6 months
+// before it expires. Those waiting to be packed are on the shelf too.
+function shown(changes: Record<string, unknown> = {}) {
+  const view = {
     ...row(),
     manufacturedOn: '2026-10-01',
     expiresOn: '2028-09-30',
     sellable: true,
+    stopsSellingOn: '2028-04-01',
+    awaitingPacking: 0,
+    packed: 0,
     ...changes,
   };
+  return { onShelf: view.quantity + view.awaitingPacking, ...view };
+}
+// The pack size the batches belong to, as the query returns it.
+const pack = {
+  id: VARIANT,
+  sku: 'ASH-CAP-60',
+  quantity: 60,
+  unit: 'CAPSULES',
+  isActive: true,
+  lowStockAt: 10,
+  position: 0,
+  product: { id: PRODUCT, name: 'Ashwagandha Capsules', isActive: true },
+};
+// Answers the two questions about what orders hold of each batch: packs
+// still waiting to be packed, and packs in packed orders.
+function holding(awaiting: Record<string, number>, packed: Record<string, number> = {}) {
+  return ({ where }: { where: { order: { is: { status: { in: string[] } } } } }) =>
+    Promise.resolve(
+      Object.entries(where.order.is.status.in.includes('PACKED') ? packed : awaiting).map(
+        ([batchId, packs]) => ({ batchId, _sum: { change: -packs } }),
+      ),
+    );
 }
 const received = {
   batchNumber: 'AB2611',
@@ -81,7 +111,10 @@ function setup() {
       findUnique: jest.fn().mockResolvedValue({ id: BATCH }),
       findMany: jest.fn().mockResolvedValue([]),
     },
-    stockMovement: { findMany: jest.fn().mockResolvedValue([]) },
+    stockMovement: {
+      findMany: jest.fn().mockResolvedValue([]),
+      groupBy: jest.fn().mockResolvedValue([]),
+    },
     $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)),
   };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
@@ -113,14 +146,32 @@ afterEach(() => {
 });
 
 describe('StockService.listBatches', () => {
-  it('lists the batches, the first to expire first, with the packs on hand and those that sell', async () => {
+  it('lists the batches, the first to expire first, with the pack size and its packs on hand and those that sell', async () => {
     const { service, prisma } = setup();
     const short = row({ id: 'b-2', batchNumber: 'AA0505', expiresOn: day('2027-05-05'), quantity: 4 });
-    prisma.productVariant.findUnique.mockResolvedValue({ batches: [short, row()] });
+    prisma.productVariant.findUnique.mockResolvedValue({ ...pack, batches: [short, row()] });
 
     await expect(service.listBatches(VARIANT)).resolves.toEqual({
+      variant: { id: VARIANT, sku: 'ASH-CAP-60', quantity: 60, unit: 'CAPSULES', isActive: true, lowStockAt: 10, position: 0 },
+      product: { id: PRODUCT, name: 'Ashwagandha Capsules', isActive: true },
+      stock: {
+        free: 124,
+        sellable: 120,
+        awaitingPacking: 0,
+        packed: 0,
+        level: 'OK',
+        stopsSellingOn: '2028-04-01',
+        expiringSoon: false,
+      },
       batches: [
-        shown({ id: 'b-2', batchNumber: 'AA0505', expiresOn: '2027-05-05', quantity: 4, sellable: false }),
+        shown({
+          id: 'b-2',
+          batchNumber: 'AA0505',
+          expiresOn: '2027-05-05',
+          quantity: 4,
+          sellable: false,
+          stopsSellingOn: '2026-11-06',
+        }),
         shown(),
       ],
       quantity: 124,
@@ -128,13 +179,76 @@ describe('StockService.listBatches', () => {
     });
     expect(prisma.productVariant.findUnique).toHaveBeenCalledWith({
       where: { id: VARIANT },
-      select: {
+      select: expect.objectContaining({
+        product: { select: { id: true, name: true, isActive: true } },
+        lowStockAt: true,
         batches: {
           orderBy: [{ expiresOn: 'asc' }, { batchNumber: 'asc' }],
           select: expect.any(Object),
         },
-      },
+      }),
     });
+  });
+
+  it("shows what orders hold of each batch until they ship: on the shelf until packed, then in their boxes", async () => {
+    const { service, prisma } = setup();
+    const other = row({ id: 'b-2', batchNumber: 'AB2700', expiresOn: day('2029-01-31'), quantity: 5 });
+    prisma.productVariant.findUnique.mockResolvedValue({ ...pack, batches: [row(), other] });
+    prisma.stockMovement.groupBy.mockImplementation(holding({ [BATCH]: 3 }, { [BATCH]: 2, 'b-2': 1 }));
+
+    const list = await service.listBatches(VARIANT);
+
+    expect(list.batches).toEqual([
+      shown({ awaitingPacking: 3, packed: 2 }),
+      shown({
+        id: 'b-2',
+        batchNumber: 'AB2700',
+        expiresOn: '2029-01-31',
+        quantity: 5,
+        stopsSellingOn: '2028-08-01',
+        packed: 1,
+      }),
+    ]);
+    expect(list.batches[0].onShelf).toBe(123);
+    expect(list.stock).toMatchObject({ free: 125, awaitingPacking: 3, packed: 3 });
+    // Only these batches, and only orders that have not shipped.
+    expect(prisma.stockMovement.groupBy).toHaveBeenCalledWith({
+      by: ['batchId'],
+      where: {
+        batchId: { in: [BATCH, 'b-2'] },
+        order: { is: { status: { in: ['PENDING_PAYMENT', 'PAID'] } } },
+      },
+      _sum: { change: true },
+    });
+    expect(prisma.stockMovement.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ order: { is: { status: { in: ['PACKED'] } } } }) }),
+    );
+  });
+
+  it('says when the stock is low, at its own number of packs', async () => {
+    const { service, prisma } = setup();
+    prisma.productVariant.findUnique.mockResolvedValue({
+      ...pack,
+      lowStockAt: 120,
+      batches: [row()],
+    });
+
+    await expect(service.listBatches(VARIANT)).resolves.toMatchObject({
+      stock: { level: 'LOW', sellable: 120 },
+    });
+  });
+
+  it('asks nothing about orders for a pack size without batches', async () => {
+    const { service, prisma } = setup();
+    prisma.productVariant.findUnique.mockResolvedValue({ ...pack, batches: [] });
+
+    await expect(service.listBatches(VARIANT)).resolves.toMatchObject({
+      batches: [],
+      stock: { free: 0, sellable: 0, level: 'OUT', stopsSellingOn: null },
+      quantity: 0,
+      sellableQuantity: 0,
+    });
+    expect(prisma.stockMovement.groupBy).not.toHaveBeenCalled();
   });
 
   it('answers 404 for an unknown pack size', async () => {
@@ -283,7 +397,7 @@ describe('StockService.updateBatch', () => {
 
     await expect(
       service.updateBatch(BATCH, { batchNumber: 'AB2611', expiresOn: day('2028-10-31') }, context),
-    ).resolves.toEqual(shown({ expiresOn: '2028-10-31' }));
+    ).resolves.toEqual(shown({ expiresOn: '2028-10-31', stopsSellingOn: '2028-05-01' }));
 
     const [sql, id] = tx.$queryRaw.mock.calls[0] as [string[], string];
     expect(sql.join('?')).toMatch(/FROM stock_batches WHERE id = \?::uuid FOR UPDATE/);
@@ -304,6 +418,19 @@ describe('StockService.updateBatch', () => {
     expect(logger.info).toHaveBeenCalledWith(
       { batchId: BATCH, actorId: context.actorId },
       'Batch changed',
+    );
+  });
+
+  it('shows what orders hold of the batch once it is saved', async () => {
+    const { service, prisma, tx } = setup();
+    tx.stockBatch.update.mockResolvedValue(row({ batchNumber: 'AB2612' }));
+    prisma.stockMovement.groupBy.mockImplementation(holding({ [BATCH]: 4 }));
+
+    await expect(service.updateBatch(BATCH, { batchNumber: 'AB2612' }, context)).resolves.toEqual(
+      shown({ batchNumber: 'AB2612', awaitingPacking: 4 }),
+    );
+    expect(prisma.stockMovement.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ batchId: { in: [BATCH] } }) }),
     );
   });
 
@@ -380,6 +507,18 @@ describe('StockService.addMovement', () => {
     );
   });
 
+  it('shows what orders hold of the batch once the change is saved', async () => {
+    const { service, prisma, tx } = setup();
+    tx.stockBatch.findUniqueOrThrow
+      .mockResolvedValueOnce(row())
+      .mockResolvedValueOnce(row({ quantity: 118 }));
+    prisma.stockMovement.groupBy.mockImplementation(holding({ [BATCH]: 2 }, { [BATCH]: 1 }));
+
+    await expect(
+      service.addMovement(BATCH, { change: -2, reason: 'DAMAGED' }, context),
+    ).resolves.toEqual(shown({ quantity: 118, awaitingPacking: 2, packed: 1 }));
+  });
+
   it('refuses taking more than the batch holds with 409, but may take it all', async () => {
     const { service, tx, audit } = setup();
 
@@ -415,6 +554,137 @@ describe('StockService.addMovement', () => {
 
     await expect(
       service.addMovement(BATCH, { change: 5, reason: 'RECEIVED' }, context),
+    ).rejects.toThrow(new NotFoundException(BATCH_NOT_FOUND));
+    expect(tx.stockMovement.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('StockService.count', () => {
+  // 120 free, and 3 more on the shelf for orders waiting to be packed.
+  function counting() {
+    const fixture = setup();
+    fixture.tx.stockMovement.groupBy.mockImplementation(holding({ [BATCH]: 3 }, { [BATCH]: 5 }));
+    return fixture;
+  }
+
+  it('locks the batch, then turns a count that differs into a correction with its note', async () => {
+    const { service, tx, audit, logger } = counting();
+    tx.stockBatch.findUniqueOrThrow
+      .mockResolvedValueOnce(row())
+      .mockResolvedValueOnce(row({ quantity: 114 }));
+
+    await expect(
+      service.count(BATCH, { counted: 117, onShelf: 123, note: 'Shelf count' }, context),
+    ).resolves.toEqual({
+      batch: shown({ quantity: 114, awaitingPacking: 3, packed: 5 }),
+      change: -6,
+    });
+
+    const [sql, id] = tx.$queryRaw.mock.calls[0] as [string[], string];
+    expect(sql.join('?')).toMatch(/FROM stock_batches WHERE id = \?::uuid FOR UPDATE/);
+    expect(id).toBe(BATCH);
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.stockMovement.groupBy.mock.invocationCallOrder[0],
+    );
+    expect(tx.stockMovement.create).toHaveBeenCalledWith({
+      data: { batchId: BATCH, change: -6, reason: 'CORRECTION', note: 'Shelf count', actorId: context.actorId },
+      select: { id: true },
+    });
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...context,
+      action: 'stock.counted',
+      targetType: 'batch',
+      targetId: BATCH,
+      before: { quantity: 120, onShelf: 123 },
+      after: { quantity: 114, onShelf: 117, change: -6, note: 'Shelf count' },
+    });
+    expect(logger.info).toHaveBeenCalledWith(
+      { batchId: BATCH, actorId: context.actorId, change: -6 },
+      'Stock counted',
+    );
+  });
+
+  it('adds what the count found over, and leaves the packed orders out of the shelf', async () => {
+    const { service, tx } = counting();
+
+    await expect(
+      service.count(BATCH, { counted: 125, onShelf: 123, note: 'Found behind the shelf' }, context),
+    ).resolves.toMatchObject({ change: 2 });
+    expect(tx.stockMovement.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ change: 2, reason: 'CORRECTION' }) }),
+    );
+  });
+
+  it('saves and records nothing when the count matches, without a note', async () => {
+    const { service, tx, audit, logger } = counting();
+
+    await expect(service.count(BATCH, { counted: 123, onShelf: 123 }, context)).resolves.toEqual({
+      batch: shown({ awaitingPacking: 3, packed: 5 }),
+      change: 0,
+    });
+    expect(tx.stockMovement.create).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(logger.info).toHaveBeenCalledWith(
+      { batchId: BATCH, actorId: context.actorId, change: 0 },
+      'Count matched',
+    );
+  });
+
+  it('refuses with 409 when the stock changed while staff counted', async () => {
+    const { service, tx, audit } = counting();
+
+    for (const onShelf of [120, 124]) {
+      await expect(
+        service.count(BATCH, { counted: 100, onShelf, note: 'Shelf count' }, context),
+      ).rejects.toThrow(new ConflictException(COUNT_CHANGED));
+    }
+    expect(tx.stockMovement.create).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('wants a note for a count that differs', async () => {
+    const { service, tx } = counting();
+
+    await expect(
+      refusal(service.count(BATCH, { counted: 122, onShelf: 123 }, context)),
+    ).resolves.toEqual({
+      message: 'Validation failed',
+      errors: [{ field: 'note', message: COUNT_NEEDS_NOTE }],
+    });
+    expect(tx.stockMovement.create).not.toHaveBeenCalled();
+  });
+
+  it('refuses with 409 a count below what the orders waiting to be packed need', async () => {
+    const { service, tx } = counting();
+    tx.stockBatch.findUniqueOrThrow.mockResolvedValue(row({ quantity: 0 }));
+
+    await expect(
+      service.count(BATCH, { counted: 2, onShelf: 3, note: 'Shelf count' }, context),
+    ).rejects.toThrow(new ConflictException(fewerThanOrdersNeed(3)));
+    expect(tx.stockMovement.create).not.toHaveBeenCalled();
+    // All of them there, and no free ones: nothing to put right.
+    await expect(
+      service.count(BATCH, { counted: 3, onShelf: 3 }, context),
+    ).resolves.toMatchObject({ change: 0 });
+  });
+
+  it('may leave no free pack: only what the orders waiting to be packed need', async () => {
+    const { service, tx } = counting();
+
+    await expect(
+      service.count(BATCH, { counted: 3, onShelf: 123, note: 'Only the ordered ones left' }, context),
+    ).resolves.toMatchObject({ change: -120 });
+    expect(tx.stockMovement.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ change: -120 }) }),
+    );
+  });
+
+  it('answers 404 for an unknown batch, and changes nothing', async () => {
+    const { service, tx } = counting();
+    tx.$queryRaw.mockResolvedValue([]);
+
+    await expect(
+      service.count(BATCH, { counted: 1, onShelf: 1 }, context),
     ).rejects.toThrow(new NotFoundException(BATCH_NOT_FOUND));
     expect(tx.stockMovement.create).not.toHaveBeenCalled();
   });

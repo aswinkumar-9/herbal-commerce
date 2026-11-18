@@ -78,6 +78,19 @@ describe('variantSchema', () => {
       variantSchema.parse({ ...pack, mrpRupees: 1_000_000 }).mrpRupees,
     ).toBe(1_000_000);
   });
+
+  it('takes when its stock counts as low: a whole number of packs, 0 for never', () => {
+    expect(variantSchema.parse(pack)).not.toHaveProperty('lowStockAt');
+    for (const lowStockAt of [0, 10, 1_000_000]) {
+      expect(variantSchema.parse({ ...pack, lowStockAt }).lowStockAt).toBe(lowStockAt);
+    }
+    for (const lowStockAt of [-1, 2.5, '10', null, 1_000_001]) {
+      expect([lowStockAt, refusedFields({ ...pack, lowStockAt })]).toEqual([
+        lowStockAt,
+        ['lowStockAt'],
+      ]);
+    }
+  });
 });
 
 describe('variantUpdateSchema', () => {
@@ -89,6 +102,8 @@ describe('variantUpdateSchema', () => {
       sku: 'ASH-CAP-90',
       isActive: false,
     });
+    expect(variantUpdateSchema.parse({ lowStockAt: 0 })).toEqual({ lowStockAt: 0 });
+    expect(variantUpdateSchema.safeParse({ lowStockAt: -1 }).success).toBe(false);
   });
 
   it('refuses a change with nothing in it', () => {

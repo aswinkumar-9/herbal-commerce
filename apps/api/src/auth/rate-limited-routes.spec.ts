@@ -127,11 +127,13 @@ describe('rate-limited routes', () => {
     });
     // Stock: small writes, each one movement.
     expect(routeLimits(StaffStockController)).toStrictEqual({
+      list: undefined,
       listBatches: undefined,
       receive: undefined,
       updateBatch: undefined,
       listMovements: undefined,
       addMovement: undefined,
+      count: undefined,
     });
     // The cart: small reads and writes, at most 50 lines each.
     expect(routeLimits(CartController)).toStrictEqual({
