@@ -50,6 +50,10 @@ describe('rate-limited routes', () => {
       refresh: ['refresh'],
       logout: ['logout'],
       acceptInvite: ['acceptInvite'],
+      // Opening an emailed link, and setting up the app again with one,
+      // share the invitation's limit (ADR 0038).
+      setupLink: ['acceptInvite'],
+      resetAuthenticator: ['acceptInvite'],
     });
     // Strict, so a handler without a limit must be listed too.
     expect(routeLimits(StaffAdminsController)).toStrictEqual({
@@ -59,6 +63,7 @@ describe('rate-limited routes', () => {
       list: undefined,
       invite: ['staffInvites'],
       resendInvitation: ['staffInvites'],
+      resetAuthenticator: ['staffInvites'],
       setStatus: undefined,
       remove: undefined,
     });

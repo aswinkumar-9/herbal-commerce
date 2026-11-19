@@ -83,12 +83,11 @@ describe('AdminsService.list', () => {
       'staffInvitations',
       'status',
     ]);
-    // Only the newest unused invitation, and only when it ends.
+    // The unused links, newest first: when each ends, and what it is for.
     expect(query.select.staffInvitations).toEqual({
       where: { usedAt: null },
       orderBy: { expiresAt: 'desc' },
-      take: 1,
-      select: { expiresAt: true },
+      select: { expiresAt: true, purpose: true },
     });
   });
 
@@ -96,13 +95,22 @@ describe('AdminsService.list', () => {
     const acceptedAt = new Date('2026-10-30T11:43:18.000Z');
     const mfaAt = new Date('2026-10-30T11:47:36.000Z');
     const invitationEnds = new Date('2026-11-02T11:28:51.000Z');
+    const linkEnds = new Date('2026-11-04T09:00:00.000Z');
     const { service } = setup([
       storedAdmin({ emailVerifiedAt: acceptedAt, mfaEnabledAt: mfaAt }),
       storedAdmin({
         id: 'admin-2',
         email: 'dev.admin2@example.com',
         status: 'DISABLED',
-        staffInvitations: [{ expiresAt: invitationEnds }],
+        staffInvitations: [{ expiresAt: invitationEnds, purpose: 'INVITE' }],
+      }),
+      storedAdmin({
+        id: 'admin-3',
+        email: 'dev.admin3@example.com',
+        emailVerifiedAt: acceptedAt,
+        staffInvitations: [
+          { expiresAt: linkEnds, purpose: 'AUTHENTICATOR_RESET' },
+        ],
       }),
     ]);
 
@@ -115,6 +123,7 @@ describe('AdminsService.list', () => {
           status: 'ACTIVE',
           invitationAcceptedAt: acceptedAt,
           invitationExpiresAt: null,
+          authenticatorLinkExpiresAt: null,
           mfaEnabledAt: mfaAt,
           createdAt,
         },
@@ -125,6 +134,20 @@ describe('AdminsService.list', () => {
           status: 'DISABLED',
           invitationAcceptedAt: null,
           invitationExpiresAt: invitationEnds,
+          authenticatorLinkExpiresAt: null,
+          mfaEnabledAt: null,
+          createdAt,
+        },
+        // Its authenticator was reset: a link to set it up again, apart
+        // from any invitation (ADR 0038).
+        {
+          id: 'admin-3',
+          email: 'dev.admin3@example.com',
+          fullName: 'Dev Admin One',
+          status: 'ACTIVE',
+          invitationAcceptedAt: acceptedAt,
+          invitationExpiresAt: null,
+          authenticatorLinkExpiresAt: linkEnds,
           mfaEnabledAt: null,
           createdAt,
         },

@@ -3,6 +3,8 @@ import { AuthModule } from '../auth/auth.module';
 import { MailModule } from '../mail/mail.module';
 import { AdminInvitationService } from './admin-invitation.service';
 import { AdminsService } from './admins.service';
+import { AuthenticatorResetService } from './authenticator-reset.service';
+import { SetupLinksService } from './setup-links.service';
 import { StaffAdminsController } from './staff-admins.controller';
 import { StaffAuditLogController } from './staff-audit-log.controller';
 import { StaffAuthController } from './staff-auth.controller';
@@ -29,6 +31,8 @@ import { StaffMfaService } from './staff-mfa.service';
     StaffMfaService,
     AdminInvitationService,
     AdminsService,
+    SetupLinksService,
+    AuthenticatorResetService,
   ],
 })
 export class StaffModule {}

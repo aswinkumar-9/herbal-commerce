@@ -145,3 +145,37 @@ describe('StaffMfaService.verifyAndUse', () => {
     ).resolves.toBe(false);
   });
 });
+
+describe('StaffMfaService, for a key shown by an emailed link (ADR 0038)', () => {
+  it('makes a new key with its otpauth:// address for a QR code', () => {
+    const { service } = setup();
+
+    const { secret, uri } = service.newKey('dev.admin1@example.com');
+
+    expect(secret).toMatch(/^[A-Z2-7]{32}$/);
+    expect(uri).toBe(service.keyUri(secret, 'dev.admin1@example.com'));
+    expect(uri).toMatch(/^otpauth:\/\/totp\//);
+    expect(uri).toContain(`secret=${secret}`);
+  });
+
+  it('keeps a key sealed for what it belongs to, and opens it only for that', () => {
+    const { service } = setup();
+    const { secret } = service.newKey('dev.admin1@example.com');
+
+    const sealed = service.seal(secret, 'link-1');
+
+    expect(sealed).not.toContain(secret);
+    expect(service.open(sealed, 'link-1')).toBe(secret);
+    expect(() => service.open(sealed, 'link-2')).toThrow();
+  });
+
+  it('checks a code without saving anything: its step when right, null when wrong', () => {
+    const { service, prisma, tx } = setup();
+    const { secret } = service.newKey('dev.admin1@example.com');
+
+    expect(service.check(secret, codeFor(secret), NOW)).toBe(STEP);
+    expect(service.check(secret, '000000', NOW)).toBeNull();
+    expect(prisma.user.updateMany).not.toHaveBeenCalled();
+    expect(tx.user.update).not.toHaveBeenCalled();
+  });
+});

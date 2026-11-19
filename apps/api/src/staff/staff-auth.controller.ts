@@ -20,10 +20,22 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { ClientIp } from '../rate-limit/client-ip.decorator';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
 import { AdminInvitationService } from './admin-invitation.service';
+import { AuthenticatorResetService } from './authenticator-reset.service';
+import { SetupLinksService } from './setup-links.service';
 import { StaffAuthService } from './staff-auth.service';
 import { StaffBrowserSession } from './staff-browser-session';
-import { acceptInviteSchema, staffLoginSchema } from './staff.schemas';
-import type { AcceptInviteInput, StaffLoginInput } from './staff.schemas';
+import {
+  acceptInviteSchema,
+  resetAuthenticatorSchema,
+  setupLinkSchema,
+  staffLoginSchema,
+} from './staff.schemas';
+import type {
+  AcceptInviteInput,
+  ResetAuthenticatorInput,
+  SetupLinkInput,
+  StaffLoginInput,
+} from './staff.schemas';
 
 const refreshTokenBody = new ZodValidationPipe(refreshTokenSchema);
 
@@ -38,6 +50,8 @@ export class StaffAuthController {
     private readonly staffAuth: StaffAuthService,
     private readonly sessions: SessionService,
     private readonly invitations: AdminInvitationService,
+    private readonly resets: AuthenticatorResetService,
+    private readonly links: SetupLinksService,
     private readonly browser: StaffBrowserSession,
   ) {}
 
@@ -125,5 +139,33 @@ export class StaffAuthController {
     @CurrentAuditContext() context: AuditContext,
   ) {
     return this.invitations.accept(body, context);
+  }
+
+  // Public: whoever opened an emailed link gets who it is for, and the key
+  // to put into the authenticator app (ADR 0038). The token is the proof,
+  // so the answer is never stored.
+  @Public()
+  @RateLimit('acceptInvite')
+  @Post('setup-link')
+  @HttpCode(HttpStatus.OK)
+  @Header('Cache-Control', 'no-store')
+  setupLink(
+    @Body(new ZodValidationPipe(setupLinkSchema)) body: SetupLinkInput,
+  ) {
+    return this.links.key(body.token);
+  }
+
+  // Public: after a Super User reset it, the Admin sets up the app again
+  // with the link, their own password and a code (ADR 0038).
+  @Public()
+  @RateLimit('acceptInvite')
+  @Post('reset-authenticator')
+  @HttpCode(HttpStatus.OK)
+  resetAuthenticator(
+    @Body(new ZodValidationPipe(resetAuthenticatorSchema))
+    body: ResetAuthenticatorInput,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.resets.complete(body, context);
   }
 }

@@ -77,14 +77,26 @@ model PasswordResetToken {
   @@map("password_reset_tokens")
 }
 
-// An invitation for a new Admin to choose their own password (ADR 0015).
-// Only the SHA-256 hash of the link's token is stored, as for reset links.
+// What an emailed link for an Admin is for (ADR 0038): an invitation to
+// choose a password and set up the authenticator app, or setting up the
+// app again after a Super User reset it.
+enum StaffLinkPurpose {
+  INVITE
+  AUTHENTICATOR_RESET
+}
+
+// An emailed link for an Admin (ADR 0015, ADR 0038). Only the SHA-256 hash
+// of the link's token is stored, as for reset links.
 model StaffInvitation {
-  id        String    @id @default(uuid()) @db.Uuid
-  userId    String    @db.Uuid
-  tokenHash String    @unique
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  purpose   StaffLinkPurpose @default(INVITE)
+  tokenHash String           @unique
   expiresAt DateTime
   usedAt    DateTime?
+  // The authenticator key shown to whoever opened the link, until a code
+  // from the app confirms it. Encrypted like the account's own key.
+  pendingMfaSecret String?
   createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

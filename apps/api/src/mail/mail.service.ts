@@ -107,18 +107,39 @@ export class MailService {
       subject: 'You are invited to Herbal Commerce as an Admin',
       text:
         `Hello ${fullName},\n\n` +
-        `You have been invited to Herbal Commerce as an Admin. Use this link to choose your password (valid for 72 hours, and only once):\n` +
+        `You have been invited to Herbal Commerce as an Admin. Use this link to choose your password and set up an authenticator app (valid for 72 hours, and only once):\n` +
         `${invitationUrl}\n\n` +
-        `Your password needs at least 16 characters. Before you can sign in, ` +
-        `a developer will set up an authenticator app on your phone with you.\n\n` +
+        `Your password needs at least 16 characters. Have an authenticator app ready on your phone, ` +
+        `such as Google Authenticator or Microsoft Authenticator.\n\n` +
         `If you did not expect this invitation, you can ignore this email.`,
       html:
         `<p>Hello ${escapeHtml(fullName)},</p>` +
-        `<p>You have been invited to Herbal Commerce as an Admin. Use this link to choose your password (valid for 72 hours, and only once):</p>` +
+        `<p>You have been invited to Herbal Commerce as an Admin. Use this link to choose your password and set up an authenticator app (valid for 72 hours, and only once):</p>` +
         `<p><a href="${escapeHtml(invitationUrl)}">${escapeHtml(invitationUrl)}</a></p>` +
-        `<p>Your password needs at least 16 characters. Before you can sign in, ` +
-        `a developer will set up an authenticator app on your phone with you.</p>` +
+        `<p>Your password needs at least 16 characters. Have an authenticator app ready on your phone, ` +
+        `such as Google Authenticator or Microsoft Authenticator.</p>` +
         `<p>If you did not expect this invitation, you can ignore this email.</p>`,
+    });
+  }
+
+  // A Super User reset the Admin's authenticator app (ADR 0038): the link
+  // sets it up again, with the Admin's own password.
+  async sendAuthenticatorReset(to: string, fullName: string, setupUrl: string): Promise<void> {
+    await this.transport.send({
+      to,
+      subject: 'Set up your authenticator app again for Herbal Commerce',
+      text:
+        `Hello ${fullName},\n\n` +
+        `A Super User reset the authenticator app you use to sign in to Herbal Commerce, so your old codes no longer work. ` +
+        `Use this link to set it up again, with your password (valid for 72 hours, and only once):\n` +
+        `${setupUrl}\n\n` +
+        `If you did not ask for this, tell a Super User at once.`,
+      html:
+        `<p>Hello ${escapeHtml(fullName)},</p>` +
+        `<p>A Super User reset the authenticator app you use to sign in to Herbal Commerce, so your old codes no longer work. ` +
+        `Use this link to set it up again, with your password (valid for 72 hours, and only once):</p>` +
+        `<p><a href="${escapeHtml(setupUrl)}">${escapeHtml(setupUrl)}</a></p>` +
+        `<p>If you did not ask for this, tell a Super User at once.</p>`,
     });
   }
 }
