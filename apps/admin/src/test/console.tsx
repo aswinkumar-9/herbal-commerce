@@ -5,12 +5,14 @@ import { RouterProvider, createMemoryRouter } from 'react-router';
 import type { InitialEntry } from 'react-router';
 import { routes } from '../App';
 import { ASHA, RAVI, fakeApi, json, tokens } from './fake-api';
+import { TO_PACK, ordersOf } from './order-fixtures';
 
 type Answers = Parameters<typeof fakeApi>[0];
 type Staff = typeof ASHA | typeof RAVI;
 
 // The whole console at a page, already signed in (the cookie still holds a
-// session), with the fake API answering the rest.
+// session), with the fake API answering the rest. The menu asks how many
+// orders wait to be packed: none, unless the test says otherwise.
 export function openSignedIn(
   // A path, or a page with the state a link would give it.
   path: InitialEntry,
@@ -19,6 +21,7 @@ export function openSignedIn(
   const api = fakeApi({
     'POST /v1/staff/auth/refresh': () => json(200, tokens('t1')),
     'GET /v1/staff/me': () => json(200, staff),
+    [TO_PACK]: ordersOf([]),
     ...answers,
   });
   const queryClient = new QueryClient({

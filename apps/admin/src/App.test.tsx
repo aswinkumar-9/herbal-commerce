@@ -17,6 +17,7 @@ import { accessToken } from './api/access-token';
 import { IDLE_LIMIT_MS, IDLE_WARNING_MS } from './auth/idle';
 import { fetchProfile } from './auth/staff-api';
 import { ASHA, RAVI, fakeApi, json, offline, tokens } from './test/fake-api';
+import { ORDERS, TO_PACK, ordersOf } from './test/order-fixtures';
 
 const REFRESH = 'POST /v1/staff/auth/refresh';
 const LOGIN = 'POST /v1/staff/auth/login';
@@ -120,6 +121,8 @@ describe('signing in', () => {
       [REFRESH]: noSession,
       [LOGIN]: session('t1'),
       [ME]: () => json(200, ASHA),
+      [TO_PACK]: ordersOf([]),
+      [ORDERS('?status=PAID&sort=oldest')]: ordersOf([]),
     });
     const { user } = openConsole('/orders');
 
@@ -344,7 +347,11 @@ describe('staying signed in', () => {
 
 describe('roles', () => {
   it('shows an Admin only what Admins use', async () => {
-    fakeApi({ [REFRESH]: session(), [ME]: () => json(200, ASHA) });
+    fakeApi({
+      [REFRESH]: session(),
+      [ME]: () => json(200, ASHA),
+      [TO_PACK]: ordersOf([]),
+    });
     openConsole('/');
 
     const menu = await screen.findByRole('navigation', { name: 'Main' });
@@ -352,7 +359,7 @@ describe('roles', () => {
       within(menu)
         .getAllByRole('link')
         .map((link) => link.textContent),
-    ).toEqual(['Overview', 'Catalog', 'Stock', 'OrdersSoon']);
+    ).toEqual(['Overview', 'Catalog', 'Stock', 'Orders']);
     expect(screen.getByText('Admin', { selector: 'span' })).toBeInTheDocument();
   });
 

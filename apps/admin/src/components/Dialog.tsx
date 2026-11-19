@@ -23,6 +23,10 @@ interface DialogProps {
   locked?: boolean;
 }
 
+// What takes the focus when a dialog opens: the first field or button.
+const CONTROLS =
+  'input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled), a[href]';
+
 // A question that needs an answer before staff go on. The browser's own
 // modal dialog: the rest of the page cannot be reached while it is open, and
 // the focus goes back where it was when it closes.
@@ -100,6 +104,13 @@ function DialogBox({
     dialog.addEventListener('pointerdown', press);
     dialog.addEventListener('click', click);
     dialog.showModal();
+    // The browser gives the focus to the first thing it can, and Chrome
+    // counts a list that scrolls, such as the orders chosen to pack: the
+    // first field or button takes it instead.
+    const focused = document.activeElement;
+    if (!(dialog.contains(focused) && focused?.matches(CONTROLS))) {
+      dialog.querySelector<HTMLElement>(CONTROLS)?.focus();
+    }
     return () => {
       dialog.removeEventListener('cancel', cancel);
       dialog.removeEventListener('close', closed);
@@ -108,8 +119,12 @@ function DialogBox({
       if (dialog.open) {
         dialog.close();
       }
+      // Unless what opened it is gone (the dialog did away with it): then
+      // the page's main area takes the focus, so it is not lost.
       if (opener?.isConnected) {
         opener.focus();
+      } else {
+        document.getElementById('main')?.focus({ preventScroll: true });
       }
     };
   }, []);

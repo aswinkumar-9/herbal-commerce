@@ -416,7 +416,7 @@ describe('PaymentsService', () => {
       status: 'FAILED',
       createdAt: NOW,
       updatedAt: NOW,
-      payment: { orderId },
+      payment: { orderId, order: { reference: `REF${orderId.slice(-1)}` } },
     });
 
     it('lists the refunds in one status, the newest first, each naming its order, with the next page', async () => {
@@ -433,9 +433,11 @@ describe('PaymentsService', () => {
         status: 'FAILED',
       });
 
-      expect(page.refunds.map((r) => [r.id, r.orderId])).toEqual([
-        ['r3', 'order-3'],
-        ['r2', 'order-2'],
+      expect(
+        page.refunds.map((r) => [r.id, r.orderId, r.orderReference]),
+      ).toEqual([
+        ['r3', 'order-3', 'REF3'],
+        ['r2', 'order-2', 'REF2'],
       ]);
       expect(page.refunds[0]).not.toHaveProperty('payment');
       expect(page.nextAfter).toBe('r2');
@@ -454,7 +456,9 @@ describe('PaymentsService', () => {
           status: true,
           createdAt: true,
           updatedAt: true,
-          payment: { select: { orderId: true } },
+          payment: {
+            select: { orderId: true, order: { select: { reference: true } } },
+          },
         },
       });
     });

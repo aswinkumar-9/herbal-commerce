@@ -6,6 +6,7 @@
 - Updated: 2026-11-18 (part 12C: pack sizes and images, and uploads with their progress, see ADR 0033)
 - Updated: 2026-11-19 (part 12D: the Stock area, see ADR 0034)
 - Updated: 2026-11-20 (part 12E: the look, glass and clay, see ADR 0035)
+- Updated: 2026-11-19 (part 12F: the Orders area and the Refunds tab, see ADR 0037)
 - Updated: 2026-11-20 (part 13: the look comes from the design system, `packages/design`, see ADR 0036)
 
 ## Context

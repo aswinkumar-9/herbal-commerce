@@ -15,6 +15,23 @@
   }
 }
 
+/* A page printed from the console, such as an order's packing slip
+   (ADR 0037): A4, on plain paper, without the glow behind the page. */
+@page {
+  size: A4;
+  margin: 16mm;
+}
+
+@media print {
+  html {
+    background: white;
+  }
+
+  body::before {
+    display: none;
+  }
+}
+
 /* While a dialog is open, the page under it stays still. */
 html:has(dialog[open]) {
   overflow: hidden;
