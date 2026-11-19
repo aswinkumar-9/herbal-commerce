@@ -11,7 +11,7 @@ const LEVEL_STYLES: Record<StockLevel, string> = {
 // A small word beside a name, such as "Draft" or "Off sale".
 export function Tag({ children }: { children: ReactNode }) {
   return (
-    <span className="shrink-0 rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium text-ink-muted">
+    <span className="shrink-0 rounded-full bg-surface-muted px-2 py-0.5 text-xs font-medium text-ink-muted shadow-chip inset-shadow-clay">
       {children}
     </span>
   );
@@ -22,7 +22,7 @@ export function Tag({ children }: { children: ReactNode }) {
 export function LevelTag({ level }: { level: StockLevel }) {
   return (
     <span
-      className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold ${LEVEL_STYLES[level]}`}
+      className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold shadow-chip inset-shadow-clay ${LEVEL_STYLES[level]}`}
     >
       {LEVEL_NAMES[level]}
     </span>

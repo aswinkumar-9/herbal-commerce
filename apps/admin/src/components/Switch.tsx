@@ -88,7 +88,7 @@ export function Switch({
             onChange(!checked);
           }
         }}
-        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-70 ${
+        className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full inset-shadow-well transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-70 ${
           checked ? 'bg-primary' : 'bg-line'
         }`}
       >
@@ -97,7 +97,7 @@ export function Switch({
           initial={false}
           animate={{ x: checked ? 22 : 2 }}
           transition={transition}
-          className="block size-5 rounded-full bg-surface shadow-sm"
+          className="block size-5 rounded-full bg-surface shadow-clay-sm inset-shadow-clay"
         />
       </button>
     </div>

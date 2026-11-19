@@ -3,7 +3,7 @@ import { Leaf } from 'lucide-react';
 export function Brand() {
   return (
     <div className="flex items-center gap-3">
-      <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary-soft text-primary">
+      <span className="grid size-10 shrink-0 place-items-center rounded-full bg-primary-soft text-primary shadow-clay-sm inset-shadow-clay">
         <Leaf aria-hidden="true" className="size-5" />
       </span>
       <div className="leading-tight">

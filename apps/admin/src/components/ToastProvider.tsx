@@ -87,7 +87,7 @@ function ToastNote({
       onPointerLeave={() => setHeld((h) => ({ ...h, pointer: false }))}
       onFocus={() => setHeld((h) => ({ ...h, focus: true }))}
       onBlur={() => setHeld((h) => ({ ...h, focus: false }))}
-      className={`pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-card border bg-surface p-3 pl-4 text-sm shadow-soft ${
+      className={`pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-card border bg-surface p-3 pl-4 text-sm shadow-clay-lg inset-shadow-clay ${
         toast.kind === 'error' ? 'border-danger/40' : 'border-line'
       }`}
     >

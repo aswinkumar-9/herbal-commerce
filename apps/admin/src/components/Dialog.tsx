@@ -130,7 +130,7 @@ function DialogBox({
         size === 'md'
           ? 'w-[min(34rem,calc(100%-2rem))]'
           : 'w-[min(28rem,calc(100%-2rem))]'
-      } rounded-card border border-line bg-surface p-0 text-ink shadow-soft backdrop:bg-black/45`}
+      } rounded-card border border-line bg-surface p-0 text-ink shadow-clay-lg inset-shadow-clay`}
     >
       <div className="p-6">
         <div className="flex items-start gap-3">

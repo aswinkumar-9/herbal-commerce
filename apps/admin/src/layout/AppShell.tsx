@@ -12,7 +12,9 @@ import { rise, transition } from '../motion';
 import { navItemsFor } from './nav-items';
 
 // The signed-in console: the menu on the left (at the top on small
-// screens), the page on the right.
+// screens), the page on the right. The menu is frosted glass; on a small
+// screen it stays at the top while the page scrolls under it, and turns
+// solid while open.
 export function AppShell() {
   const { state, signOut } = useSession();
   const location = useLocation();
@@ -60,11 +62,17 @@ export function AppShell() {
       <div className="min-h-dvh lg:grid lg:grid-cols-[16rem_1fr]">
         <a
           href="#main"
-          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-10 focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2 focus:shadow-soft"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2 focus:shadow-clay"
         >
           Skip to the page
         </a>
-        <aside className="border-b border-line bg-surface lg:sticky lg:top-0 lg:flex lg:h-dvh lg:flex-col lg:border-r lg:border-b-0">
+        <aside
+          className={`glass sticky top-0 z-30 border-b border-line/70 inset-shadow-glass lg:flex lg:h-dvh lg:flex-col lg:border-r lg:border-b-0 ${
+            menuOpen
+              ? 'max-lg:max-h-dvh max-lg:overflow-y-auto max-lg:bg-surface'
+              : ''
+          }`}
+        >
           <div className="flex items-center justify-between p-4 lg:p-5">
             <Brand />
             <button
@@ -110,7 +118,7 @@ export function AppShell() {
                             <motion.span
                               layoutId="nav-highlight"
                               transition={transition}
-                              className="absolute inset-0 rounded-lg bg-primary-soft"
+                              className="absolute inset-0 rounded-lg bg-primary-soft shadow-chip inset-shadow-clay"
                             />
                           ) : null}
                           <item.icon
@@ -134,14 +142,14 @@ export function AppShell() {
             <div className="mt-6 border-t border-line p-4 lg:mt-auto lg:p-5">
               <p className="truncate text-sm font-medium">{staff.fullName}</p>
               <p className="truncate text-xs text-ink-muted">{staff.email}</p>
-              <span className="mt-2 inline-block rounded-full bg-primary-soft px-2 py-0.5 text-xs font-medium text-primary-strong">
+              <span className="mt-2 inline-block rounded-full bg-primary-soft px-2 py-0.5 text-xs font-medium text-primary-strong shadow-chip inset-shadow-clay">
                 {ROLE_NAMES[staff.role]}
               </span>
               <button
                 type="button"
                 onClick={leave}
                 disabled={signingOut}
-                className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-line text-sm font-medium transition-colors hover:bg-surface-muted disabled:cursor-wait disabled:opacity-70"
+                className="mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-control border border-line bg-surface text-sm font-medium shadow-clay-sm inset-shadow-clay transition-[background-color,box-shadow] hover:bg-surface-muted active:shadow-none active:inset-shadow-pressed disabled:cursor-wait disabled:opacity-70"
               >
                 {signingOut ? (
                   <LoaderCircle

@@ -34,10 +34,10 @@ export function OverviewPage() {
           <motion.li key={area.to} variants={rise}>
             <Link
               to={area.to}
-              className="group flex h-full flex-col rounded-card border border-line bg-surface p-5 shadow-soft transition-colors duration-150 hover:border-primary/40"
+              className="group flex h-full flex-col rounded-card border border-line bg-surface p-5 shadow-clay inset-shadow-clay transition-[border-color,box-shadow,translate] duration-150 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-clay-lg"
             >
               <span className="flex items-center gap-3">
-                <span className="grid size-9 place-items-center rounded-lg bg-primary-soft text-primary">
+                <span className="grid size-9 place-items-center rounded-lg bg-primary-soft text-primary shadow-chip inset-shadow-clay">
                   <area.icon aria-hidden="true" className="size-4" />
                 </span>
                 <span className="font-medium">{area.label}</span>

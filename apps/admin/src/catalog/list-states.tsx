@@ -36,7 +36,7 @@ export function LoadFailed({
   return (
     <div
       role="alert"
-      className="mt-8 rounded-card border border-line bg-surface p-6 text-center"
+      className="mt-8 rounded-card border border-line bg-surface p-6 text-center shadow-clay inset-shadow-clay"
     >
       <p className="font-medium">{title}</p>
       <p className="mt-1 text-sm text-ink-muted">{message}</p>

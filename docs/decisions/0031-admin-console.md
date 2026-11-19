@@ -5,6 +5,7 @@
 - Updated: 2026-11-13 (part 12B: the catalog pages, see ADR 0032)
 - Updated: 2026-11-18 (part 12C: pack sizes and images, and uploads with their progress, see ADR 0033)
 - Updated: 2026-11-19 (part 12D: the Stock area, see ADR 0034)
+- Updated: 2026-11-20 (part 12E: the look, glass and clay, see ADR 0035)
 
 ## Context
 
@@ -154,6 +155,7 @@ The Vite dev server sends the headers without the policy, because its live reloa
 ### Look and motion
 
 - **Colours** are named tokens in `src/index.css`: calm greens on warm neutrals in the light theme, deep greens in the dark one, chosen by the computer's setting.
+- **Since part 12E, glass and clay** (ADR 0035): frosted glass on the menu, the save bar and a dialog's backdrop, and soft raised clay on cards, buttons and chips, with text as readable as before.
 - **Motion is short and calm,** so it never slows staff down (`src/motion.ts`):
   - every movement lasts 150 to 250 ms, quick to start and soft to land;
   - a page or a card rises in 8 pixels as it fades in, and leaves faster than it arrives;

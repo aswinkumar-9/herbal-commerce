@@ -29,7 +29,7 @@ export function IdleSignOut() {
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 8 }}
           transition={{ duration: DURATION.base, ease: EASE_OUT }}
-          className="fixed inset-x-4 bottom-4 z-20 mx-auto flex max-w-md items-start gap-3 rounded-card border border-line bg-surface p-4 shadow-soft"
+          className="fixed inset-x-4 bottom-4 z-20 mx-auto flex max-w-md items-start gap-3 rounded-card border border-line bg-surface p-4 shadow-clay-lg inset-shadow-clay"
         >
           <Clock
             aria-hidden="true"

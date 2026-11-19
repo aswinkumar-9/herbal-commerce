@@ -325,7 +325,7 @@ function stateLine(batch: Batch, state: BatchState): string {
 
 function Figure({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-lg bg-surface-muted/60 px-3 py-2">
+    <div className="rounded-lg bg-surface-muted/60 px-3 py-2 inset-shadow-well">
       <dt className="text-xs text-ink-muted">{label}</dt>
       <dd className="text-lg font-semibold tabular-nums">
         {value.toLocaleString('en-IN')}
@@ -365,7 +365,7 @@ function BatchCard({
         y: 0,
         transition: { ...transition, delay: Math.min(index, 10) * 0.03 },
       }}
-      className="rounded-card border border-line bg-surface p-4"
+      className="rounded-card border border-line bg-surface p-4 shadow-clay inset-shadow-clay"
     >
       <div className="flex flex-wrap items-center gap-2">
         <h3 id={headingId} className="font-medium">
@@ -373,7 +373,7 @@ function BatchCard({
         </h3>
         {tag ? (
           <span
-            className={`rounded-full px-2 py-0.5 text-xs font-medium ${tag.style}`}
+            className={`rounded-full px-2 py-0.5 text-xs font-medium shadow-chip inset-shadow-clay ${tag.style}`}
           >
             {tag.label}
           </span>
