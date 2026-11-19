@@ -1,7 +1,13 @@
-import { PackageCheck, Search, SearchX, ShoppingBag } from 'lucide-react';
+import {
+  ChevronRight,
+  PackageCheck,
+  Search,
+  SearchX,
+  ShoppingBag,
+} from 'lucide-react';
 import { motion } from 'motion/react';
 import { useId, useState } from 'react';
-import { useSearchParams } from 'react-router';
+import { Link, useSearchParams } from 'react-router';
 import { problemMessage } from '../api/problems';
 import { EmptyList, ListLoading, LoadFailed } from '../catalog/list-states';
 import { rupees } from '../catalog/products/pack-size-form';
@@ -177,6 +183,7 @@ export function OrdersPage() {
               <OrderRow
                 order={order}
                 withStatus={Boolean(reference) || filter.name === 'all'}
+                listSearch={params.toString()}
               />
             </motion.li>
           ))}
@@ -243,19 +250,29 @@ function ReferenceSearch({
 }
 
 // One order: its reference, who it goes to and where, when it was placed,
-// and its total.
+// and its total. The whole row opens it, keeping the list's filters for the
+// way back.
 function OrderRow({
   order,
   withStatus,
+  listSearch,
 }: {
   order: OrderSummary;
   withStatus: boolean;
+  listSearch: string;
 }) {
   return (
-    <div className="flex items-start gap-4 px-4 py-3">
+    <div className="relative flex items-start gap-4 px-4 py-3 transition-colors duration-150 hover:bg-surface-muted/40">
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span className="font-mono font-medium">{order.reference}</span>
+          <Link
+            to={`/orders/${order.id}`}
+            state={{ listSearch }}
+            className="font-mono font-medium after:absolute after:inset-0 after:content-[''] focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-primary focus-visible:after:ring-inset"
+          >
+            {order.reference}
+            <span className="sr-only">, {order.deliveryName}</span>
+          </Link>
           {withStatus ? <StatusTag status={order.status} /> : null}
         </p>
         <p className="mt-1 text-sm">
@@ -267,6 +284,10 @@ function OrderRow({
         </p>
       </div>
       <p className="font-medium tabular-nums">{rupees(order.totalRupees)}</p>
+      <ChevronRight
+        aria-hidden="true"
+        className="mt-0.5 size-4 shrink-0 text-ink-muted"
+      />
     </div>
   );
 }

@@ -67,7 +67,7 @@ export function AppShell() {
           Skip to the page
         </a>
         <aside
-          className={`glass sticky top-0 z-30 border-b border-line/70 inset-shadow-glass lg:flex lg:h-dvh lg:flex-col lg:border-r lg:border-b-0 ${
+          className={`glass sticky top-0 z-30 border-b print:hidden border-line/70 inset-shadow-glass lg:flex lg:h-dvh lg:flex-col lg:border-r lg:border-b-0 ${
             menuOpen
               ? 'max-lg:max-h-dvh max-lg:overflow-y-auto max-lg:bg-surface'
               : ''
@@ -171,7 +171,11 @@ export function AppShell() {
           </div>
         </aside>
 
-        <main id="main" tabIndex={-1} className="p-6 outline-none lg:p-10">
+        <main
+          id="main"
+          tabIndex={-1}
+          className="p-6 outline-none lg:p-10 print:p-0"
+        >
           {/* Each page rises in gently as it opens. */}
           <motion.div
             key={location.pathname}

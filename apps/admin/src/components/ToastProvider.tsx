@@ -42,7 +42,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       {/* Always on the page, so a screen reader hears each new note. */}
       <output
         aria-label="Notifications"
-        className="pointer-events-none fixed inset-x-4 bottom-4 z-50 flex flex-col items-center gap-2 sm:inset-x-auto sm:right-6 sm:bottom-6 sm:items-end"
+        className="pointer-events-none fixed inset-x-4 bottom-4 z-50 flex print:hidden flex-col items-center gap-2 sm:inset-x-auto sm:right-6 sm:bottom-6 sm:items-end"
       >
         <AnimatePresence initial={false}>
           {toasts.map((toast) => (

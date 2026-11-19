@@ -37,7 +37,7 @@ async function references() {
   const list = await screen.findByRole('list', { name: 'Orders' });
   return within(list)
     .getAllByRole('listitem')
-    .map((row) => row.querySelector('.font-mono')?.textContent);
+    .map((row) => row.querySelector('a')?.firstChild?.textContent);
 }
 
 const chip = (name: string) => screen.getByRole('button', { name });

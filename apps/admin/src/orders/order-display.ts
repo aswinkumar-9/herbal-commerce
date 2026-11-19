@@ -1,4 +1,9 @@
-import type { OrderQuery, OrderStatus } from './orders-api';
+import type {
+  OrderQuery,
+  OrderStatus,
+  RefundReason,
+  RefundStatus,
+} from './orders-api';
 
 // How orders read on screen (ADR 0037).
 
@@ -158,3 +163,30 @@ export function placeName(order: {
 }): string {
   return `${order.deliveryCity}, ${order.deliveryState}`;
 }
+
+// Why money went back, as staff read it.
+export const REFUND_REASON_NAMES: Record<RefundReason, string> = {
+  ORDER_EXPIRED: 'Paid after the order expired, with its stock gone',
+  ORDER_CANCELLED: 'Paid for an order already cancelled',
+  ALREADY_PAID: 'A second payment for an order already paid',
+  CANCELLED_BY_CUSTOMER: 'The customer cancelled the order',
+  CANCELLED_BY_STAFF: 'A Super User cancelled the order',
+};
+
+export const REFUND_STATUS_NAMES: Record<RefundStatus, string> = {
+  REQUESTED: 'Being sent to Razorpay',
+  PENDING: 'On its way back',
+  PROCESSED: 'Back with the customer',
+  FAILED: 'Failed: give it back by hand',
+};
+
+export const REFUND_STATUS_STYLES: Record<RefundStatus, string> = {
+  REQUESTED: 'bg-surface-muted text-ink-muted',
+  PENDING: 'bg-warning-soft text-warning',
+  PROCESSED: 'bg-primary-soft text-primary-strong',
+  FAILED: 'bg-danger-soft text-danger',
+};
+
+// What a failed refund asks of a Super User.
+export const FAILED_REFUND_HELP =
+  'Razorpay could not give this money back. Give it back by hand in the Razorpay dashboard, from the payment named here.';
