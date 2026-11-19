@@ -76,7 +76,15 @@ export function useRefundPages(query: Omit<RefundQuery, 'after'>) {
 // order's page. Stock too, as packing, shipping and cancelling move an
 // order's packs.
 export function orderChanged(queryClient: QueryClient, saved: Order): void {
-  queryClient.setQueryData<Order>(orderKeys.order(saved.id), saved);
+  ordersChanged(queryClient, [saved]);
+}
+
+// Several orders at once, as packing several does: the lists are read
+// again once, not once for each.
+export function ordersChanged(queryClient: QueryClient, saved: Order[]): void {
+  for (const order of saved) {
+    queryClient.setQueryData<Order>(orderKeys.order(order.id), order);
+  }
   void queryClient.invalidateQueries({
     queryKey: orderKeys.all,
     predicate: (query) => query.queryKey[1] !== 'order',

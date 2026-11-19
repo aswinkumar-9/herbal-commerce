@@ -108,8 +108,12 @@ function DialogBox({
       if (dialog.open) {
         dialog.close();
       }
+      // Unless what opened it is gone (the dialog did away with it): then
+      // the page's main area takes the focus, so it is not lost.
       if (opener?.isConnected) {
         opener.focus();
+      } else {
+        document.getElementById('main')?.focus({ preventScroll: true });
       }
     };
   }, []);

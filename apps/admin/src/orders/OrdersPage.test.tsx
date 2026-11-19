@@ -1,7 +1,8 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { openSignedIn } from '../test/console';
-import { json } from '../test/fake-api';
+import { UNREACHABLE } from '../api/api-error';
+import { heldBack, openSignedIn } from '../test/console';
+import { json, offline } from '../test/fake-api';
 import {
   CANCELLED,
   DELIVERED,
@@ -10,9 +11,13 @@ import {
   PAID,
   PAID_LATER,
   SHIPPED,
+  STEP,
   TO_PACK,
   WAITING,
+  forAdmin,
+  orderOf,
   ordersOf,
+  summaryOf,
 } from '../test/order-fixtures';
 
 const TO_PACK_LIST = ORDERS('?status=PAID&sort=oldest');
@@ -334,5 +339,334 @@ describe('the Orders page', () => {
     expect(
       screen.queryByRole('button', { name: 'Show more' }),
     ).not.toBeInTheDocument();
+  });
+});
+
+// A third paid order, placed last.
+const PAID_LAST = {
+  ...PAID_LATER,
+  id: '7c0f5d2b-6e4a-4b1d-8f9c-5a8e1b4d0f63',
+  reference: 'R7WX4N2KTB',
+  createdAt: '2026-11-09T09:02:17.400Z',
+  delivery: {
+    ...PAID_LATER.delivery,
+    fullName: 'Meera Pillai',
+    city: 'Kochi',
+    state: 'Kerala',
+    pincode: '682016',
+  },
+};
+
+const packedOf = (order: typeof PAID) => ({
+  ...forAdmin(order),
+  status: 'PACKED',
+  packedAt: '2026-11-09T10:15:00.000Z',
+});
+const packing = (order: typeof PAID) => `/v1/staff/orders/${order.id}/packed`;
+const box = (reference: string) =>
+  screen.getByRole('checkbox', { name: `Choose ${reference}` });
+const chooseAll = () =>
+  screen.getByRole('checkbox', { name: 'Choose all shown' });
+const button = (name: string) => screen.getByRole('button', { name });
+
+// The rows of the dialog's list, top to bottom.
+const dialogRows = (dialog: HTMLElement) =>
+  within(
+    within(dialog).getByRole('list', { name: 'Chosen orders' }),
+  ).getAllByRole('listitem');
+
+// Ticks orders, then says yes in the dialog.
+async function packChosen(
+  user: Awaited<ReturnType<typeof openOrders>>['user'],
+  count: number,
+) {
+  await user.click(button(`Mark ${count} packed`));
+  const asking = await screen.findByRole('dialog');
+  await user.click(
+    within(asking).getByRole('button', {
+      name: count === 1 ? 'Mark packed' : `Mark ${count} packed`,
+    }),
+  );
+}
+
+describe('packing several at once', () => {
+  it('marks the ticked orders packed together, one at a time', async () => {
+    const first = heldBack();
+    const reread = heldBack();
+    const { user, api } = await openOrders({
+      answers: {
+        [TO_PACK_LIST]: [
+          ordersOf([PAID, PAID_LATER, PAID_LAST]),
+          reread.answer,
+        ],
+        [STEP(PAID, 'packed')]: first.answer,
+        [STEP(PAID_LAST, 'packed')]: orderOf(packedOf(PAID_LAST)),
+      },
+    });
+    await references();
+    expect(screen.queryByText(/chosen$/)).not.toBeInTheDocument();
+
+    await user.click(box(PAID.reference));
+    await user.click(box(PAID_LAST.reference));
+    expect(screen.getByText('2 chosen')).toBeInTheDocument();
+    await user.click(button('Mark 2 packed'));
+
+    const asking = await screen.findByRole('dialog', {
+      name: 'Mark 2 orders packed?',
+    });
+    expect(asking).toHaveTextContent(
+      'Only once every box is packed and closed. Each customer gets an email saying so',
+    );
+    const rows = dialogRows(asking);
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveTextContent(
+      `${PAID.reference} · Asha K, Bengaluru, Karnataka`,
+    );
+    expect(rows[1]).toHaveTextContent(
+      `${PAID_LAST.reference} · Meera Pillai, Kochi, Kerala`,
+    );
+    // Nothing goes until staff say so.
+    expect(api.to('POST', packing(PAID))).toEqual([]);
+
+    await user.click(
+      within(asking).getByRole('button', { name: 'Mark 2 packed' }),
+    );
+    await waitFor(() => expect(api.to('POST', packing(PAID))).toHaveLength(1));
+    expect(
+      within(asking).getByRole('button', { name: 'Marking 1 of 2…' }),
+    ).toBeInTheDocument();
+    expect(within(asking).getByText('0 of 2 done')).toBeInTheDocument();
+    // One at a time: the next waits for the first answer.
+    expect(api.to('POST', packing(PAID_LAST))).toEqual([]);
+
+    first.release(json(200, packedOf(PAID)));
+
+    expect(await screen.findByText('2 orders packed')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+    expect(api.to('POST', packing(PAID_LAST))).toHaveLength(1);
+    expect(api.to('POST', packing(PAID_LATER))).toEqual([]);
+    // None stays chosen, even before the list has read again.
+    await waitFor(() =>
+      expect(screen.queryByText(/chosen$/)).not.toBeInTheDocument(),
+    );
+    expect(box(PAID.reference)).not.toBeChecked();
+    expect(box(PAID_LAST.reference)).not.toBeChecked();
+
+    // Those packed leave the list when it has.
+    reread.release(
+      json(200, { orders: [summaryOf(PAID_LATER)], nextAfter: null }),
+    );
+    await waitFor(async () =>
+      expect(await references()).toEqual([PAID_LATER.reference]),
+    );
+    expect(api.unexpected).toEqual([]);
+  });
+
+  it('ticks all shown or none, half ticked while some are', async () => {
+    const { user } = await openOrders();
+    await references();
+
+    await user.click(box(PAID.reference));
+    expect(chooseAll()).toBePartiallyChecked();
+    await user.click(box(PAID.reference));
+    expect(box(PAID.reference)).not.toBeChecked();
+    await user.click(box(PAID.reference));
+
+    await user.click(chooseAll());
+    expect(chooseAll()).toBeChecked();
+    expect(box(PAID_LATER.reference)).toBeChecked();
+    expect(screen.getByText('2 chosen')).toBeInTheDocument();
+
+    await user.click(chooseAll());
+    expect(box(PAID.reference)).not.toBeChecked();
+    expect(box(PAID_LATER.reference)).not.toBeChecked();
+    await waitFor(() =>
+      expect(screen.queryByText(/chosen$/)).not.toBeInTheDocument(),
+    );
+
+    await user.click(box(PAID_LATER.reference));
+    await user.click(button('Clear the choice'));
+    expect(box(PAID_LATER.reference)).not.toBeChecked();
+    expect(chooseAll()).not.toBePartiallyChecked();
+  });
+
+  it('asks about one order by its reference, and sends nothing until told', async () => {
+    const { user, api } = await openOrders();
+    await references();
+
+    await user.click(box(PAID_LATER.reference));
+    expect(screen.getByText('1 chosen')).toBeInTheDocument();
+    await user.click(button('Mark 1 packed'));
+    const asking = await screen.findByRole('dialog', {
+      name: `Mark ${PAID_LATER.reference} packed?`,
+    });
+    expect(asking).toHaveTextContent(
+      'Only once its box is packed and closed. The customer gets an email saying so',
+    );
+    expect(
+      within(asking).getByRole('button', { name: 'Mark packed' }),
+    ).toBeInTheDocument();
+
+    await user.click(within(asking).getByRole('button', { name: 'Not yet' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+    expect(api.to('POST', packing(PAID_LATER))).toEqual([]);
+    expect(box(PAID_LATER.reference)).toBeChecked();
+  });
+
+  it('goes on past an order packed meanwhile, and says why it was not', async () => {
+    const { user, api } = await openOrders({
+      answers: {
+        [TO_PACK_LIST]: [ordersOf([PAID, PAID_LATER]), ordersOf([])],
+        [STEP(PAID, 'packed')]: () =>
+          json(409, { message: 'This order is packed already.' }),
+        [STEP(PAID_LATER, 'packed')]: orderOf(packedOf(PAID_LATER)),
+      },
+    });
+    await references();
+    await user.click(chooseAll());
+    await packChosen(user, 2);
+
+    const told = await screen.findByRole('dialog', { name: '1 of 2 packed' });
+    const alert = within(told).getByRole('alert');
+    expect(alert).toHaveTextContent(
+      'One order was not packed. The reason is beside each.',
+    );
+    expect(alert).not.toHaveTextContent('chosen');
+    const [refused, packed] = dialogRows(told);
+    expect(refused).toHaveTextContent('This order is packed already.');
+    expect(packed).toHaveTextContent('Packed');
+    expect(api.to('POST', packing(PAID_LATER))).toHaveLength(1);
+    expect(
+      await screen.findByText(`${PAID_LATER.reference} packed`),
+    ).toBeInTheDocument();
+
+    await user.click(within(told).getByRole('button', { name: 'Close' }));
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+    expect(await screen.findByText('Nothing to pack')).toBeInTheDocument();
+    expect(screen.queryByText(/chosen$/)).not.toBeInTheDocument();
+  });
+
+  it('reads the list again when every one was refused', async () => {
+    const { user, api } = await openOrders({
+      answers: {
+        [TO_PACK_LIST]: [ordersOf([PAID, PAID_LATER]), ordersOf([PAID_LATER])],
+        [STEP(PAID, 'packed')]: () =>
+          json(409, { message: 'This order is cancelled.' }),
+      },
+    });
+    await references();
+    await user.click(box(PAID.reference));
+    await packChosen(user, 1);
+
+    const told = await screen.findByRole('dialog', { name: '0 of 1 packed' });
+    expect(told).toHaveTextContent('This order is cancelled.');
+    await waitFor(async () =>
+      expect(await references()).toEqual([PAID_LATER.reference]),
+    );
+    expect(api.to('GET', TO_PACK_LIST.slice(4))).toHaveLength(2);
+  });
+
+  it('stops when the server cannot be reached, and keeps the rest chosen to try again', async () => {
+    const { user, api } = await openOrders({
+      answers: {
+        [TO_PACK_LIST]: [
+          ordersOf([PAID, PAID_LATER, PAID_LAST]),
+          ordersOf([PAID_LATER, PAID_LAST]),
+        ],
+        [STEP(PAID, 'packed')]: orderOf(packedOf(PAID)),
+        [STEP(PAID_LATER, 'packed')]: offline,
+      },
+    });
+    await references();
+    await user.click(chooseAll());
+    await packChosen(user, 3);
+
+    const told = await screen.findByRole('dialog', { name: '1 of 3 packed' });
+    expect(within(told).getByRole('alert')).toHaveTextContent(
+      '2 orders were not packed. The reason is beside each. Those still to pack stay chosen, to try again.',
+    );
+    const rows = dialogRows(told);
+    expect(rows[0]).toHaveTextContent('Packed');
+    expect(rows[1]).toHaveTextContent(UNREACHABLE);
+    expect(rows[2]).toHaveTextContent('Not sent');
+    // The rest would only fail the same way.
+    expect(api.to('POST', packing(PAID_LAST))).toEqual([]);
+
+    await user.click(within(told).getByRole('button', { name: 'Close' }));
+    await waitFor(async () =>
+      expect(await references()).toEqual([
+        PAID_LATER.reference,
+        PAID_LAST.reference,
+      ]),
+    );
+    expect(box(PAID_LATER.reference)).toBeChecked();
+    expect(box(PAID_LAST.reference)).toBeChecked();
+
+    // Trying again starts afresh.
+    await user.click(button('Mark 2 packed'));
+    const again = await screen.findByRole('dialog', {
+      name: 'Mark 2 orders packed?',
+    });
+    expect(again).not.toHaveTextContent('Not sent');
+    expect(again).not.toHaveTextContent(UNREACHABLE);
+  });
+
+  it('offers ticks only on the To pack list, and forgets them on another chip', async () => {
+    const toPack = heldBack();
+    const { user } = await openOrders(
+      {
+        answers: {
+          [ORDERS('?status=PACKED&sort=oldest')]: ordersOf([PACKED]),
+          [TO_PACK_LIST]: [toPack.answer, ordersOf([PAID, PAID_LATER])],
+        },
+      },
+      '/orders?show=packed',
+    );
+    await references();
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+
+    // While the To pack list loads, the packed one still shows: no ticks.
+    await user.click(chip('To pack'));
+    expect(chip('To pack')).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+
+    toPack.release(
+      json(200, { orders: [PAID, PAID_LATER].map(summaryOf), nextAfter: null }),
+    );
+    await user.click(
+      await screen.findByRole('checkbox', { name: `Choose ${PAID.reference}` }),
+    );
+    expect(screen.getByText('1 chosen')).toBeInTheDocument();
+
+    await user.click(chip('Packed'));
+    await waitFor(() =>
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument(),
+    );
+    await user.click(chip('To pack'));
+    expect(
+      await screen.findByRole('checkbox', { name: `Choose ${PAID.reference}` }),
+    ).not.toBeChecked();
+  });
+
+  it('offers no ticks while a reference is searched', async () => {
+    await openOrders(
+      {
+        answers: {
+          [ORDERS(`?reference=${PAID.reference}`)]: ordersOf([PAID]),
+        },
+      },
+      `/orders?reference=${PAID.reference}`,
+    );
+
+    expect(await references()).toEqual([PAID.reference]);
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
   });
 });

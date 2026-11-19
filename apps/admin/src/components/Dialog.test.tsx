@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
@@ -76,6 +82,48 @@ describe('a dialog', () => {
     expect(
       screen.getByRole('button', { name: 'Delete Hair Care' }),
     ).toHaveFocus();
+  });
+
+  it('gives the focus to the main area when what opened it is gone', async () => {
+    function Gone() {
+      const [open, setOpen] = useState(false);
+      const [packed, setPacked] = useState(false);
+      return (
+        <main id="main" tabIndex={-1}>
+          {packed ? null : (
+            <Button onClick={() => setOpen(true)}>Mark 2 packed</Button>
+          )}
+          <Dialog
+            open={open}
+            onClose={() => setOpen(false)}
+            title="Mark 2 orders packed?"
+            actions={
+              <Button
+                onClick={() => {
+                  setPacked(true);
+                  setOpen(false);
+                }}
+              >
+                Mark 2 packed
+              </Button>
+            }
+          />
+        </main>
+      );
+    }
+    const user = userEvent.setup();
+    render(<Gone />);
+    await user.click(screen.getByRole('button', { name: 'Mark 2 packed' }));
+    const dialog = await screen.findByRole('dialog');
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Mark 2 packed' }),
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+    expect(screen.getByRole('main')).toHaveFocus();
   });
 
   it('closes with Escape', async () => {

@@ -5,7 +5,7 @@ import {
   SearchX,
   ShoppingBag,
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { AnimatePresence, motion } from 'motion/react';
 import { useId, useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { problemMessage } from '../api/problems';
@@ -21,12 +21,13 @@ import { orderReference } from './orders-api';
 import type { OrderSummary } from './orders-api';
 import { useOrderPages } from './orders-queries';
 import { StatusTag } from './OrderTags';
+import { PackBar, PackSeveralDialog } from './PackSeveral';
 
 // Every order (ADR 0037). It opens on the work: paid orders to pack, the
-// oldest first. The chips show the other steps, and a reference a customer
-// quotes finds their order whatever its step. Both live in the address, so
-// the list comes back as it was. The list looks for new orders every
-// minute.
+// oldest first, where several can be ticked and marked packed together.
+// The chips show the other steps, and a reference a customer quotes finds
+// their order whatever its step. Both live in the address, so the list
+// comes back as it was. The list looks for new orders every minute.
 export function OrdersPage() {
   usePageTitle('Orders');
   const [params, setParams] = useSearchParams();
@@ -35,6 +36,35 @@ export function OrdersPage() {
   const orders = useOrderPages(reference ? { reference } : filter.query);
   const list = orders.data?.pages.flatMap((page) => page.orders) ?? [];
   const [searchText, setSearchText] = useState(reference ?? '');
+
+  // The orders ticked to pack together: only on the To pack list, and only
+  // those it still shows (one packed elsewhere leaves it when it refreshes).
+  // Not while another list stands in as the To pack list loads.
+  const choosing =
+    !reference && filter.name === 'to-pack' && !orders.isPlaceholderData;
+  const [chosenIds, setChosenIds] = useState<ReadonlySet<string>>(new Set());
+  const chosen = choosing
+    ? list.filter((order) => chosenIds.has(order.id))
+    : [];
+  // The dialog packs the orders chosen when it opened, while the list
+  // behind it may refresh. Each opening starts afresh.
+  const [packing, setPacking] = useState({
+    run: 0,
+    open: false,
+    orders: [] as OrderSummary[],
+  });
+
+  function choose(id: string, on: boolean) {
+    setChosenIds((now) => {
+      const next = new Set(now);
+      if (on) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }
 
   function update(change: (next: URLSearchParams) => void) {
     setParams(
@@ -49,6 +79,7 @@ export function OrdersPage() {
 
   function show(chosen: OrderFilter) {
     setSearchText('');
+    setChosenIds(new Set());
     update((next) => {
       next.delete('reference');
       if (chosen === ORDER_FILTERS[0]) {
@@ -127,6 +158,16 @@ export function OrdersPage() {
           : filter.summary}
       </p>
 
+      {choosing && list.length > 0 ? (
+        <ChooseAll
+          all={chosen.length === list.length}
+          some={chosen.length > 0}
+          onChange={(on) =>
+            setChosenIds(new Set(on ? list.map((order) => order.id) : []))
+          }
+        />
+      ) : null}
+
       {orders.isPending ? (
         <ListLoading label="Loading the orders…" />
       ) : orders.isError && !orders.data ? (
@@ -163,7 +204,7 @@ export function OrdersPage() {
       ) : (
         <ul
           aria-label="Orders"
-          className={`mt-6 divide-y divide-line overflow-hidden rounded-card border border-line bg-surface shadow-clay inset-shadow-clay transition-opacity duration-150 ${
+          className={`${choosing ? 'mt-2' : 'mt-6'} divide-y divide-line overflow-hidden rounded-card border border-line bg-surface shadow-clay inset-shadow-clay transition-opacity duration-150 ${
             orders.isPlaceholderData ? 'opacity-60' : ''
           }`}
         >
@@ -184,6 +225,14 @@ export function OrdersPage() {
                 order={order}
                 withStatus={Boolean(reference) || filter.name === 'all'}
                 listSearch={params.toString()}
+                choice={
+                  choosing
+                    ? {
+                        chosen: chosenIds.has(order.id),
+                        onChange: (on) => choose(order.id, on),
+                      }
+                    : undefined
+                }
               />
             </motion.li>
           ))}
@@ -206,7 +255,64 @@ export function OrdersPage() {
           </Button>
         </div>
       ) : null}
+
+      <AnimatePresence>
+        {chosen.length > 0 ? (
+          <PackBar
+            key="pack-bar"
+            count={chosen.length}
+            onClear={() => setChosenIds(new Set())}
+            onPack={() =>
+              setPacking((now) => ({
+                run: now.run + 1,
+                open: true,
+                orders: chosen,
+              }))
+            }
+          />
+        ) : null}
+      </AnimatePresence>
+      <PackSeveralDialog
+        key={packing.run}
+        open={packing.open}
+        orders={packing.orders}
+        onClose={() => setPacking((now) => ({ ...now, open: false }))}
+        onFinished={(keep) => setChosenIds(new Set(keep))}
+      />
     </section>
+  );
+}
+
+// Ticks every order the list shows, or none. Half ticked while some are.
+function ChooseAll({
+  all,
+  some,
+  onChange,
+}: {
+  all: boolean;
+  some: boolean;
+  onChange: (on: boolean) => void;
+}) {
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-x-4 pl-5">
+      <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm font-medium">
+        <input
+          type="checkbox"
+          checked={all}
+          ref={(box) => {
+            if (box) {
+              box.indeterminate = some && !all;
+            }
+          }}
+          onChange={(event) => onChange(event.target.checked)}
+          className="size-5 cursor-pointer accent-primary"
+        />
+        Choose all shown
+      </label>
+      <p className="text-sm text-ink-muted">
+        Tick the orders whose boxes are packed to mark them together.
+      </p>
+    </div>
   );
 }
 
@@ -251,18 +357,35 @@ function ReferenceSearch({
 
 // One order: its reference, who it goes to and where, when it was placed,
 // and its total. The whole row opens it, keeping the list's filters for the
-// way back.
+// way back. On the To pack list its box, above the link, ticks it.
 function OrderRow({
   order,
   withStatus,
   listSearch,
+  choice,
 }: {
   order: OrderSummary;
   withStatus: boolean;
   listSearch: string;
+  choice: { chosen: boolean; onChange: (on: boolean) => void } | undefined;
 }) {
   return (
-    <div className="relative flex items-start gap-4 px-4 py-3 transition-colors duration-150 hover:bg-surface-muted/40">
+    <div
+      className={`relative flex items-start gap-4 px-4 py-3 transition-colors duration-150 ${
+        choice?.chosen ? 'bg-primary-soft/50' : 'hover:bg-surface-muted/40'
+      }`}
+    >
+      {choice ? (
+        <label className="relative z-10 -my-2.5 -mr-2 -ml-2 flex size-11 shrink-0 cursor-pointer items-center justify-center">
+          <input
+            type="checkbox"
+            checked={choice.chosen}
+            onChange={(event) => choice.onChange(event.target.checked)}
+            className="size-5 cursor-pointer accent-primary"
+          />
+          <span className="sr-only">Choose {order.reference}</span>
+        </label>
+      ) : null}
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <Link
