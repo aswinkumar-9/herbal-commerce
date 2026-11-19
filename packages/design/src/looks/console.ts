@@ -1,6 +1,18 @@
 import { CONTRAST } from '../foundations.ts';
 import type { Look } from '../look.ts';
 
+// Short and calm, so it never slows staff down: quick to start, soft to
+// land (ADR 0031). The console's Motion animations read these.
+export const CONSOLE_MOTION = {
+  ease: [0.2, 0, 0, 1],
+  // In seconds.
+  durations: { fast: 0.15, base: 0.2, slow: 0.25 },
+  // How far a page or a card rises as it arrives, in pixels.
+  rise: 8,
+  // Between the rows of a list arriving one after another, in seconds.
+  stagger: 0.03,
+} as const;
+
 // The admin console's look, for Admins and Super Users (ADR 0031, ADR 0035):
 // calm herbal greens on warm neutrals, glass and clay on a soft glow. Light
 // or dark as the computer is set. Staff read numbers here all day, so text
@@ -157,14 +169,7 @@ export const consoleLook: Look = {
       },
     },
   ],
-  // Short and calm, so it never slows staff down: quick to start, soft to
-  // land (ADR 0031).
-  motion: {
-    ease: [0.2, 0, 0, 1],
-    durations: { fast: 0.15, base: 0.2, slow: 0.25 },
-    rise: 8,
-    stagger: 0.03,
-  },
+  motion: CONSOLE_MOTION,
   pairs: [
     {
       fore: 'ink',
