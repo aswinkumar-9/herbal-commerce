@@ -16,11 +16,17 @@
   "scripts": {
     "build": "node scripts/build.ts",
     "test": "node --test \"test/**/*.test.ts\"",
-    "typecheck": "tsc -p tsconfig.json"
+    "typecheck": "tsc -p tsconfig.json",
+    "preview:dev": "vite --config preview/vite.config.ts",
+    "preview:build": "vite build --config preview/vite.config.ts && node preview/check-build.ts",
+    "preview:serve": "vite preview --config preview/vite.config.ts"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "4.3.5",
     "@types/node": "24.19.2",
-    "typescript": "6.0.3"
+    "tailwindcss": "4.3.5",
+    "typescript": "6.0.3",
+    "vite": "8.3.6"
   },
   "dependencies": {
     "@fontsource/poppins": "5.3.0"

@@ -21,6 +21,9 @@
     "admin:typecheck": "pnpm --filter admin typecheck",
     "design:build": "pnpm --filter @herbal/design build",
     "design:test": "pnpm --filter @herbal/design test",
-    "design:typecheck": "pnpm --filter @herbal/design typecheck"
+    "design:typecheck": "pnpm --filter @herbal/design typecheck",
+    "design:preview": "pnpm --filter @herbal/design preview:dev",
+    "design:preview:build": "pnpm --filter @herbal/design preview:build",
+    "design:preview:serve": "pnpm --filter @herbal/design preview:serve"
   }
 }

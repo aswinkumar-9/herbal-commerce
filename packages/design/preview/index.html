@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- The build puts the Content Security Policy here (vite.config.ts). -->
+    <!-- content-security-policy -->
+    <!-- The theme's first step, before anything is drawn (vite.config.ts). -->
+    <!-- theme-init -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      name="description"
+      content="The shop's look on one page, for the owner to approve: type, colours, controls, pictures and states, in light and dark."
+    />
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+    <title>Shop look preview</title>
+    <link rel="stylesheet" href="./preview.css" />
+    <script type="module" src="./main.ts"></script>
+  </head>
+  <body class="min-h-dvh">
+    <a
+      href="#main"
+      class="button-sm sr-only rounded-full bg-primary px-3 py-2 text-on-primary focus:not-sr-only focus:fixed focus:top-4 focus:left-4 focus:z-50"
+      >Skip to content</a
+    >
+
+    <!-- The menu bar floats off the top edge, sized to what it holds. Only
+         main text sits on its glass (ADR 0036). -->
+    <header class="fixed inset-x-0 top-4 z-30 flex justify-center px-4">
+      <nav
+        aria-label="Preview"
+        class="glass flex items-center gap-2 rounded-full py-2 pr-2 pl-4 inset-shadow-glass"
+      >
+        <a href="#top" class="title-4 rounded-full px-2 py-2 text-ink"
+          >Herbal Commerce</a
+        >
+        <ul class="hidden items-center lg:flex">
+          <li>
+            <a
+              href="#type"
+              class="body-5 rounded-full px-3 py-2 text-ink transition-colors hover:bg-primary-soft hover:text-primary"
+              >Type</a
+            >
+          </li>
+          <li>
+            <a
+              href="#colours"
+              class="body-5 rounded-full px-3 py-2 text-ink transition-colors hover:bg-primary-soft hover:text-primary"
+              >Colours</a
+            >
+          </li>
+          <li>
+            <a
+              href="#controls"
+              class="body-5 rounded-full px-3 py-2 text-ink transition-colors hover:bg-primary-soft hover:text-primary"
+              >Controls</a
+            >
+          </li>
+          <li>
+            <a
+              href="#pictures"
+              class="body-5 rounded-full px-3 py-2 text-ink transition-colors hover:bg-primary-soft hover:text-primary"
+              >Pictures</a
+            >
+          </li>
+          <li>
+            <a
+              href="#states"
+              class="body-5 rounded-full px-3 py-2 text-ink transition-colors hover:bg-primary-soft hover:text-primary"
+              >States</a
+            >
+          </li>
+        </ul>
+        <fieldset
+          data-theme-switch
+          class="hidden rounded-full p-1 inset-shadow-glass lg:flex"
+        >
+          <legend class="sr-only">Theme</legend>
+          <label class="cursor-pointer">
+            <input
+              type="radio"
+              name="theme-bar"
+              value="system"
+              class="peer sr-only"
+            />
+            <span
+              class="button-xsm block rounded-full px-3 py-2 text-ink transition-colors peer-checked:bg-primary peer-checked:text-on-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus"
+              >Auto</span
+            >
+          </label>
+          <label class="cursor-pointer">
+            <input
+              type="radio"
+              name="theme-bar"
+              value="light"
+              class="peer sr-only"
+            />
+            <span
+              class="button-xsm block rounded-full px-3 py-2 text-ink transition-colors peer-checked:bg-primary peer-checked:text-on-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus"
+              >Light</span
+            >
+          </label>
+          <label class="cursor-pointer">
+            <input
+              type="radio"
+              name="theme-bar"
+              value="dark"
+              class="peer sr-only"
+            />
+            <span
+              class="button-xsm block rounded-full px-3 py-2 text-ink transition-colors peer-checked:bg-primary peer-checked:text-on-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus"
+              >Dark</span
+            >
+          </label>
+        </fieldset>
+        <!-- Its two lines turn into a cross as the menu opens. -->
+        <button
+          type="button"
+          data-menu-toggle
+          aria-expanded="false"
+          aria-controls="menu"
+          aria-label="Menu"
+          class="group relative flex size-10 items-center justify-center rounded-full bg-primary-soft transition-transform active:scale-95 lg:hidden"
+        >
+          <span
+            aria-hidden="true"
+            class="absolute h-0.5 w-4 rounded-full bg-ink transition-transform duration-500 -translate-y-1 group-aria-expanded:translate-y-0 group-aria-expanded:rotate-45"
+          ></span>
+          <span
+            aria-hidden="true"
+            class="absolute h-0.5 w-4 rounded-full bg-ink transition-transform duration-500 translate-y-1 group-aria-expanded:translate-y-0 group-aria-expanded:-rotate-45"
+          ></span>
+        </button>
+      </nav>
+    </header>
+
+    <!-- The phone menu: a full-height panel of nearly solid glass. Its links
+         arrive one after another (main.ts). -->
+    <div
+      id="menu"
+      hidden
+      class="group glass-strong fixed inset-0 z-20 overflow-y-auto px-6 pt-24 pb-12 opacity-0 transition-opacity not-data-open:pointer-events-none data-open:opacity-100 lg:hidden"
+    >
+      <nav aria-label="Preview, on a phone">
+        <ul class="flex flex-col gap-2">
+          <li
+            data-menu-item
+            class="translate-y-6 opacity-0 transition duration-500 group-data-open:translate-y-0 group-data-open:opacity-100"
+          >
+            <a href="#type" class="heading-5 block rounded-2xl py-2 text-ink"
+              >Type</a
+            >
+          </li>
+          <li
+            data-menu-item
+            class="translate-y-6 opacity-0 transition duration-500 group-data-open:translate-y-0 group-data-open:opacity-100"
+          >
+            <a href="#colours" class="heading-5 block rounded-2xl py-2 text-ink"
+              >Colours</a
+            >
+          </li>
+          <li
+            data-menu-item
+            class="translate-y-6 opacity-0 transition duration-500 group-data-open:translate-y-0 group-data-open:opacity-100"
+          >
+            <a
+              href="#controls"
+              class="heading-5 block rounded-2xl py-2 text-ink"
+              >Controls</a
+            >
+          </li>
+          <li
+            data-menu-item
+            class="translate-y-6 opacity-0 transition duration-500 group-data-open:translate-y-0 group-data-open:opacity-100"
+          >
+            <a
+              href="#pictures"
+              class="heading-5 block rounded-2xl py-2 text-ink"
+              >Pictures</a
+            >
+          </li>
+          <li
+            data-menu-item
+            class="translate-y-6 opacity-0 transition duration-500 group-data-open:translate-y-0 group-data-open:opacity-100"
+          >
+            <a href="#states" class="heading-5 block rounded-2xl py-2 text-ink"
+              >States</a
+            >
+          </li>
+        </ul>
+      </nav>
+      <div
+        data-menu-item
+        class="mt-12 flex translate-y-6 flex-col gap-3 opacity-0 transition duration-500 group-data-open:translate-y-0 group-data-open:opacity-100"
+      >
+        <p class="caption-4 text-ink-muted" id="theme-menu-label">Theme</p>
+        <fieldset
+          data-theme-switch
+          aria-labelledby="theme-menu-label"
+          class="flex w-fit rounded-full border border-line-strong p-1"
+        >
+          <label class="cursor-pointer">
+            <input
+              type="radio"
+              name="theme-menu"
+              value="system"
+              class="peer sr-only"
+            />
+            <span
+              class="button-sm block rounded-full px-4 py-2 text-ink transition-colors peer-checked:bg-primary peer-checked:text-on-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus"
+              >Auto</span
+            >
+          </label>
+          <label class="cursor-pointer">
+            <input
+              type="radio"
+              name="theme-menu"
+              value="light"
+              class="peer sr-only"
+            />
+            <span
+              class="button-sm block rounded-full px-4 py-2 text-ink transition-colors peer-checked:bg-primary peer-checked:text-on-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus"
+              >Light</span
+            >
+          </label>
+          <label class="cursor-pointer">
+            <input
+              type="radio"
+              name="theme-menu"
+              value="dark"
+              class="peer sr-only"
+            />
+            <span
+              class="button-sm block rounded-full px-4 py-2 text-ink transition-colors peer-checked:bg-primary peer-checked:text-on-primary peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-focus"
+              >Dark</span
+            >
+          </label>
+        </fieldset>
+      </div>
+    </div>
+
+    <main
+      id="main"
+      class="mx-auto flex max-w-6xl flex-col gap-24 px-4 pt-24 pb-24 sm:px-6 lg:px-8"
+    >
+      <!-- The hero: the heading's gradient is on its text, never the page. -->
+      <section
+        id="top"
+        aria-labelledby="hero-heading"
+        class="flex flex-col items-center gap-12 pt-16 text-center"
+      >
+        <div data-reveal class="flex max-w-170 flex-col items-center gap-6">
+          <p
+            class="caption-3 rounded-full bg-primary-soft px-3 py-1 text-primary"
+          >
+            Design preview
+          </p>
+          <h1
+            id="hero-heading"
+            class="heading-3 text-hero md:heading-2 lg:heading-1"
+          >
+            The shop's look,<br />
+            ready for your art
+          </h1>
+          <p class="body-3 max-w-170 text-ink-muted">
+            Poppins, flat colours and soft glass, in light and dark. Every size,
+            colour and movement here comes from the design system, so the
+            website will look just like this.
+          </p>
+          <div class="flex flex-wrap justify-center gap-3">
+            <a
+              href="#colours"
+              class="button-md rounded-full bg-primary px-6 py-3 text-on-primary transition hover:bg-primary-strong active:scale-98"
+              >See the colours</a
+            >
+            <a
+              href="#controls"
+              class="button-md rounded-full border border-line-strong px-6 py-3 text-ink transition hover:bg-surface-muted active:scale-98"
+              >Try the controls</a
+            >
+          </div>
+        </div>
+        <figure data-reveal class="w-full">
+          <div
+            class="flex aspect-video w-full flex-col items-center justify-center gap-2 rounded-3xl border-2 border-dashed border-line-strong bg-surface-muted p-6"
+          >
+            <p class="title-3 text-ink">Your hero illustration goes here</p>
+            <p class="caption-2 max-w-100 text-ink-muted">
+              Wide, about 16 by 9. The art comes from you; this page never
+              invents a picture.
+            </p>
+          </div>
+          <figcaption class="sr-only">
+            A frame waiting for the owner's hero illustration.
+          </figcaption>
+        </figure>
+      </section>
+
+      <!-- One large statement on its own, each word lighting up in reading
+           order as it scrolls into view (main.ts). -->
+      <section aria-label="Tagline" class="flex justify-center py-24">
+        <p
+          data-tagline
+          class="heading-4 max-w-170 text-center text-ink md:heading-3"
+        >
+          Calm pages and clear words,<br />
+          so choosing a herb feels easy.
+        </p>
+      </section>
+
+      <section
+        id="type"
+        aria-labelledby="type-heading"
+        class="flex scroll-mt-24 flex-col gap-12"
+      >
+        <div data-reveal class="flex max-w-170 flex-col gap-3">
+          <h2 id="type-heading" class="heading-4 md:heading-3">Type</h2>
+          <p class="body-3 text-ink-muted">
+            One typeface, Poppins, served by the shop itself. Every text is one
+            of these 26 styles, each a step of the same scale.
+          </p>
+        </div>
+        <ol id="text-styles" class="grid gap-x-12 gap-y-8 md:grid-cols-2"></ol>
+      </section>
+
+      <section
+        id="colours"
+        aria-labelledby="colours-heading"
+        class="flex scroll-mt-24 flex-col gap-12"
+      >
+        <div data-reveal class="flex max-w-170 flex-col gap-3">
+          <h2 id="colours-heading" class="heading-4 md:heading-3">Colours</h2>
+          <p class="body-3 text-ink-muted">
+            Flat colours, never a gradient behind anything. The main colour
+            stays black or white until your illustrations exist, then we pick
+            the accent from them. The tests check every pair for contrast.
+          </p>
+        </div>
+        <ul
+          id="swatches"
+          class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4"
+        ></ul>
+      </section>
+
+      <section
+        id="controls"
+        aria-labelledby="controls-heading"
+        class="flex scroll-mt-24 flex-col gap-12"
+      >
+        <div data-reveal class="flex max-w-170 flex-col gap-3">
+          <h2 id="controls-heading" class="heading-4 md:heading-3">Controls</h2>
+          <p class="body-3 text-ink-muted">
+            Pill buttons that settle under the pointer and press in when tapped.
+            Tab through them to see the focus ring.
+          </p>
+        </div>
+        <div class="grid gap-6 lg:grid-cols-2">
+          <div
+            data-reveal
+            class="flex flex-col gap-6 rounded-3xl border border-line bg-surface p-8"
+          >
+            <h3 class="heading-6">Buttons</h3>
+            <div class="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                class="button-lg rounded-full bg-primary px-8 py-3 text-on-primary transition hover:bg-primary-strong active:scale-98"
+              >
+                Add to cart
+              </button>
+              <button
+                type="button"
+                class="button-md rounded-full bg-primary px-6 py-3 text-on-primary transition hover:bg-primary-strong active:scale-98"
+              >
+                Add to cart
+              </button>
+              <button
+                type="button"
+                class="button-sm rounded-full bg-primary px-4 py-2 text-on-primary transition hover:bg-primary-strong active:scale-98"
+              >
+                Add to cart
+              </button>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                class="button-md rounded-full border border-line-strong px-6 py-3 text-ink transition hover:bg-surface-muted active:scale-98"
+              >
+                Save for later
+              </button>
+              <button
+                type="button"
+                class="button-md rounded-full px-6 py-3 text-primary underline-offset-4 transition hover:underline active:scale-98"
+              >
+                See details
+              </button>
+              <button
+                type="button"
+                disabled
+                class="button-md cursor-not-allowed rounded-full bg-surface-muted px-6 py-3 text-ink-muted"
+              >
+                Out of stock
+              </button>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <span
+                class="caption-3 rounded-full bg-primary-soft px-3 py-1 text-primary"
+                >New</span
+              >
+              <span
+                class="caption-3 rounded-full bg-warning-soft px-3 py-1 text-warning"
+                >Only a few left</span
+              >
+              <span
+                class="caption-3 rounded-full bg-danger-soft px-3 py-1 text-danger"
+                >Out of stock</span
+              >
+            </div>
+          </div>
+
+          <form
+            id="note-form"
+            data-reveal
+            novalidate
+            aria-labelledby="note-heading"
+            class="flex flex-col gap-6 rounded-3xl border border-line bg-surface p-8"
+          >
+            <h3 id="note-heading" class="heading-6">Fields</h3>
+            <div class="flex flex-col gap-2">
+              <label for="note-name" class="title-4 text-ink">Your name</label>
+              <input
+                id="note-name"
+                name="name"
+                type="text"
+                required
+                autocomplete="name"
+                aria-describedby="note-name-error"
+                class="body-3 rounded-xl border border-line-strong bg-surface px-4 py-3 text-ink transition-colors placeholder:text-ink-muted aria-invalid:border-danger"
+              />
+              <p id="note-name-error" hidden class="caption-2 text-danger"></p>
+            </div>
+            <div class="flex flex-col gap-2">
+              <label for="note-email" class="title-4 text-ink"
+                >Email address</label
+              >
+              <input
+                id="note-email"
+                name="email"
+                type="email"
+                required
+                autocomplete="email"
+                placeholder="name@example.com"
+                aria-describedby="note-email-help note-email-error"
+                class="body-3 rounded-xl border border-line-strong bg-surface px-4 py-3 text-ink transition-colors placeholder:text-ink-muted aria-invalid:border-danger"
+              />
+              <p id="note-email-help" class="caption-2 text-ink-muted">
+                We write only about your orders.
+              </p>
+              <p id="note-email-error" hidden class="caption-2 text-danger"></p>
+            </div>
+            <div class="flex flex-wrap items-center gap-4">
+              <button
+                type="submit"
+                class="button-md rounded-full bg-primary px-6 py-3 text-on-primary transition hover:bg-primary-strong active:scale-98"
+              >
+                Save
+              </button>
+              <p
+                id="note-status"
+                role="status"
+                class="caption-2 text-ink-muted"
+              ></p>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      <section
+        id="pictures"
+        aria-labelledby="pictures-heading"
+        class="flex scroll-mt-24 flex-col gap-12"
+      >
+        <div data-reveal class="flex max-w-170 flex-col gap-3">
+          <h2 id="pictures-heading" class="heading-4 md:heading-3">Pictures</h2>
+          <p class="body-3 text-ink-muted">
+            Text on a picture sits on a dark veil, so white text keeps 4.5 to 1
+            even over the whitest part of the art. Grey frames stand in for your
+            pictures.
+          </p>
+        </div>
+        <div class="grid gap-6 md:grid-cols-2">
+          <figure
+            data-reveal
+            class="relative flex aspect-4/5 flex-col justify-end overflow-hidden rounded-3xl bg-surface-muted"
+          >
+            <div aria-hidden="true" class="scrim-fade absolute inset-0"></div>
+            <p class="caption-4 absolute top-6 left-6 text-ink-muted">
+              Picture from the owner
+            </p>
+            <figcaption class="relative flex flex-col gap-2 p-8 text-white">
+              <span class="heading-5">A veil from below</span>
+              <span class="body-6">
+                Whole over the lower half where the words go, clear at the top
+                so the picture still shows.
+              </span>
+            </figcaption>
+          </figure>
+          <figure
+            data-reveal
+            class="relative flex aspect-4/5 flex-col justify-end overflow-hidden rounded-3xl bg-surface-muted"
+          >
+            <div aria-hidden="true" class="scrim absolute inset-0"></div>
+            <p class="caption-4 absolute top-6 left-6 text-white">
+              Picture from the owner
+            </p>
+            <figcaption
+              class="relative flex flex-col items-start gap-4 p-8 text-white"
+            >
+              <span class="heading-5">A veil over all of it</span>
+              <span class="body-6"
+                >For a banner where the words sit anywhere on the picture.</span
+              >
+              <a
+                href="#states"
+                class="button-md rounded-full bg-primary px-6 py-3 text-on-primary transition hover:bg-primary-strong active:scale-98"
+                >Shop the season</a
+              >
+            </figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section
+        id="states"
+        aria-labelledby="states-heading"
+        class="flex scroll-mt-24 flex-col gap-12"
+      >
+        <div data-reveal class="flex max-w-170 flex-col gap-3">
+          <h2 id="states-heading" class="heading-4 md:heading-3">States</h2>
+          <p class="body-3 text-ink-muted">
+            Loading shows the shape of what is coming, never a spinner. An empty
+            page says what to do next, and a missing page offers a way back.
+          </p>
+        </div>
+        <div class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+          <article
+            data-reveal
+            class="flex flex-col gap-4 rounded-3xl border border-line bg-surface p-2 pb-6 transition duration-500 hover:-translate-y-1"
+          >
+            <div
+              class="flex aspect-square items-center justify-center rounded-2xl bg-surface-muted p-4"
+            >
+              <p class="caption-4 text-center text-ink-muted">Product photo</p>
+            </div>
+            <div class="flex flex-col gap-1 px-4">
+              <h3 class="title-3">{{product name}}</h3>
+              <p class="caption-2 text-ink-muted">{{pack size}}</p>
+            </div>
+            <div class="flex items-center justify-between gap-2 px-4">
+              <p class="body-4">₹{{price}}</p>
+              <button
+                type="button"
+                class="button-sm rounded-full bg-primary px-4 py-2 text-on-primary transition hover:bg-primary-strong active:scale-98"
+              >
+                Add
+              </button>
+            </div>
+          </article>
+
+          <div
+            data-reveal
+            role="status"
+            aria-label="Loading a product"
+            class="flex flex-col gap-4 rounded-3xl border border-line bg-surface p-2 pb-6"
+          >
+            <div
+              class="aspect-square animate-pulse rounded-2xl bg-surface-muted"
+            ></div>
+            <div class="flex flex-col gap-2 px-4">
+              <div
+                class="h-4 w-3/4 animate-pulse rounded-full bg-surface-muted"
+              ></div>
+              <div
+                class="h-3 w-1/3 animate-pulse rounded-full bg-surface-muted"
+              ></div>
+            </div>
+            <div class="flex items-center justify-between gap-2 px-4">
+              <div
+                class="h-4 w-1/4 animate-pulse rounded-full bg-surface-muted"
+              ></div>
+              <div
+                class="h-8 w-16 animate-pulse rounded-full bg-surface-muted"
+              ></div>
+            </div>
+          </div>
+
+          <div
+            data-reveal
+            class="flex flex-col items-center justify-center gap-4 rounded-3xl border border-line bg-surface p-8 text-center"
+          >
+            <h3 class="heading-6">Your cart is empty</h3>
+            <p class="body-6 text-ink-muted">
+              Herbs you add will wait here until you check out.
+            </p>
+            <a
+              href="#top"
+              class="button-sm rounded-full bg-primary px-4 py-2 text-on-primary transition hover:bg-primary-strong active:scale-98"
+              >Browse the shop</a
+            >
+          </div>
+
+          <div
+            data-reveal
+            class="flex flex-col items-center justify-center gap-4 rounded-3xl border border-line bg-surface p-8 text-center"
+          >
+            <p
+              class="caption-3 rounded-full bg-primary-soft px-3 py-1 text-primary"
+            >
+              404
+            </p>
+            <h3 class="heading-6">This page is not here</h3>
+            <p class="body-6 text-ink-muted">
+              The link may be old, or the page has moved.
+            </p>
+            <a
+              href="#top"
+              class="button-sm rounded-full border border-line-strong px-4 py-2 text-ink transition hover:bg-surface-muted active:scale-98"
+              >Go to the home page</a
+            >
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="motion-heading" class="flex flex-col gap-12">
+        <div data-reveal class="flex max-w-170 flex-col gap-3">
+          <h2 id="motion-heading" class="heading-4 md:heading-3">Motion</h2>
+          <p class="body-3 text-ink-muted">
+            Everything settles into place on one curve. With reduced motion on
+            the device, nothing moves; things simply appear.
+          </p>
+        </div>
+        <dl
+          id="motion"
+          data-reveal
+          class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4"
+        ></dl>
+      </section>
+    </main>
+
+    <footer class="mx-auto max-w-6xl px-4 pb-12 sm:px-6 lg:px-8">
+      <p class="caption-5 text-ink-muted">
+        Herbal Commerce · the shop's look, from the design system (ADR 0036).
+        Nothing on this page is sent anywhere.
+      </p>
+    </footer>
+  </body>
+</html>
