@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.26.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.27.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -2215,7 +2215,7 @@ An order, as these endpoints return it to a Super User:
 | `courierName`, `trackingNumber` | Set when the order ships, or `null` until then |
 | `items` | As the customer sees them, with each product's `hsnCode` |
 | `delivery` | Where it goes: the name, phone and address the customer chose. The customer's email and account are not shown. |
-| `payment` | **Super Users only:** an Admin's answer has no `payment` field. `null` before paying starts. Otherwise Razorpay's order ID, the ID of the payment that paid it (`null` until paid), the amount, when it was paid, when paying started, and every refund, the oldest first, as `GET /v1/staff/refunds` shows them but without `orderId`. |
+| `payment` | **Super Users only:** an Admin's answer has no `payment` field. `null` before paying starts. Otherwise Razorpay's order ID, the ID of the payment that paid it (`null` until paid), the amount, when it was paid, when paying started, and every refund, the oldest first, as `GET /v1/staff/refunds` shows them but without `orderId` and `orderReference`. |
 
 ### GET `/v1/staff/orders`
 
@@ -2336,7 +2336,7 @@ Errors:
 
 ### GET `/v1/staff/refunds`
 
-Every refund, **newest first, one page at a time**, each naming its order (ADR 0028). Needs a **Super User's** staff access token: an Admin gets `403 Only a Super User may do this.` Reading is not audited.
+Every refund, **newest first, one page at a time**, each naming its order by its ID and its reference (ADR 0028, ADR 0037). Needs a **Super User's** staff access token: an Admin gets `403 Only a Super User may do this.` Reading is not audited.
 
 Query parameters, all optional:
 
@@ -2359,7 +2359,8 @@ Response `200`:
       "status": "PENDING",
       "createdAt": "2026-11-10T17:08:32.294Z",
       "updatedAt": "2026-11-10T17:08:33.010Z",
-      "orderId": "4f7c2a9e-3b1d-4e8a-9c6f-2d5b8e1a7c30"
+      "orderId": "4f7c2a9e-3b1d-4e8a-9c6f-2d5b8e1a7c30",
+      "orderReference": "7KQ2M9XDPA"
     }
   ],
   "nextAfter": null
@@ -2372,6 +2373,7 @@ Response `200`:
 | `status` | As in "Paying for an order". **`FAILED` means Razorpay refused it:** staff give the money back by hand, in the Razorpay dashboard. |
 | `razorpayRefundId` | Razorpay's refund ID, once Razorpay has taken the refund, else `null` |
 | `orderId` | The order it belongs to: see it with `GET /v1/staff/orders/:id` |
+| `orderReference` | That order's reference, as the customer quotes it (since part 12F) |
 
 `?status=FAILED` lists the refunds to give back by hand. `nextAfter` is `null` on the last page.
 

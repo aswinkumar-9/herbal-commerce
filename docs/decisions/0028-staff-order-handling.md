@@ -3,6 +3,7 @@
 - Status: Accepted and implemented (part 9)
 - Date: 2026-11-10
 - Updated: 2026-11-11 (part 10: the customer is emailed at each step, when the shipment is corrected, and when an order is cancelled, see ADR 0029)
+- Updated: 2026-11-19 (part 12F: staff take orders through their steps in the console, and each listed refund names its order's reference, see ADR 0037)
 
 ## Context
 
