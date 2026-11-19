@@ -501,3 +501,32 @@ describe("an order's page", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("an order's history (ADR 0038)", () => {
+  it('leads a Super User to what staff did to the order, in the audit log', async () => {
+    const { user, router } = await openOrder(PAID, {
+      superUser: true,
+      answers: {
+        [`GET /v1/staff/audit-log?targetId=${PAID.id}`]: () =>
+          json(200, { entries: [], nextBefore: null }),
+        'GET /v1/staff/admins': () => json(200, { admins: [] }),
+      },
+    });
+
+    await user.click(screen.getByRole('link', { name: 'History' }));
+
+    expect(
+      await screen.findByRole('heading', { name: 'Audit log', level: 1 }),
+    ).toBeInTheDocument();
+    expect(router.state.location.search).toBe(`?target=${PAID.id}`);
+    expect(
+      screen.getByText(`Only order ${PAID.reference}`),
+    ).toBeInTheDocument();
+  });
+
+  it('is not offered to Admins, who cannot read the audit log', async () => {
+    await openOrder(forAdmin(PAID) as typeof PAID);
+
+    expect(screen.queryByRole('link', { name: 'History' })).toBeNull();
+  });
+});

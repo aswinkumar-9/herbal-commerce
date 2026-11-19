@@ -62,7 +62,6 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Audit log',
     icon: ScrollText,
     role: 'SUPER_USER',
-    arrives: 'a later part',
     summary: 'Who did what, and when.',
   },
 ];

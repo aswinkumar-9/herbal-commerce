@@ -3,7 +3,8 @@ import { AnimatePresence, motion } from 'motion/react';
 import { useState } from 'react';
 import { problemMessage } from '../api/problems';
 import { EmptyList, ListLoading, LoadFailed } from '../catalog/list-states';
-import { Button } from '../components/Button';
+import { Link } from 'react-router';
+import { Button, buttonClass } from '../components/Button';
 import { STAGGER, rise, transition } from '../motion';
 import { usePageTitle } from '../page-title';
 import { AdminActionDialog, InviteDialog } from './AdminDialogs';
@@ -215,6 +216,14 @@ function AdminRow({
             <span className="sr-only"> for {admin.fullName}</span>
           </Button>
         ))}
+        {/* Their part of the audit log. */}
+        <Link
+          to={`/audit-log?actor=${admin.id}`}
+          className={buttonClass('ghost', 'sm')}
+        >
+          What they did
+          <span className="sr-only">: {admin.fullName}</span>
+        </Link>
       </div>
     </div>
   );
