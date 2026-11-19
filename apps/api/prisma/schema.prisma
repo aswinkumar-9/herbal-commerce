@@ -44,6 +44,8 @@ model User {
   addresses               Address[]
   cart                    Cart?
   orders                  Order[]
+  // The failed refunds this Super User gave back by hand (ADR 0038).
+  refundsGivenBack        Refund[]
 
   @@index([role])
   @@map("users")
@@ -599,13 +601,22 @@ model Refund {
   razorpayRefundId  String?      @unique
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
+  // Razorpay could not give it back, so a Super User gave the money back
+  // another way, such as a bank transfer, and said how (ADR 0038): when,
+  // the note, and who. Only for a FAILED refund, and only once.
+  givenBackAt       DateTime?
+  givenBackNote     String?
+  givenBackById     String?      @db.Uuid
 
   // Never deleted either.
   payment       Payment        @relation(fields: [paymentId], references: [id], onDelete: Restrict)
   // The emails about it (ADR 0029).
   notifications Notification[]
+  // Super Users are never deleted, so the refund keeps its person.
+  givenBackBy   User?          @relation(fields: [givenBackById], references: [id], onDelete: Restrict)
 
   @@index([paymentId])
+  @@index([givenBackById])
   // For the job that asks Razorpay again.
   @@index([status, createdAt])
   @@map("refunds")

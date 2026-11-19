@@ -177,6 +177,7 @@ describe('rate-limited routes', () => {
     });
     expect(routeLimits(StaffRefundsController)).toStrictEqual({
       list: undefined,
+      givenBack: undefined,
     });
   });
 });

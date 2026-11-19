@@ -1392,6 +1392,7 @@ async function main() {
     ['POST', `/v1/staff/orders/${anyId}/delivered`],
     ['POST', `/v1/staff/orders/${anyId}/cancel`],
     ['GET', '/v1/staff/refunds'],
+    ['POST', `/v1/staff/refunds/${anyId}/given-back`, { note: 'Smoke note' }],
   ];
   // The customer's token still works on their own orders, so each 401 below
   // is a staff route refusing it.
@@ -1403,7 +1404,7 @@ async function main() {
     staffOrderAnswers.push(withoutToken.status, asCustomer.status);
   }
   check(
-    'without a token, or with a customer access token, no one sees orders or refunds as staff, or packs, ships, delivers or cancels an order (401)',
+    'without a token, or with a customer access token, no one sees orders or refunds as staff, packs, ships, delivers or cancels an order, or marks a refund given back by hand (401)',
     ownOrders.status === 200 &&
       staffOrderAnswers.every((status) => status === 401),
   );

@@ -227,7 +227,8 @@ describe('StaffAuthController, an emailed link (ADR 0038)', () => {
     expect(
       Reflect.getMetadata(
         HEADERS_METADATA,
-        StaffAuthController.prototype.setupLink,
+        (StaffAuthController.prototype as unknown as Record<string, object>)
+          .setupLink,
       ),
     ).toEqual([{ name: 'Cache-Control', value: 'no-store' }]);
   });
