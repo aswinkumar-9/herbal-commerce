@@ -55,7 +55,6 @@ export const NAV_ITEMS: NavItem[] = [
     label: 'Admins',
     icon: Users,
     role: 'SUPER_USER',
-    arrives: 'a later part',
     summary: 'Inviting Admins and managing their accounts.',
   },
   {

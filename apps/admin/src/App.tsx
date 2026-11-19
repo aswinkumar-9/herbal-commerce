@@ -4,6 +4,7 @@ import {
   Route,
   createRoutesFromElements,
 } from 'react-router';
+import { AdminsPage } from './admins/AdminsPage';
 import { SessionProvider } from './auth/SessionProvider';
 import { RequireRole, RequireSession } from './auth/guards';
 import { CatalogLayout } from './catalog/CatalogLayout';
@@ -78,6 +79,7 @@ export const routes = createRoutesFromElements(
         <Route path="orders/:id" element={<OrderPage />} />
         {forEveryone.map(comingSoon)}
         <Route element={<RequireRole only="SUPER_USER" />}>
+          <Route path="admins" element={<AdminsPage />} />
           {forSuperUsers.map(comingSoon)}
         </Route>
         <Route path="*" element={<NotFoundPage />} />
