@@ -16,6 +16,7 @@ import { NAV_ITEMS } from './layout/nav-items';
 import type { NavItem } from './layout/nav-items';
 import { ComingSoonPage } from './pages/ComingSoonPage';
 import { NotFoundPage } from './pages/NotFoundPage';
+import { OrdersPage } from './orders/OrdersPage';
 import { OverviewPage } from './pages/OverviewPage';
 import { SignInPage } from './pages/SignInPage';
 import { PackStockPage } from './stock/PackStockPage';
@@ -65,6 +66,7 @@ export const routes = createRoutesFromElements(
         <Route path="catalog/products/:id" element={<ProductPage />} />
         <Route path="stock" element={<StockPage />} />
         <Route path="stock/:variantId" element={<PackStockPage />} />
+        <Route path="orders" element={<OrdersPage />} />
         {forEveryone.map(comingSoon)}
         <Route element={<RequireRole only="SUPER_USER" />}>
           {forSuperUsers.map(comingSoon)}

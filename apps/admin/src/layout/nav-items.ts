@@ -7,6 +7,8 @@ import {
   Users,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import type { ComponentType } from 'react';
+import { ToPackCount } from '../orders/OrderTags';
 import type { StaffRole } from '../auth/staff-api';
 
 export interface NavItem {
@@ -17,6 +19,8 @@ export interface NavItem {
   role?: StaffRole;
   // Not built yet: the page says when it arrives.
   arrives?: string;
+  // A small count beside the label, such as the orders to pack.
+  badge?: ComponentType;
   summary: string;
 }
 
@@ -43,7 +47,7 @@ export const NAV_ITEMS: NavItem[] = [
     to: '/orders',
     label: 'Orders',
     icon: ShoppingBag,
-    arrives: 'a later part',
+    badge: ToPackCount,
     summary: 'Packing, shipping, delivery, cancellations and refunds.',
   },
   {

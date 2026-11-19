@@ -126,6 +126,7 @@ export function AppShell() {
                             className="relative size-4 shrink-0"
                           />
                           <span className="relative">{item.label}</span>
+                          {item.badge ? <item.badge /> : null}
                           {item.arrives ? (
                             <span className="relative ml-auto rounded-full border border-line px-2 text-[0.6875rem] text-ink-muted">
                               Soon
