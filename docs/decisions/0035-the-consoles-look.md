@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 12E)
 - Date: 2026-11-20
+- Updated: 2026-11-20 (part 13: the look moved, unchanged, into the design system, `packages/design`, and fields got an edge that keeps 3:1, see ADR 0036)
 
 ## Context
 
@@ -42,7 +43,7 @@ Dialogs, toasts and the idle warning stay solid, as do cards and fields, with th
 
 ### The vocabulary
 
-The rules are at the top of `src/index.css`, and each touch is a Tailwind class, so a new page uses the same words:
+The rules were at the top of `src/index.css`. Since part 13 they live in the design system, in `packages/design/src/looks/console.ts` and `console.rules.css` (ADR 0036). Each touch is a Tailwind class, so a new page uses the same words:
 
 | Class | What it is |
 | --- | --- |
