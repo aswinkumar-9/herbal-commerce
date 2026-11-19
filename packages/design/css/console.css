@@ -19,6 +19,7 @@
   --surface: #ffffff;
   --surface-muted: #eef2ea;
   --line: #dce3d5;
+  --line-strong: #7f8d82;
   --ink: #1d2820;
   --ink-muted: #56665a;
   --primary: #2e6a44;
@@ -69,6 +70,7 @@
     --surface: #181f1a;
     --surface-muted: #202924;
     --line: #2c3830;
+    --line-strong: #64746a;
     --ink: #e6ece5;
     --ink-muted: #a0afa4;
     --primary: #6dbb88;
@@ -107,6 +109,7 @@
   --color-surface: var(--surface);
   --color-surface-muted: var(--surface-muted);
   --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
   --color-ink: var(--ink);
   --color-ink-muted: var(--ink-muted);
   --color-primary: var(--primary);

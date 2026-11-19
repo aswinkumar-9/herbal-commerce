@@ -89,7 +89,7 @@ export function Switch({
           }
         }}
         className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full inset-shadow-well transition-colors duration-150 disabled:cursor-not-allowed disabled:opacity-60 aria-disabled:cursor-wait aria-disabled:opacity-70 ${
-          checked ? 'bg-primary' : 'bg-line'
+          checked ? 'bg-primary' : 'bg-line-strong'
         }`}
       >
         <motion.span

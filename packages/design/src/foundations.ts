@@ -149,8 +149,12 @@ export const COLOR_TOKENS = [
   'canvas',
   'surface',
   'surface-muted',
-  // Lines that divide and edge.
+  // Lines that divide, such as between rows: soft, as they only order
+  // the page.
   'line',
+  // The edge that shows where a control is, such as a field or a switch's
+  // track: at least 3:1 against what is around it (WCAG 1.4.11).
+  'line-strong',
   // Text: the main ink, and a quieter one.
   'ink',
   'ink-muted',
