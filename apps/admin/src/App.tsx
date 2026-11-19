@@ -23,6 +23,7 @@ import { OrdersPage } from './orders/OrdersPage';
 import { RefundsPage } from './orders/RefundsPage';
 import { OverviewPage } from './pages/OverviewPage';
 import { SignInPage } from './pages/SignInPage';
+import { SetupLinkPage } from './setup/SetupLinkPage';
 import { PackStockPage } from './stock/PackStockPage';
 import { StockPage } from './stock/StockPage';
 
@@ -58,6 +59,12 @@ function Root() {
 export const routes = createRoutesFromElements(
   <Route element={<Root />} errorElement={<CrashScreen />}>
     <Route path="/sign-in" element={<SignInPage />} />
+    {/* The emailed links: nobody is signed in there (ADR 0038). */}
+    <Route path="/accept-invite" element={<SetupLinkPage purpose="INVITE" />} />
+    <Route
+      path="/reset-authenticator"
+      element={<SetupLinkPage purpose="AUTHENTICATOR_RESET" />}
+    />
     <Route element={<RequireSession />}>
       <Route element={<AppShell />}>
         <Route index element={<OverviewPage />} />
