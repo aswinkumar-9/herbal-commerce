@@ -1,0 +1,419 @@
+/* Made by packages/design (ADR 0036) from src/looks/console.ts and
+   src/looks/console.rules.css. Don't edit it by hand: change the look, then
+   run `pnpm design:build`. */
+
+/* The admin console's look (ADR 0035): glass and clay on a soft herbal glow,
+   light or dark as the computer is set.
+   - Glass (the `glass` class): bars that float over the page, such as the
+     menu and the save bar. Frosted, so the page shows through softly.
+   - Clay (shadow-clay*, inset-shadow-clay): cards, buttons and chips look
+     soft and raised, lit from above.
+   - Wells (inset-shadow-well): fields look pressed into the page.
+   - Pressed (inset-shadow-pressed): a chosen filter, or a button held down.
+   Components use the colour names (bg-canvas, text-ink, bg-primary ...),
+   never raw colours, so both themes follow. */
+
+:root {
+  color-scheme: light dark;
+  --canvas: #f6f7f2;
+  --surface: #ffffff;
+  --surface-muted: #eef2ea;
+  --line: #dce3d5;
+  --line-strong: #7f8d82;
+  --ink: #1d2820;
+  --ink-muted: #56665a;
+  --primary: #2e6a44;
+  --primary-strong: #245536;
+  --primary-soft: #e2eee5;
+  --on-primary: #ffffff;
+  --accent: #b7832f;
+  --danger: #b42318;
+  --danger-strong: #912018;
+  --danger-soft: #fdecea;
+  --on-danger: #ffffff;
+  --warning: #8a5a12;
+  --warning-soft: #fbf0dc;
+  --focus: #3f8f5c;
+
+  /* The glow behind the page: faint, so text on the page keeps its contrast. */
+  --glow-green: rgb(46 106 68 / 0.08);
+  --glow-amber: rgb(183 131 47 / 0.07);
+  --glow-mint: rgb(109 187 136 / 0.1);
+  /* Glass: the surface, a little see-through. Solid enough that muted text
+     on it keeps 4.5:1 even with black under it (white in the dark theme). */
+  --glass: color-mix(in oklab, var(--surface) 88%, transparent);
+  --glass-edge: rgb(255 255 255 / 0.65);
+  /* Clay: light from above, a soft shadow below. */
+  --clay-highlight: rgb(255 255 255 / 0.9);
+  --clay-shade: rgb(20 40 26 / 0.045);
+  --clay-shadow-sm:
+    0 1px 2px rgb(20 40 26 / 0.07), 0 3px 8px -3px rgb(20 40 26 / 0.12);
+  --clay-shadow:
+    0 1px 2px rgb(20 40 26 / 0.05), 0 8px 20px -6px rgb(20 40 26 / 0.12);
+  --clay-shadow-lg:
+    0 2px 4px rgb(20 40 26 / 0.05), 0 20px 44px -12px rgb(20 40 26 / 0.24);
+  --chip-shadow: rgb(20 40 26 / 0.1);
+  --well-shadow: rgb(20 40 26 / 0.07);
+  --pressed-shadow: rgb(20 40 26 / 0.16);
+
+  /* What sits above what (z-index), from the page up. */
+  --layer-base: 0;
+  --layer-raised: 10;
+  --layer-sticky: 20;
+  --layer-bar: 30;
+  --layer-top: 50;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #111613;
+    --surface: #181f1a;
+    --surface-muted: #202924;
+    --line: #2c3830;
+    --line-strong: #64746a;
+    --ink: #e6ece5;
+    --ink-muted: #a0afa4;
+    --primary: #6dbb88;
+    --primary-strong: #86c99d;
+    --primary-soft: #1d3125;
+    --on-primary: #0d1a12;
+    --accent: #d9a656;
+    --danger: #f08c80;
+    --danger-strong: #f5a89f;
+    --danger-soft: #3a1d1a;
+    --on-danger: #2a0d0a;
+    --warning: #e3b363;
+    --warning-soft: #33281a;
+    --focus: #86c99d;
+
+    --glow-green: rgb(109 187 136 / 0.07);
+    --glow-amber: rgb(217 166 86 / 0.045);
+    --glow-mint: rgb(46 106 68 / 0.14);
+    --glass: color-mix(in oklab, var(--surface) 88%, transparent);
+    --glass-edge: rgb(255 255 255 / 0.05);
+    --clay-highlight: rgb(255 255 255 / 0.07);
+    --clay-shade: rgb(0 0 0 / 0.22);
+    --clay-shadow-sm:
+      0 1px 2px rgb(0 0 0 / 0.35), 0 3px 8px -3px rgb(0 0 0 / 0.45);
+    --clay-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 8px 20px -6px rgb(0 0 0 / 0.5);
+    --clay-shadow-lg:
+      0 2px 4px rgb(0 0 0 / 0.3), 0 20px 44px -12px rgb(0 0 0 / 0.65);
+    --chip-shadow: rgb(0 0 0 / 0.35);
+    --well-shadow: rgb(0 0 0 / 0.3);
+    --pressed-shadow: rgb(0 0 0 / 0.45);
+  }
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-primary: var(--primary);
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-soft: var(--primary-soft);
+  --color-on-primary: var(--on-primary);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-danger-strong: var(--danger-strong);
+  --color-danger-soft: var(--danger-soft);
+  --color-on-danger: var(--on-danger);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-focus: var(--focus);
+  --radius-card: 1rem;
+  --radius-control: 0.75rem;
+  /* Raised clay: chips, then buttons and rows, then cards, then what floats
+     above the page (dialogs, toasts). */
+  --shadow-chip: 0 1px 2px var(--chip-shadow);
+  --shadow-clay-sm: var(--clay-shadow-sm);
+  --shadow-clay: var(--clay-shadow);
+  --shadow-clay-lg: var(--clay-shadow-lg);
+  /* Inside a raised shape: lit at the top edge, a little shade at the
+     bottom. On a coloured button, the same in white and black. */
+  --inset-shadow-clay:
+    inset 0 1px 0 var(--clay-highlight), inset 0 -2px 4px var(--clay-shade);
+  --inset-shadow-clay-solid:
+    inset 0 1px 0 rgb(255 255 255 / 0.22), inset 0 -2px 0 rgb(0 0 0 / 0.12);
+  --inset-shadow-glass: inset 0 1px 0 var(--glass-edge);
+  --inset-shadow-well: inset 0 1px 3px var(--well-shadow);
+  --inset-shadow-pressed: inset 0 2px 5px var(--pressed-shadow);
+  --inset-shadow-pressed-solid: inset 0 2px 6px rgb(0 0 0 / 0.28);
+  /* The computer's own font: nothing is fetched from another site. */
+  --font-sans:
+    ui-sans-serif, system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Focus is always visible, in the look’s own colour. */
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* "Reduce motion" on the computer turns CSS motion off. An app’s own
+   animations follow it too (Motion: MotionConfig reducedMotion="user"). */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* The named text styles: every text is one of these, the same names in every
+   look (heading-1 … heading-6, title-1 … title-5, body-1 … body-6, button-lg
+   … button-xsm, caption-1 … caption-5). */
+
+@utility heading-1 {
+  font-size: var(--text-6xl);
+  line-height: var(--text-6xl--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility heading-2 {
+  font-size: var(--text-5xl);
+  line-height: var(--text-5xl--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility heading-3 {
+  font-size: var(--text-4xl);
+  line-height: var(--text-4xl--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility heading-4 {
+  font-size: var(--text-3xl);
+  line-height: var(--text-3xl--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility heading-5 {
+  font-size: var(--text-2xl);
+  line-height: var(--text-2xl--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility heading-6 {
+  font-size: var(--text-xl);
+  line-height: var(--text-xl--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility title-1 {
+  font-size: var(--text-xl);
+  line-height: var(--text-xl--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility title-2 {
+  font-size: var(--text-lg);
+  line-height: var(--text-lg--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility title-3 {
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility title-4 {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility title-5 {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility body-1 {
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility body-2 {
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility body-3 {
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  font-weight: var(--font-weight-normal);
+}
+
+@utility body-4 {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility body-5 {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility body-6 {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-normal);
+}
+
+@utility button-lg {
+  font-size: var(--text-lg);
+  line-height: var(--text-lg--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility button-md {
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility button-sm {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility button-xsm {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility caption-1 {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility caption-2 {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-normal);
+}
+
+@utility caption-3 {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility caption-4 {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility caption-5 {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  font-weight: var(--font-weight-normal);
+}
+
+/* The console's own rules. */
+
+/* Frosted glass, for bars that float over the page. Solid when the browser
+   can't blur, or when the computer asks for less transparency or more
+   contrast. */
+@utility glass {
+  background-color: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+
+  @supports not (
+    (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+  ) {
+    background-color: var(--surface);
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    background-color: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+html {
+  background-color: var(--canvas);
+}
+
+body {
+  @apply text-ink antialiased;
+  font-family: var(--font-sans);
+}
+
+/* A soft herbal glow behind the page, still while the page scrolls. It
+   gives the glass something to frost. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(
+      60rem 40rem at -10% -15%,
+      var(--glow-green),
+      transparent 65%
+    ),
+    radial-gradient(
+      50rem 36rem at 110% -10%,
+      var(--glow-amber),
+      transparent 60%
+    ),
+    radial-gradient(56rem 40rem at 70% 115%, var(--glow-mint), transparent 65%);
+}
+
+@media (prefers-contrast: more) {
+  body::before {
+    display: none;
+  }
+}
+
+/* A dialog's backdrop dims and blurs the page, and fades in. Its colours
+   are written out: older browsers don't pass the page's colour names to a
+   backdrop. */
+dialog::backdrop {
+  background-color: rgb(14 22 17 / 0.38);
+  -webkit-backdrop-filter: blur(6px) saturate(120%);
+  backdrop-filter: blur(6px) saturate(120%);
+  animation: backdrop-in 150ms ease-out;
+}
+
+@media (prefers-color-scheme: dark) {
+  dialog::backdrop {
+    background-color: rgb(0 0 0 / 0.55);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  dialog::backdrop {
+    background-color: rgb(14 22 17 / 0.6);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}

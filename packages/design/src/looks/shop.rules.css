@@ -1,0 +1,92 @@
+/* Glass for the floating menu bar: the page shows through, blurred. Only
+   main text sits on it. Solid when the browser can't blur, or when the
+   device asks for less transparency or more contrast. */
+@utility glass {
+  background-color: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+
+  @supports not (
+    (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+  ) {
+    background-color: var(--surface);
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    background-color: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Nearly solid glass with a strong blur, for the phone menu's full-height
+   panel. */
+@utility glass-strong {
+  background-color: var(--glass-strong);
+  -webkit-backdrop-filter: blur(32px) saturate(160%);
+  backdrop-filter: blur(32px) saturate(160%);
+
+  @supports not (
+    (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+  ) {
+    background-color: var(--surface);
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    background-color: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* A dark veil on a picture, behind white text written on it. The text
+   keeps 4.5:1 wherever the veil is whole. */
+@utility scrim {
+  background-color: var(--scrim);
+}
+
+/* The veil from the bottom: whole over the lower half, where the text
+   goes, then fading out so the picture's top stays clear. */
+@utility scrim-fade {
+  background-image: linear-gradient(
+    to top,
+    var(--scrim) 0%,
+    var(--scrim) 50%,
+    transparent 100%
+  );
+}
+
+/* The hero heading: a gradient on the text, left to right. One colour
+   when the device asks for more contrast, and in Windows' contrast
+   themes. */
+@utility text-hero {
+  background-image: linear-gradient(to right, var(--hero-from), var(--hero-to));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+
+  @media (prefers-contrast: more), (forced-colors: active) {
+    background-image: none;
+    color: var(--ink);
+  }
+}
+
+/* Flat: the page is one colour, never a gradient. */
+html {
+  background-color: var(--canvas);
+}
+
+body {
+  @apply text-ink antialiased;
+  font-family: var(--font-sans);
+}
+
+/* No word left alone on a line: headings balance their lines, and running
+   text avoids a short last one. */
+:where(h1, h2, h3, h4, h5, h6) {
+  text-wrap: balance;
+}
+
+:where(p, li, figcaption, blockquote) {
+  text-wrap: pretty;
+}

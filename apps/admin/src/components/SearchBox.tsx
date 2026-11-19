@@ -75,7 +75,7 @@ export function SearchBox({
             autoComplete="off"
             spellCheck={false}
             aria-describedby={short ? hintId : undefined}
-            className="h-11 w-full rounded-control border border-line bg-surface pr-3 pl-9 text-ink inset-shadow-well transition-colors duration-150 outline-none placeholder:text-ink-muted/70 focus:border-primary focus:ring-3 focus:ring-primary/15"
+            className="h-11 w-full rounded-control border border-line-strong bg-surface pr-3 pl-9 text-ink inset-shadow-well transition-colors duration-150 outline-none placeholder:text-ink-muted/70 focus:border-primary focus:ring-3 focus:ring-primary/15"
           />
         </div>
         {short ? (

@@ -1,12 +1,14 @@
+import { CONSOLE_MOTION } from '@herbal/design';
 import type { Transition, Variants } from 'motion/react';
 
-// The console's motion (ADR 0031): short and calm, so it never slows staff
-// down. The computer's "reduce motion" setting turns it off (MotionConfig
-// in main.tsx, and the CSS in index.css).
-export const DURATION = { fast: 0.15, base: 0.2, slow: 0.25 } as const;
+// The console's motion (ADR 0031), from the design system (ADR 0036): short
+// and calm, so it never slows staff down. The computer's "reduce motion"
+// setting turns it off (MotionConfig in main.tsx, and the design system's
+// CSS).
+export const DURATION = CONSOLE_MOTION.durations;
 
 // Quick to start, soft to land.
-export const EASE_OUT = [0.2, 0, 0, 1] as const;
+export const EASE_OUT = CONSOLE_MOTION.ease;
 
 export const transition: Transition = {
   duration: DURATION.base,
@@ -16,7 +18,7 @@ export const transition: Transition = {
 // A page or a card arriving: it fades in and rises a little. Leaving is
 // quicker than arriving.
 export const rise: Variants = {
-  hidden: { opacity: 0, y: 8 },
+  hidden: { opacity: 0, y: CONSOLE_MOTION.rise },
   shown: { opacity: 1, y: 0, transition },
   gone: {
     opacity: 0,
@@ -27,7 +29,7 @@ export const rise: Variants = {
 
 // A list whose rows arrive one after another, quickly enough that a long
 // list still settles in a moment.
-export const STAGGER = 0.03;
+export const STAGGER = CONSOLE_MOTION.stagger;
 export const staggered: Variants = {
   shown: { transition: { staggerChildren: STAGGER } },
 };

@@ -34,7 +34,7 @@ function useDescribed(id: string | undefined, { hint, error }: Described) {
 
 function boxClass(error: string | undefined): string {
   return `w-full rounded-control border bg-surface px-3 text-ink inset-shadow-well transition-colors duration-150 outline-none placeholder:text-ink-muted/70 focus:border-primary focus:ring-3 focus:ring-primary/15 disabled:cursor-not-allowed disabled:bg-surface-muted ${
-    error ? 'border-danger' : 'border-line'
+    error ? 'border-danger' : 'border-line-strong'
   }`;
 }
 

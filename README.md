@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries, write stock off and put it right after counting a shelf, every change is kept as a movement, and a batch sells only with at least 6 months left. Each pack size has its own low-stock number, 10 packs unless staff change it. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. The admin console has begun (part 12A): staff sign in with the password and the authenticator code, stay signed in through a cookie the page cannot read, see the menu for their role, and are signed out after 30 minutes without activity. Since part 12B, staff run the categories and products there: they find products by name, filter them, drag them into the order customers see, edit each product on its own page with the same checks as the API, and Super Users delete them after a dialog that says what is lost. Since part 12C, each product's page has its pack sizes and images too: staff add and change pack sizes in a dialog, put them and the images in order by dragging, and upload several photos at once, each with its progress, so a product now goes live from the console. Since part 12D, the Stock page lists every pack size with its stock, filtered to those out of stock, low or with a batch that stops selling within 30 days, and each pack size has its own page: its batches, receiving a delivery, correcting a label, writing packs off, counting a shelf, and each batch's history. A count that went stale while staff typed it is never saved. Each product's page shows its pack sizes' stock too. Since part 12E, the console has its own look: frosted glass on the menu, the save bar and behind dialogs, and soft raised cards, buttons and chips, as readable as before in light and dark. Orders and refunds come next. There is no customer app or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries, write stock off and put it right after counting a shelf, every change is kept as a movement, and a batch sells only with at least 6 months left. Each pack size has its own low-stock number, 10 packs unless staff change it. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. The admin console has begun (part 12A): staff sign in with the password and the authenticator code, stay signed in through a cookie the page cannot read, see the menu for their role, and are signed out after 30 minutes without activity. Since part 12B, staff run the categories and products there: they find products by name, filter them, drag them into the order customers see, edit each product on its own page with the same checks as the API, and Super Users delete them after a dialog that says what is lost. Since part 12C, each product's page has its pack sizes and images too: staff add and change pack sizes in a dialog, put them and the images in order by dragging, and upload several photos at once, each with its progress, so a product now goes live from the console. Since part 12D, the Stock page lists every pack size with its stock, filtered to those out of stock, low or with a batch that stops selling within 30 days, and each pack size has its own page: its batches, receiving a delivery, correcting a label, writing packs off, counting a shelf, and each batch's history. A count that went stale while staff typed it is never saved. Each product's page shows its pack sizes' stock too. Since part 12E, the console has its own look: frosted glass on the menu, the save bar and behind dialogs, and soft raised cards, buttons and chips, as readable as before in light and dark. Since part 13, a design system (`packages/design`) holds what the console and the coming website share, the console's look, and the shop's own look, with a preview page for the owner. Orders and refunds come next. There is no customer app or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -126,11 +126,17 @@ Emails sent in development never leave your machine. Read them in Mailpit at htt
 | `pnpm admin:typecheck` | Type-check the admin console |
 | `pnpm admin:build` | Build the admin console into `apps/admin/dist`, then check the build (its security policy, nothing inline, no source maps) |
 | `pnpm admin:preview` | Serve the built console at http://localhost:5173, with its security policy and headers (stop `admin:dev` first) |
+| `pnpm design:test` | Run the design system's tests: the foundations, the CSS being up to date, and every look's contrast |
+| `pnpm design:typecheck` | Type-check the design system and its preview page |
+| `pnpm design:build` | Write each look as CSS (`packages/design/css/`) after a change to it |
+| `pnpm design:preview` | Show the shop's look at http://localhost:5180, with live reload |
+| `pnpm design:preview:build` | Build the preview page, then check the build (its security policy, the theme's first step, nothing inline, no source maps) |
+| `pnpm design:preview:serve` | Serve the built preview at http://localhost:5180, with its security policy and headers (stop `design:preview` first) |
 | `pnpm audit` | List known vulnerabilities in dependencies |
 | `docker compose up -d` / `down` | Start / stop local services (data is kept) |
 | `docker compose down -v` | Stop and **delete all local data** (development only) |
 
-Before opening a pull request, run `pnpm api:typecheck`, `pnpm api:test`, `pnpm api:lint`, `pnpm api:build`, `pnpm audit` and `pnpm api:smoke`, and for the admin console `pnpm admin:typecheck`, `pnpm admin:test`, `pnpm admin:lint` and `pnpm admin:build`.
+Before opening a pull request, run `pnpm api:typecheck`, `pnpm api:test`, `pnpm api:lint`, `pnpm api:build`, `pnpm audit` and `pnpm api:smoke`, for the admin console `pnpm admin:typecheck`, `pnpm admin:test`, `pnpm admin:lint` and `pnpm admin:build`, and for the design system `pnpm design:typecheck`, `pnpm design:test` and `pnpm design:preview:build`.
 
 Database commands (run from `apps/api`):
 
@@ -276,6 +282,23 @@ Open **Stock** in the menu (ADR 0034). Admins and Super Users both have it.
   - **History:** the batch's changes, newest first, orders' included.
 - **When a pack size counts as low:** at its "Low stock at (packs)" or fewer packs that may be sold, set in the pack size's dialog on the product's page. 10 by default; 0 means never low, only out of stock.
 - **On a product's page,** each pack size shows its stock in one line, and "Batches" opens its page. From there, the way back is to the product.
+
+## See the shop's look
+
+The design system (ADR 0036) holds what the console and the coming website share: spacing, type, corners, contrast and motion, and the names of the colours and text styles. On top sit two looks: the console's, glass and clay (ADR 0035), and the shop's, from the owner's references. The preview page shows the shop's look before the website exists.
+
+1. Run:
+   ```powershell
+   pnpm design:preview
+   ```
+2. Open http://localhost:5180. It needs neither the API nor the console, and leaves both alone.
+
+- **Light and dark:** the page follows the computer. "Auto", "Light" and "Dark" in the menu bar choose. The choice is kept in this browser only, and "Auto" forgets it.
+- **The phone menu:** narrow the window below 1024 pixels, and the links fold into a menu button. Escape closes the menu.
+- **Grey frames stand in for the owner's pictures,** and `{{product name}}` and `₹{{price}}` for real products: the preview never invents art, prices or facts.
+- **To see it under the full security policy,** as the website will run: `pnpm design:preview:build`, then `pnpm design:preview:serve`.
+
+**Change a look:** edit `packages/design/src/looks/shop.ts` (or `console.ts`), run `pnpm design:build`, then `pnpm design:test`. Never edit the files in `packages/design/css/` by hand: a test fails when they no longer match their look. If a colour change makes some text hard to read, a test names the pair and its contrast.
 
 ## Invite an Admin
 
@@ -977,31 +1000,39 @@ Each email is saved with the change it tells of, and sent within a second of it.
 │   │       ├── stock/          the Stock page, each pack size's batches, and their dialogs: receive, change, correct, count (ADR 0034)
 │   │       ├── components/, layout/, pages/   the screens, the menu and the pages
 │   │       ├── security-headers.ts   the page's Content Security Policy and security headers
-│   │       ├── motion.ts       the console's motion: durations and movements
-│   │       └── index.css       the colours and the look (glass and clay), light and dark
-│   └── api/                    NestJS backend (modular monolith)
-│       ├── prisma/             schema and migrations
-│       ├── scripts/            auth-smoke.cjs (smoke test), pay-test.cjs (a payment by hand), clear-rate-limits.cjs
-│       ├── storage/            uploaded image files on a laptop (ignored by Git)
-│       └── src/
-│           ├── addresses/      customers' delivery addresses
-│           ├── audit/          the append-only audit log, a request's audit context, and reading the log page by page
-│           ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset and change, access and roles guards, /v1/me
-│           ├── cart/           signed-in customers' carts: the rules (4 packs of one product, 50 pack sizes, totals) and the routes
-│           ├── catalog/        categories, products, pack sizes and images: their rules (slug, going live, prices, image checks), the staff routes and the public shop
-│           ├── inventory/      stock per batch: the rules (dates, 6-month shelf life, when a batch stops selling, low stock), the staff routes and the Stock page's list, counts of a shelf, what orders hold of each batch, "in stock" for the shop, and taking and giving back stock for orders
-│           ├── orders/         checkout and customers' orders: the rules (totals, delivery, GST, references), the routes, paying for them and Razorpay's webhooks, the job that expires unpaid orders, and staff taking orders through their steps
-│           ├── payments/       payments and refunds, the Super Users' list of refunds, and the only code that talks to Razorpay
-│           ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
-│           ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
-│           ├── rate-limit/     limits, rate-limit guard, client IP
-│           ├── retention/      hourly cleanup of data past its retention period
-│           ├── valkey/         the shared Valkey connection
-│           ├── mail/           email sending (SMTP; Mailpit in development)
-│           ├── notifications/  the order emails: saved with each change, written, sent right after and tried again every minute
-│           ├── media/          storing uploaded files, and serving them at /media
-│           ├── config/         environment validation
-│           └── health/, logging/, prisma/, common/
+│   │       ├── motion.ts       the console's motion: durations and movements, from the design system
+│   │       └── index.css       Tailwind and the console's look from the design system
+│   ├── api/                    NestJS backend (modular monolith)
+│   │   ├── prisma/             schema and migrations
+│   │   ├── scripts/            auth-smoke.cjs (smoke test), pay-test.cjs (a payment by hand), clear-rate-limits.cjs
+│   │   ├── storage/            uploaded image files on a laptop (ignored by Git)
+│   │   └── src/
+│   │       ├── addresses/      customers' delivery addresses
+│   │       ├── audit/          the append-only audit log, a request's audit context, and reading the log page by page
+│   │       ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset and change, access and roles guards, /v1/me
+│   │       ├── cart/           signed-in customers' carts: the rules (4 packs of one product, 50 pack sizes, totals) and the routes
+│   │       ├── catalog/        categories, products, pack sizes and images: their rules (slug, going live, prices, image checks), the staff routes and the public shop
+│   │       ├── inventory/      stock per batch: the rules (dates, 6-month shelf life, when a batch stops selling, low stock), the staff routes and the Stock page's list, counts of a shelf, what orders hold of each batch, "in stock" for the shop, and taking and giving back stock for orders
+│   │       ├── orders/         checkout and customers' orders: the rules (totals, delivery, GST, references), the routes, paying for them and Razorpay's webhooks, the job that expires unpaid orders, and staff taking orders through their steps
+│   │       ├── payments/       payments and refunds, the Super Users' list of refunds, and the only code that talks to Razorpay
+│   │       ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
+│   │       ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
+│   │       ├── rate-limit/     limits, rate-limit guard, client IP
+│   │       ├── retention/      hourly cleanup of data past its retention period
+│   │       ├── valkey/         the shared Valkey connection
+│   │       ├── mail/           email sending (SMTP; Mailpit in development)
+│   │       ├── notifications/  the order emails: saved with each change, written, sent right after and tried again every minute
+│   │       ├── media/          storing uploaded files, and serving them at /media
+│   │       ├── config/         environment validation
+│   │       └── health/, logging/, prisma/, common/
+│   └── web/                    the customer website, still to come: for now, its design rules (.claude/skills/landing-page-design)
+├── packages/
+│   └── design/                 the design system, @herbal/design (ADR 0036)
+│       ├── src/                the foundations, the console's and the shop's looks as data, and the shop's light and dark switch
+│       ├── scripts/            build.ts (writes each look as CSS)
+│       ├── css/                console.css and shop.css, written by `pnpm design:build`, never by hand
+│       ├── test/               the foundations, the CSS up to date, and every look's contrast
+│       └── preview/            the shop's look on one page, for the owner (`pnpm design:preview`)
 ├── docs/
 │   ├── requirements.md
 │   ├── architecture.md
@@ -1010,8 +1041,8 @@ Each email is saved with the change it tells of, and sent within a second of it.
 │   └── decisions/              architecture decision records (ADRs)
 ├── docker-compose.yml          local PostgreSQL, Valkey and Mailpit
 ├── .env.example                template; the real .env is never committed
-├── package.json                root commands (api:dev, api:test, api:smoke, admin:dev, admin:build, ...)
-└── pnpm-workspace.yaml         workspace, build approvals, 3-day minimum release age
+├── package.json                root commands (api:dev, api:test, api:smoke, admin:dev, admin:build, design:preview, ...)
+└── pnpm-workspace.yaml         workspace (apps/* and packages/*), build approvals, 3-day minimum release age
 ```
 
 ## Security notes
@@ -1027,6 +1058,7 @@ Each email is saved with the change it tells of, and sent within a second of it.
 - Treat an MFA setup key like a password: it is shown once, typed into the app, and then cleared from the screen. Back up `MFA_ENCRYPTION_KEY` with the other production secrets.
 - Leave `TRUST_PROXY` empty unless the API runs behind a proxy you control. Then list that proxy's address. Never use a hop count: it would let anyone fake their IP and dodge the rate limits.
 - **In the admin console,** tokens never go into `localStorage` or `sessionStorage`: the refresh token is in an `HttpOnly` cookie, the access token only in memory. Never weaken the page's security policy (`apps/admin/src/security-headers.ts`) with `unsafe-inline` or `unsafe-eval`: `pnpm admin:build` refuses it.
+- **The shop's fonts are served by the shop itself** (`@fontsource/poppins`). Never link Google Fonts or any file from another site: the page's policy refuses them, and `pnpm design:preview:build` checks for it.
 - Set `ADMIN_ORIGIN` to the console's exact address. In production it must be `https`, and the console must be served from the same origin as the API (`docs/security.md`, section 6).
 - The status of every security control is in `docs/security.md`.
 

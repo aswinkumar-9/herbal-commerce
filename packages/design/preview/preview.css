@@ -1,0 +1,21 @@
+/* The preview page (ADR 0036): Tailwind and the shop's look, as the website
+   will use them, and two rules of the page's own. */
+@import 'tailwindcss' source(none);
+@import '../css/shop.css';
+
+/* The page's own files, and the foundations, where the text styles the
+   page writes are named (main.ts). */
+@source './index.html';
+@source './main.ts';
+@source '../src/foundations.ts';
+
+/* Parts wait out of sight until they rise into view (main.ts). Only once
+   the script has started: without it, everything simply shows. */
+html[data-reveals] [data-reveal]:not([data-shown]) {
+  opacity: 0;
+}
+
+/* The page stays still behind the open phone menu. */
+html:has(#menu[data-open]) {
+  overflow: hidden;
+}
