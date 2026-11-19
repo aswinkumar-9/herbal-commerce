@@ -336,5 +336,11 @@ export const consoleLook: Look = {
       what: "a field's edge on a muted box",
     },
   ],
-  glass: { alpha: 0.88, text: ['ink', 'ink-muted', 'danger'] },
+  glass: [
+    {
+      what: 'the menu and the save bar',
+      alpha: 0.88,
+      text: ['ink', 'ink-muted', 'danger'],
+    },
+  ],
 };

@@ -226,6 +226,10 @@ importers:
         version: 6.0.3
 
   packages/design:
+    dependencies:
+      '@fontsource/poppins':
+        specifier: 5.3.0
+        version: 5.3.0
     devDependencies:
       '@types/node':
         specifier: 24.19.2
@@ -484,6 +488,9 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
+
+  '@fontsource/poppins@5.3.0':
+    resolution: {integrity: sha512-cms1nM7U6SN8epIV1WMVOV8VsA645aSm3wHfzIQnkk188U341ThbJGSl2Sv54V29gnDbT2arMPfLzvVIIVCceQ==}
 
   '@img/colour@1.1.0':
     resolution: {integrity: sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ==}
@@ -4967,6 +4974,8 @@ snapshots:
   '@exodus/bytes@1.16.0(@noble/hashes@1.8.0)':
     optionalDependencies:
       '@noble/hashes': 1.8.0
+
+  '@fontsource/poppins@5.3.0': {}
 
   '@img/colour@1.1.0': {}
 

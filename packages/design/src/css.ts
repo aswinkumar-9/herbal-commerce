@@ -51,9 +51,17 @@ function groups(list: readonly Group[], indent: string): string[] {
   ]);
 }
 
+// The shared colour tokens first, then the look's own colours.
+export function colorNames(palette: Look['colors']['light']): string[] {
+  const own = Object.keys(palette).filter(
+    (name) => !(COLOR_TOKENS as readonly string[]).includes(name),
+  );
+  return [...COLOR_TOKENS, ...own];
+}
+
 function colors(palette: Look['colors']['light'], indent: string): string[] {
-  return COLOR_TOKENS.map((token) =>
-    declaration(token, palette[token], indent),
+  return colorNames(palette).map((name) =>
+    declaration(name, palette[name] ?? '', indent),
   );
 }
 
@@ -94,7 +102,7 @@ function foundations(): string {
 
 export function lookCss(look: Look, rules: string): string {
   const root = [
-    '  color-scheme: light dark;',
+    `  color-scheme: ${look.switchable ? 'light' : 'light dark'};`,
     ...colors(look.colors.light, '  '),
     '',
     ...groups(look.effects.light, '  '),
@@ -104,24 +112,37 @@ export function lookCss(look: Look, rules: string): string {
       declaration(`layer-${name}`, String(value), '  '),
     ),
   ];
-  const dark = [
-    ...colors(look.colors.dark, '    '),
+  const dark = (indent: string) => [
+    ...(look.switchable ? [`${indent}color-scheme: dark;`] : []),
+    ...colors(look.colors.dark, indent),
     '',
-    ...groups(look.effects.dark, '    '),
+    ...groups(look.effects.dark, indent),
   ];
   const theme = [
-    ...COLOR_TOKENS.map((token) =>
-      declaration(`color-${token}`, `var(--${token})`, '  '),
+    ...colorNames(look.colors.light).map((name) =>
+      declaration(`color-${name}`, `var(--${name})`, '  '),
     ),
     ...groups(look.theme, '  '),
   ];
+  // Dark as the device asks, unless the page's switch says light; and dark
+  // whenever the switch says so.
+  const themes = look.switchable
+    ? [
+        `@media (prefers-color-scheme: dark) {\n  :root:not([data-theme='light']) {\n${dark('    ').join('\n')}\n  }\n}`,
+        comment("The page's switch: dark, whatever the device says."),
+        `:root[data-theme='dark'] {\n${dark('  ').join('\n')}\n}`,
+      ]
+    : [
+        `@media (prefers-color-scheme: dark) {\n  :root {\n${dark('    ').join('\n')}\n  }\n}`,
+      ];
   return [
     comment(
       `Made by packages/design (ADR 0036) from src/looks/${look.name}.ts and src/looks/${look.name}.rules.css. Don't edit it by hand: change the look, then run \`pnpm design:build\`.`,
     ),
+    ...(look.imports ?? []).map((file) => `@import '${file}';`),
     `/* ${look.summary} */`,
     `:root {\n${root.join('\n')}\n}`,
-    `@media (prefers-color-scheme: dark) {\n  :root {\n${dark.join('\n')}\n  }\n}`,
+    ...themes,
     `@theme inline {\n${theme.join('\n')}\n}`,
     foundations(),
     comment(`The ${look.name}'s own rules.`),

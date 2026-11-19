@@ -1,0 +1,438 @@
+/* Made by packages/design (ADR 0036) from src/looks/shop.ts and
+   src/looks/shop.rules.css. Don't edit it by hand: change the look, then run
+   `pnpm design:build`. */
+
+@import '@fontsource/poppins/latin-400.css';
+
+@import '@fontsource/poppins/latin-500.css';
+
+@import '@fontsource/poppins/latin-600.css';
+
+@import '@fontsource/poppins/latin-700.css';
+
+/* The customer shop's look (ADR 0036): calm and premium, flat backgrounds,
+   Poppins, and big pictures with text on a scrim.
+   - Light or dark as the device is set; the page's switch may choose
+     (data-theme="light" or "dark" on <html>, see src/theme.ts).
+   - Glass (glass, glass-strong): the floating menu bar and the phone menu.
+   - The hero heading (text-hero): a gradient on the text, never the
+     background.
+   - Text on a picture sits on a scrim (scrim, scrim-fade): white text keeps
+     4.5:1 even over the whitest part of the picture.
+   - Named text styles (heading-1 ... caption-5) and the spacing steps from
+     the foundations only.
+   The main colour stays neutral until the owner's illustrations exist. */
+
+:root {
+  color-scheme: light;
+  --canvas: #fafaf9;
+  --surface: #ffffff;
+  --surface-muted: #f3f3f1;
+  --line: #e7e7e4;
+  --line-strong: #8a8a84;
+  --ink: #111111;
+  --ink-muted: #5f5f5a;
+  --primary: #111111;
+  --primary-strong: #2b2b29;
+  --primary-soft: #f0f0ee;
+  --on-primary: #ffffff;
+  --accent: #6b6b66;
+  --danger: #b42318;
+  --danger-strong: #912018;
+  --danger-soft: #fdecea;
+  --on-danger: #ffffff;
+  --warning: #8a5a12;
+  --warning-soft: #fbf0dc;
+  --focus: #111111;
+  --hero-from: #000000;
+  --hero-to: #666666;
+
+  /* Glass: the surface, see-through. The menu bar is lighter glass, as only
+     main text sits on it; the phone menu is nearly solid. */
+  --glass: color-mix(in oklab, var(--surface) 72%, transparent);
+  --glass-strong: color-mix(in oklab, var(--surface) 94%, transparent);
+  --glass-edge: rgb(0 0 0 / 0.06);
+  /* The scrim behind text on a picture: white text on it keeps 4.5:1 over
+     any picture. */
+  --scrim: rgb(0 0 0 / 0.55);
+
+  /* What sits above what (z-index), from the page up. */
+  --layer-base: 0;
+  --layer-raised: 10;
+  --layer-sticky: 20;
+  --layer-bar: 30;
+  --layer-top: 50;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --canvas: #131209;
+    --surface: #1f1f1f;
+    --surface-muted: #272727;
+    --line: #313131;
+    --line-strong: #757571;
+    --ink: #f5f5f4;
+    --ink-muted: #a8a8a3;
+    --primary: #ffffff;
+    --primary-strong: #e7e7e4;
+    --primary-soft: #272727;
+    --on-primary: #111111;
+    --accent: #b0b0aa;
+    --danger: #f08c80;
+    --danger-strong: #f5a89f;
+    --danger-soft: #3a1d1a;
+    --on-danger: #2a0d0a;
+    --warning: #e3b363;
+    --warning-soft: #33281a;
+    --focus: #f5f5f4;
+    --hero-from: #ffffff;
+    --hero-to: #9b9b9b;
+
+    --glass: color-mix(in oklab, var(--surface) 72%, transparent);
+    --glass-strong: color-mix(in oklab, var(--surface) 94%, transparent);
+    --glass-edge: rgb(255 255 255 / 0.08);
+    --scrim: rgb(0 0 0 / 0.55);
+  }
+}
+
+/* The page's switch: dark, whatever the device says. */
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --canvas: #131209;
+  --surface: #1f1f1f;
+  --surface-muted: #272727;
+  --line: #313131;
+  --line-strong: #757571;
+  --ink: #f5f5f4;
+  --ink-muted: #a8a8a3;
+  --primary: #ffffff;
+  --primary-strong: #e7e7e4;
+  --primary-soft: #272727;
+  --on-primary: #111111;
+  --accent: #b0b0aa;
+  --danger: #f08c80;
+  --danger-strong: #f5a89f;
+  --danger-soft: #3a1d1a;
+  --on-danger: #2a0d0a;
+  --warning: #e3b363;
+  --warning-soft: #33281a;
+  --focus: #f5f5f4;
+  --hero-from: #ffffff;
+  --hero-to: #9b9b9b;
+
+  --glass: color-mix(in oklab, var(--surface) 72%, transparent);
+  --glass-strong: color-mix(in oklab, var(--surface) 94%, transparent);
+  --glass-edge: rgb(255 255 255 / 0.08);
+  --scrim: rgb(0 0 0 / 0.55);
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-ink-muted: var(--ink-muted);
+  --color-primary: var(--primary);
+  --color-primary-strong: var(--primary-strong);
+  --color-primary-soft: var(--primary-soft);
+  --color-on-primary: var(--on-primary);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-danger-strong: var(--danger-strong);
+  --color-danger-soft: var(--danger-soft);
+  --color-on-danger: var(--on-danger);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-focus: var(--focus);
+  --color-hero-from: var(--hero-from);
+  --color-hero-to: var(--hero-to);
+  /* Glass's hairline edge, all the way round. */
+  --inset-shadow-glass: inset 0 0 0 1px var(--glass-edge);
+  /* Poppins, served by the shop itself; the device’s own font while it
+     loads. */
+  --font-sans: 'Poppins', ui-sans-serif, system-ui, sans-serif;
+  /* Every transition settles into place; under the pointer it takes 300 ms. */
+  --ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
+  --default-transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+  --default-transition-duration: 300ms;
+}
+
+/* Focus is always visible, in the look’s own colour. */
+
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* "Reduce motion" on the computer turns CSS motion off. An app’s own
+   animations follow it too (Motion: MotionConfig reducedMotion="user"). */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* The named text styles: every text is one of these, the same names in every
+   look (heading-1 … heading-6, title-1 … title-5, body-1 … body-6, button-lg
+   … button-xsm, caption-1 … caption-5). */
+
+@utility heading-1 {
+  font-size: var(--text-6xl);
+  line-height: var(--text-6xl--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility heading-2 {
+  font-size: var(--text-5xl);
+  line-height: var(--text-5xl--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility heading-3 {
+  font-size: var(--text-4xl);
+  line-height: var(--text-4xl--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility heading-4 {
+  font-size: var(--text-3xl);
+  line-height: var(--text-3xl--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility heading-5 {
+  font-size: var(--text-2xl);
+  line-height: var(--text-2xl--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility heading-6 {
+  font-size: var(--text-xl);
+  line-height: var(--text-xl--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility title-1 {
+  font-size: var(--text-xl);
+  line-height: var(--text-xl--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility title-2 {
+  font-size: var(--text-lg);
+  line-height: var(--text-lg--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility title-3 {
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility title-4 {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility title-5 {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility body-1 {
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility body-2 {
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility body-3 {
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  font-weight: var(--font-weight-normal);
+}
+
+@utility body-4 {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility body-5 {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility body-6 {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-normal);
+}
+
+@utility button-lg {
+  font-size: var(--text-lg);
+  line-height: var(--text-lg--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility button-md {
+  font-size: var(--text-base);
+  line-height: var(--text-base--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility button-sm {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility button-xsm {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility caption-1 {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility caption-2 {
+  font-size: var(--text-sm);
+  line-height: var(--text-sm--line-height);
+  font-weight: var(--font-weight-normal);
+}
+
+@utility caption-3 {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  font-weight: var(--font-weight-semibold);
+}
+
+@utility caption-4 {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  font-weight: var(--font-weight-medium);
+}
+
+@utility caption-5 {
+  font-size: var(--text-xs);
+  line-height: var(--text-xs--line-height);
+  font-weight: var(--font-weight-normal);
+}
+
+/* The shop's own rules. */
+
+/* Glass for the floating menu bar: the page shows through, blurred. Only
+   main text sits on it. Solid when the browser can't blur, or when the
+   device asks for less transparency or more contrast. */
+@utility glass {
+  background-color: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+
+  @supports not (
+    (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+  ) {
+    background-color: var(--surface);
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    background-color: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* Nearly solid glass with a strong blur, for the phone menu's full-height
+   panel. */
+@utility glass-strong {
+  background-color: var(--glass-strong);
+  -webkit-backdrop-filter: blur(32px) saturate(160%);
+  backdrop-filter: blur(32px) saturate(160%);
+
+  @supports not (
+    (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+  ) {
+    background-color: var(--surface);
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    background-color: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+/* A dark veil on a picture, behind white text written on it. The text
+   keeps 4.5:1 wherever the veil is whole. */
+@utility scrim {
+  background-color: var(--scrim);
+}
+
+/* The veil from the bottom: whole over the lower half, where the text
+   goes, then fading out so the picture's top stays clear. */
+@utility scrim-fade {
+  background-image: linear-gradient(
+    to top,
+    var(--scrim) 0%,
+    var(--scrim) 50%,
+    transparent 100%
+  );
+}
+
+/* The hero heading: a gradient on the text, left to right. One colour
+   when the device asks for more contrast, and in Windows' contrast
+   themes. */
+@utility text-hero {
+  background-image: linear-gradient(to right, var(--hero-from), var(--hero-to));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+
+  @media (prefers-contrast: more), (forced-colors: active) {
+    background-image: none;
+    color: var(--ink);
+  }
+}
+
+/* Flat: the page is one colour, never a gradient. */
+html {
+  background-color: var(--canvas);
+}
+
+body {
+  @apply text-ink antialiased;
+  font-family: var(--font-sans);
+}
+
+/* No word left alone on a line: headings balance their lines, and running
+   text avoids a short last one. */
+:where(h1, h2, h3, h4, h5, h6) {
+  text-wrap: balance;
+}
+
+:where(p, li, figcaption, blockquote) {
+  text-wrap: pretty;
+}
