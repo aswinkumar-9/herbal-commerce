@@ -6,6 +6,7 @@ import type { FormEvent, ReactNode } from 'react';
 import { Link, useNavigate } from 'react-router';
 import type { To } from 'react-router';
 import { fieldProblems, problemMessage } from '../../api/problems';
+import { useBottomBar } from '../../components/bottom-bar';
 import { Button, buttonClass } from '../../components/Button';
 import { Field, SelectField, TextAreaField } from '../../components/Field';
 import { Switch } from '../../components/Switch';
@@ -536,8 +537,12 @@ function SaveBar({
   listPath: To;
   onDiscard: () => void;
 }) {
+  const bar = useBottomBar<HTMLDivElement>();
   return (
-    <div className="glass sticky bottom-0 z-20 -mx-6 border-t border-line/70 px-6 py-3 inset-shadow-glass lg:-mx-10 lg:px-10">
+    <div
+      ref={bar}
+      className="glass sticky bottom-0 z-20 -mx-6 border-t border-line/70 px-6 py-3 inset-shadow-glass lg:-mx-10 lg:px-10"
+    >
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="min-h-5 text-sm">
           <AnimatePresence mode="wait" initial={false}>

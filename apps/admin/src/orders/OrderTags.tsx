@@ -41,7 +41,7 @@ export function ToPackCount() {
   // Read out as "Orders: 2 to pack". The spaces sit outside the hidden
   // words, where they are kept; on screen they fall at the ends of the line.
   return (
-    <span className="relative ml-auto rounded-full bg-warning-soft px-2 text-[0.6875rem] font-semibold text-warning tabular-nums shadow-chip inset-shadow-clay">
+    <span className="relative ml-auto rounded-full bg-warning-soft px-2 py-0.5 text-[0.6875rem] font-semibold text-warning tabular-nums shadow-chip inset-shadow-clay">
       <span className="sr-only">:</span> {countName(toPack.data)}{' '}
       <span className="sr-only">to pack</span>
     </span>

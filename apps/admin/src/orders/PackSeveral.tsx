@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useState } from 'react';
+import { useBottomBar } from '../components/bottom-bar';
 import { Button } from '../components/Button';
 import { Dialog } from '../components/Dialog';
 import { useToasts } from '../components/toast-context';
@@ -35,8 +36,10 @@ export function PackBar({
   onClear: () => void;
   onPack: () => void;
 }) {
+  const bar = useBottomBar<HTMLDivElement>();
   return (
     <motion.div
+      ref={bar}
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0, transition }}
       exit={{
@@ -187,7 +190,7 @@ export function PackSeveralDialog({
         <div className="mt-4">
           <Problem>
             {ordersName(notPacked)} {notPacked === 1 ? 'was' : 'were'} not
-            packed. The reason is beside each.
+            packed. The reason is under {notPacked === 1 ? 'it' : 'each'}.
             {stillToPack
               ? ' Those still to pack stay chosen, to try again.'
               : null}

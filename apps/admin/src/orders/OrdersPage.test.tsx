@@ -479,12 +479,19 @@ describe('packing several at once', () => {
     expect(box(PAID_LATER.reference)).toBeChecked();
     expect(screen.getByText('2 chosen')).toBeInTheDocument();
 
+    // The bar says how much of the bottom it takes, for the notes to rise
+    // above it (bottom-bar.ts), and stops saying so once it has gone.
+    const reserved = () =>
+      document.documentElement.style.getPropertyValue('--bottom-bar');
+    expect(reserved()).not.toBe('');
+
     await user.click(chooseAll());
     expect(box(PAID.reference)).not.toBeChecked();
     expect(box(PAID_LATER.reference)).not.toBeChecked();
     await waitFor(() =>
       expect(screen.queryByText(/chosen$/)).not.toBeInTheDocument(),
     );
+    expect(reserved()).toBe('');
 
     await user.click(box(PAID_LATER.reference));
     await user.click(button('Clear the choice'));
@@ -534,7 +541,7 @@ describe('packing several at once', () => {
     const told = await screen.findByRole('dialog', { name: '1 of 2 packed' });
     const alert = within(told).getByRole('alert');
     expect(alert).toHaveTextContent(
-      'One order was not packed. The reason is beside each.',
+      'One order was not packed. The reason is under it.',
     );
     expect(alert).not.toHaveTextContent('chosen');
     const [refused, packed] = dialogRows(told);
@@ -591,7 +598,7 @@ describe('packing several at once', () => {
 
     const told = await screen.findByRole('dialog', { name: '1 of 3 packed' });
     expect(within(told).getByRole('alert')).toHaveTextContent(
-      '2 orders were not packed. The reason is beside each. Those still to pack stay chosen, to try again.',
+      '2 orders were not packed. The reason is under each. Those still to pack stay chosen, to try again.',
     );
     const rows = dialogRows(told);
     expect(rows[0]).toHaveTextContent('Packed');

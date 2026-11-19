@@ -39,10 +39,11 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastContext.Provider value={value}>
       {children}
-      {/* Always on the page, so a screen reader hears each new note. */}
+      {/* Always on the page, so a screen reader hears each new note. Above
+          a bar at the bottom of the page, if there is one (bottom-bar.ts). */}
       <output
         aria-label="Notifications"
-        className="pointer-events-none fixed inset-x-4 bottom-4 z-50 flex print:hidden flex-col items-center gap-2 sm:inset-x-auto sm:right-6 sm:bottom-6 sm:items-end"
+        className="pointer-events-none fixed inset-x-4 bottom-[calc(var(--bottom-bar,0px)+1rem)] z-50 flex print:hidden flex-col items-center gap-2 transition-[bottom] duration-150 sm:inset-x-auto sm:right-6 sm:bottom-[calc(var(--bottom-bar,0px)+1.5rem)] sm:items-end"
       >
         <AnimatePresence initial={false}>
           {toasts.map((toast) => (
