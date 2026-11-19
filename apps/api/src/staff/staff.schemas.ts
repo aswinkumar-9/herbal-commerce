@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { AUDIT_KINDS } from '../audit/audit-reader.service';
 import { email, emailedToken, fullName } from '../auth/auth.schemas';
 
 // A staff password protects far more than one customer account, so it must
@@ -85,5 +86,8 @@ export const auditLogQuerySchema = z.object({
     .optional(),
   actorId: z.uuid().optional(),
   targetId: z.string().min(1).max(100).optional(),
+  kind: z
+    .enum(AUDIT_KINDS, 'Use accounts, sign_ins, orders, catalog or stock')
+    .optional(),
 });
 export type AuditLogQueryInput = z.infer<typeof auditLogQuerySchema>;

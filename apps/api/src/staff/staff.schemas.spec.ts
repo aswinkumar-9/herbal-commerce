@@ -174,6 +174,15 @@ describe('auditLogQuerySchema', () => {
     expect(accepts({ targetId: '' })).toBe(false);
     expect(accepts({ targetId: 'x'.repeat(101) })).toBe(false);
   });
+
+  it('takes one kind of change, from the kinds there are (ADR 0038)', () => {
+    for (const kind of ['accounts', 'sign_ins', 'orders', 'catalog', 'stock']) {
+      expect(auditLogQuerySchema.parse({ kind })).toEqual({ limit: 50, kind });
+    }
+    for (const kind of ['', 'Orders', 'order', 'payments', ['orders']]) {
+      expect(accepts({ kind })).toBe(false);
+    }
+  });
 });
 
 

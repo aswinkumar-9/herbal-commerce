@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { AuditLog, UserRole } from '../generated/prisma/client';
+import type { AuditLog, Prisma, UserRole } from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 // What a Super User may ask for. The filters are optional and combine.
@@ -11,7 +11,35 @@ export interface AuditLogQuery {
   action?: string;
   actorId?: string;
   targetId?: string;
+  // One kind of change only (ADR 0038), such as everything about orders.
+  kind?: AuditKind;
 }
+
+// The kinds of change a Super User can ask for, each the actions it covers.
+// Signing in is its own kind: it happens far more often than the rest. A
+// prefix with "_" in it is never used: startsWith becomes SQL's LIKE, where
+// "_" stands for any character, so those actions are named in full.
+const KINDS = {
+  accounts: [
+    { action: { startsWith: 'admin.' } },
+    { action: 'super_user.created' },
+    { action: 'staff.mfa_set_up' },
+  ],
+  sign_ins: [{ action: 'staff.signed_in' }],
+  orders: [{ action: { startsWith: 'order.' } }],
+  catalog: [
+    { action: { startsWith: 'category.' } },
+    { action: { startsWith: 'product.' } },
+    { action: { startsWith: 'variant.' } },
+    { action: { startsWith: 'image.' } },
+  ],
+  stock: [
+    { action: { startsWith: 'batch.' } },
+    { action: { startsWith: 'stock.' } },
+  ],
+} satisfies Record<string, Prisma.AuditLogWhereInput[]>;
+export type AuditKind = keyof typeof KINDS;
+export const AUDIT_KINDS = Object.keys(KINDS) as [AuditKind, ...AuditKind[]];
 
 // The account an ID in an entry belongs to, if it still exists.
 export interface AuditPerson {
@@ -21,10 +49,23 @@ export interface AuditPerson {
   role: UserRole;
 }
 
+// What a target is called now, so the console can say it in words: the
+// product's name, the order's reference, a batch's number. The parent is
+// what it belongs to: a pack size's or an image's product, a batch's pack
+// size. Null when the thing is gone, or is not one of these.
+export interface AuditSubject {
+  name: string | null;
+  parent: { id: string; name: string } | null;
+}
+
 export type AuditLogEntry = AuditLog & {
   actor: AuditPerson | null;
   target: AuditPerson | null;
+  subject: AuditSubject | null;
 };
+
+// The targets whose names are looked up.
+const NAMED = ['category', 'product', 'variant', 'image', 'batch', 'order'];
 
 export interface AuditLogPage {
   entries: AuditLogEntry[];
@@ -49,6 +90,7 @@ export class AuditReaderService {
         action: query.action,
         actorId: query.actorId,
         targetId: query.targetId,
+        ...(query.kind ? { OR: KINDS[query.kind] } : {}),
       },
       // The ID breaks ties, so the order is the same on every page.
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
@@ -59,7 +101,10 @@ export class AuditReaderService {
     });
 
     const entries = rows.slice(0, query.limit);
-    const people = await this.peopleIn(entries);
+    const [people, subjects] = await Promise.all([
+      this.peopleIn(entries),
+      this.subjectsIn(entries),
+    ]);
     return {
       entries: entries.map((entry) => ({
         ...entry,
@@ -68,6 +113,7 @@ export class AuditReaderService {
           entry.targetType === 'user' && entry.targetId
             ? (people.get(entry.targetId) ?? null)
             : null,
+        subject: subjects.get(`${entry.targetType}:${entry.targetId}`) ?? null,
       })),
       nextBefore:
         rows.length > query.limit ? entries[entries.length - 1].id : null,
@@ -100,5 +146,100 @@ export class AuditReaderService {
       select: { id: true, email: true, fullName: true, role: true },
     });
     return new Map(users.map((user) => [user.id, user]));
+  }
+
+  // What the named targets are called now, in one query for each kind that
+  // appears. Keyed by "type:id".
+  private async subjectsIn(
+    entries: AuditLog[],
+  ): Promise<Map<string, AuditSubject>> {
+    const ids = new Map<string, string[]>();
+    for (const { targetType, targetId } of entries) {
+      if (
+        targetType &&
+        targetId &&
+        NAMED.includes(targetType) &&
+        UUID.test(targetId)
+      ) {
+        ids.set(targetType, [...(ids.get(targetType) ?? []), targetId]);
+      }
+    }
+    const among = (type: string) => ({ id: { in: ids.get(type) ?? [] } });
+    const asked = (type: string) => ids.has(type);
+    const [categories, products, variants, images, batches, orders] =
+      await Promise.all([
+        asked('category')
+          ? this.prisma.category.findMany({
+              where: among('category'),
+              select: { id: true, name: true },
+            })
+          : [],
+        asked('product')
+          ? this.prisma.product.findMany({
+              where: among('product'),
+              select: { id: true, name: true },
+            })
+          : [],
+        asked('variant')
+          ? this.prisma.productVariant.findMany({
+              where: among('variant'),
+              select: {
+                id: true,
+                sku: true,
+                product: { select: { id: true, name: true } },
+              },
+            })
+          : [],
+        asked('image')
+          ? this.prisma.productImage.findMany({
+              where: among('image'),
+              select: {
+                id: true,
+                altText: true,
+                product: { select: { id: true, name: true } },
+              },
+            })
+          : [],
+        asked('batch')
+          ? this.prisma.stockBatch.findMany({
+              where: among('batch'),
+              select: {
+                id: true,
+                batchNumber: true,
+                variant: { select: { id: true, sku: true } },
+              },
+            })
+          : [],
+        asked('order')
+          ? this.prisma.order.findMany({
+              where: among('order'),
+              select: { id: true, reference: true },
+            })
+          : [],
+      ]);
+
+    const subjects = new Map<string, AuditSubject>();
+    for (const { id, name } of categories) {
+      subjects.set(`category:${id}`, { name, parent: null });
+    }
+    for (const { id, name } of products) {
+      subjects.set(`product:${id}`, { name, parent: null });
+    }
+    for (const { id, sku, product } of variants) {
+      subjects.set(`variant:${id}`, { name: sku, parent: product });
+    }
+    for (const { id, altText, product } of images) {
+      subjects.set(`image:${id}`, { name: altText, parent: product });
+    }
+    for (const { id, batchNumber, variant } of batches) {
+      subjects.set(`batch:${id}`, {
+        name: batchNumber,
+        parent: { id: variant.id, name: variant.sku },
+      });
+    }
+    for (const { id, reference } of orders) {
+      subjects.set(`order:${id}`, { name: reference, parent: null });
+    }
+    return subjects;
   }
 }

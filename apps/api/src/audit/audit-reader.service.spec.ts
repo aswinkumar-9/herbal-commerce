@@ -13,6 +13,22 @@ const ADMIN = {
   fullName: 'Dev Admin One',
   role: 'ADMIN',
 };
+type NamedModel =
+  | 'category'
+  | 'product'
+  | 'productVariant'
+  | 'productImage'
+  | 'stockBatch'
+  | 'order';
+const NAMED_MODELS: NamedModel[] = [
+  'category',
+  'product',
+  'productVariant',
+  'productImage',
+  'stockBatch',
+  'order',
+];
+const ID = (n: number) => `a${n}a1a1a1-a1a1-4a1a-8a1a-a1a1a1a1a1a1`;
 const REMOVED_ID = '9a1b2c3d-4e5f-4a6b-8c7d-0e1f2a3b4c5d';
 const SESSION_ID = '7f6e5d4c-3b2a-4190-8f7e-6d5c4b3a2910';
 
@@ -33,10 +49,23 @@ function entry(n: number, changes: object = {}) {
   };
 }
 
-function setup(rows: object[] = [], users: object[] = []) {
+function setup(
+  rows: object[] = [],
+  users: object[] = [],
+  named: Partial<Record<NamedModel, object[]>> = {},
+) {
+  const lookup = (model: NamedModel) => ({
+    findMany: jest.fn().mockResolvedValue(named[model] ?? []),
+  });
   const prisma = {
     auditLog: { findMany: jest.fn().mockResolvedValue(rows) },
     user: { findMany: jest.fn().mockResolvedValue(users) },
+    category: lookup('category'),
+    product: lookup('product'),
+    productVariant: lookup('productVariant'),
+    productImage: lookup('productImage'),
+    stockBatch: lookup('stockBatch'),
+    order: lookup('order'),
   };
   const service = new AuditReaderService(prisma as unknown as PrismaService);
   return { service, prisma };
@@ -174,5 +203,104 @@ describe('AuditReaderService.list', () => {
 
     expect(prisma.user.findMany).not.toHaveBeenCalled();
     expect(page.entries[0]).toMatchObject({ actor: null, target: null });
+  });
+
+  it('asks for one kind of change only, with the actions it covers (ADR 0038)', async () => {
+    const { service, prisma } = setup();
+
+    await service.list({ limit: 50, kind: 'accounts', actorId: ADMIN.id });
+    await service.list({ limit: 50, kind: 'sign_ins' });
+    await service.list({ limit: 50, kind: 'orders' });
+    await service.list({ limit: 50, kind: 'catalog' });
+    await service.list({ limit: 50, kind: 'stock' });
+
+    const asked = prisma.auditLog.findMany.mock.calls.map(([q]) => q.where);
+    expect(asked[0]).toEqual({
+      action: undefined,
+      actorId: ADMIN.id,
+      targetId: undefined,
+      OR: [
+        { action: { startsWith: 'admin.' } },
+        { action: 'super_user.created' },
+        { action: 'staff.mfa_set_up' },
+      ],
+    });
+    expect(asked[1].OR).toEqual([{ action: 'staff.signed_in' }]);
+    expect(asked[2].OR).toEqual([{ action: { startsWith: 'order.' } }]);
+    expect(asked[3].OR).toEqual([
+      { action: { startsWith: 'category.' } },
+      { action: { startsWith: 'product.' } },
+      { action: { startsWith: 'variant.' } },
+      { action: { startsWith: 'image.' } },
+    ]);
+    expect(asked[4].OR).toEqual([
+      { action: { startsWith: 'batch.' } },
+      { action: { startsWith: 'stock.' } },
+    ]);
+  });
+
+  it('says what each target is called now, with what it belongs to, one query for each kind (ADR 0038)', async () => {
+    const { service, prisma } = setup(
+      [
+        entry(1, { targetType: 'order', targetId: ID(1) }),
+        entry(2, { targetType: 'product', targetId: ID(2) }),
+        entry(3, { targetType: 'variant', targetId: ID(3) }),
+        entry(4, { targetType: 'image', targetId: ID(4) }),
+        entry(5, { targetType: 'batch', targetId: ID(5) }),
+        entry(6, { targetType: 'category', targetId: ID(6) }),
+        entry(7, { targetType: 'order', targetId: ID(7) }),
+      ],
+      [],
+      {
+        order: [{ id: ID(1), reference: '7KQ2M9XDPA' }],
+        product: [{ id: ID(2), name: 'Ashwagandha Capsules' }],
+        productVariant: [
+          { id: ID(3), sku: 'ASH-CAP-60', product: { id: ID(2), name: 'Ashwagandha Capsules' } },
+        ],
+        productImage: [
+          { id: ID(4), altText: null, product: { id: ID(2), name: 'Ashwagandha Capsules' } },
+        ],
+        stockBatch: [
+          { id: ID(5), batchNumber: 'AB2611', variant: { id: ID(3), sku: 'ASH-CAP-60' } },
+        ],
+        category: [{ id: ID(6), name: 'Hair Care' }],
+      },
+    );
+
+    const page = await service.list({ limit: 50 });
+
+    expect(page.entries.map((e) => e.subject)).toEqual([
+      { name: '7KQ2M9XDPA', parent: null },
+      { name: 'Ashwagandha Capsules', parent: null },
+      { name: 'ASH-CAP-60', parent: { id: ID(2), name: 'Ashwagandha Capsules' } },
+      { name: null, parent: { id: ID(2), name: 'Ashwagandha Capsules' } },
+      { name: 'AB2611', parent: { id: ID(3), name: 'ASH-CAP-60' } },
+      { name: 'Hair Care', parent: null },
+      // Gone since: nothing to call it.
+      null,
+    ]);
+    expect(prisma.order.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.order.findMany).toHaveBeenCalledWith({
+      where: { id: { in: [ID(1), ID(7)] } },
+      select: { id: true, reference: true },
+    });
+    for (const model of NAMED_MODELS) {
+      expect(prisma[model].findMany).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('looks up only the kinds that appear, and only well-formed IDs', async () => {
+    const { service, prisma } = setup([
+      entry(1, { targetType: 'session', targetId: SESSION_ID }),
+      entry(2, { targetType: 'order', targetId: 'not-a-uuid' }),
+      entry(3, { targetType: 'user', targetId: ADMIN.id }),
+    ]);
+
+    const page = await service.list({ limit: 50 });
+
+    for (const model of NAMED_MODELS) {
+      expect(prisma[model].findMany).not.toHaveBeenCalled();
+    }
+    expect(page.entries.map((e) => e.subject)).toEqual([null, null, null]);
   });
 });
