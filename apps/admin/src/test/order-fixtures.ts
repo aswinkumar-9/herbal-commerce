@@ -186,10 +186,13 @@ export const ordersOf =
   () =>
     json(200, { orders: orders.map(summaryOf), nextAfter });
 export const orderOf = (order: object) => () => json(200, order);
+// A refund as the Super Users' list names it: with its order.
+export const listed = (
+  refund: typeof REFUND,
+  order: { id: string; reference: string },
+) => ({ ...refund, orderId: order.id, orderReference: order.reference });
+
 export const refundsOf =
-  (
-    refunds: (typeof REFUND & { orderId: string })[],
-    nextAfter: string | null = null,
-  ) =>
+  (refunds: ReturnType<typeof listed>[], nextAfter: string | null = null) =>
   () =>
     json(200, { refunds, nextAfter });

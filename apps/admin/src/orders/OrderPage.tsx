@@ -11,7 +11,7 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
-import { Link, useParams } from 'react-router';
+import { Link, useLocation, useParams } from 'react-router';
 import { ApiError } from '../api/api-error';
 import { problemMessage } from '../api/problems';
 import { useSession } from '../auth/session-context';
@@ -22,12 +22,7 @@ import { useToasts } from '../components/toast-context';
 import { useListSearch } from '../list-search';
 import { usePageTitle } from '../page-title';
 import { momentName } from '../stock/stock-display';
-import {
-  FAILED_REFUND_HELP,
-  REFUND_REASON_NAMES,
-  REFUND_STATUS_NAMES,
-  REFUND_STATUS_STYLES,
-} from './order-display';
+import { FAILED_REFUND_HELP, REFUND_REASON_NAMES } from './order-display';
 import {
   CancelDialog,
   CorrectShipmentDialog,
@@ -40,7 +35,7 @@ import {
 import { markPacked } from './orders-api';
 import type { Order, OrderStatus, Payment } from './orders-api';
 import { orderChanged, orderKeys, useOrder } from './orders-queries';
-import { StatusTag } from './OrderTags';
+import { RefundTag, StatusTag } from './OrderTags';
 import { PackingSlip } from './PackingSlip';
 
 type DialogKind = 'ship' | 'correct' | 'delivered' | 'cancel';
@@ -60,10 +55,24 @@ export function OrderPage() {
   return <OrderView key={id} id={id} />;
 }
 
+// Opened from the Refunds tab (RefundsPage), an order leads back there.
+function useFromRefunds(): boolean {
+  const { state } = useLocation() as { state: unknown };
+  return (
+    typeof state === 'object' &&
+    state !== null &&
+    'from' in state &&
+    state.from === 'refunds'
+  );
+}
+
 function OrderView({ id }: { id: string }) {
   const order = useOrder(id);
   const listSearch = useListSearch();
-  const back = { pathname: '/orders', search: listSearch };
+  const fromRefunds = useFromRefunds();
+  const back = fromRefunds
+    ? { pathname: '/orders/refunds', search: '' }
+    : { pathname: '/orders', search: listSearch };
   usePageTitle(order.data ? `Order ${order.data.reference}` : 'Order');
   const missing = order.error instanceof ApiError && order.error.status === 404;
 
@@ -74,7 +83,7 @@ function OrderView({ id }: { id: string }) {
         className="inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted hover:text-ink print:hidden"
       >
         <ArrowLeft aria-hidden="true" className="size-4" />
-        Orders
+        {fromRefunds ? 'Refunds' : 'Orders'}
       </Link>
       {order.isPending ? (
         <>
@@ -89,7 +98,7 @@ function OrderView({ id }: { id: string }) {
             title="There is no such order"
             action={
               <Link to={back} className={buttonClass()}>
-                Back to the orders
+                {fromRefunds ? 'Back to the refunds' : 'Back to the orders'}
               </Link>
             }
           >
@@ -509,11 +518,7 @@ function PaymentCard({ payment }: { payment: Payment | null }) {
                       <span className="font-medium tabular-nums">
                         {rupees(refund.amountRupees)}
                       </span>
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-semibold ${REFUND_STATUS_STYLES[refund.status]}`}
-                      >
-                        {REFUND_STATUS_NAMES[refund.status]}
-                      </span>
+                      <RefundTag status={refund.status} />
                       <span className="text-ink-muted">
                         {momentName(refund.updatedAt)}
                       </span>

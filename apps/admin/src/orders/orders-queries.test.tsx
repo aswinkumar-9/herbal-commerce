@@ -17,6 +17,7 @@ import {
   TO_PACK,
   orderOf,
   ordersOf,
+  listed,
   refundsOf,
 } from '../test/order-fixtures';
 import type { Order } from './orders-api';
@@ -100,7 +101,7 @@ describe('the orders data', () => {
 
   it('reads the refunds a page at a time, and looks again every minute', async () => {
     setAccessToken('t1');
-    const refund = { ...REFUND, orderId: PAID.id };
+    const refund = listed(REFUND, PAID);
     fakeApi({ [REFUNDS('?status=FAILED')]: refundsOf([refund]) });
     const { queryClient, wrapper } = withCache();
 

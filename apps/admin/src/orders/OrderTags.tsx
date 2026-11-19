@@ -1,15 +1,31 @@
-import { STATUS_NAMES, STATUS_STYLES, countName } from './order-display';
-import type { OrderStatus } from './orders-api';
+import {
+  REFUND_STATUS_NAMES,
+  REFUND_STATUS_STYLES,
+  STATUS_NAMES,
+  STATUS_STYLES,
+  countName,
+} from './order-display';
+import type { OrderStatus, RefundStatus } from './orders-api';
 import { useToPackCount } from './orders-queries';
+
+const TAG =
+  'shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold shadow-chip inset-shadow-clay';
 
 // An order's status in its colour. The word says it too, for those who
 // cannot tell the colours apart.
 export function StatusTag({ status }: { status: OrderStatus }) {
   return (
-    <span
-      className={`shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold shadow-chip inset-shadow-clay ${STATUS_STYLES[status]}`}
-    >
+    <span className={`${TAG} ${STATUS_STYLES[status]}`}>
       {STATUS_NAMES[status]}
+    </span>
+  );
+}
+
+// A refund's status, the same way.
+export function RefundTag({ status }: { status: RefundStatus }) {
+  return (
+    <span className={`${TAG} ${REFUND_STATUS_STYLES[status]}`}>
+      {REFUND_STATUS_NAMES[status]}
     </span>
   );
 }

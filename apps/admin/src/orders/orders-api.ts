@@ -137,8 +137,12 @@ export const orderSchema = z.object({
 });
 export type Order = z.infer<typeof orderSchema>;
 
-// A refund in the Super Users' list, naming its order.
-export const listedRefundSchema = refundSchema.extend({ orderId: z.string() });
+// A refund in the Super Users' list, naming its order by its ID and by the
+// reference the customer quotes.
+export const listedRefundSchema = refundSchema.extend({
+  orderId: z.string(),
+  orderReference: z.string(),
+});
 export type ListedRefund = z.infer<typeof listedRefundSchema>;
 const refundPageSchema = z.object({
   refunds: z.array(listedRefundSchema),

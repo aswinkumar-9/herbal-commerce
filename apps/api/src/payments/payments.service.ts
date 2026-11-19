@@ -274,9 +274,10 @@ export class PaymentsService {
 
   // Refunds for Super Users, the newest first, one page at a time: those in
   // one status if asked, such as the FAILED ones that staff give back by
-  // hand. Each names its order (ADR 0028).
+  // hand. Each names its order (ADR 0028), by its ID and by the reference
+  // the customer quotes (ADR 0037).
   async listRefunds(query: RefundListQuery): Promise<{
-    refunds: (StaffRefund & { orderId: string })[];
+    refunds: (StaffRefund & { orderId: string; orderReference: string })[];
     nextAfter: string | null;
   }> {
     const rows = await this.prisma.refund.findMany({
@@ -288,7 +289,9 @@ export class PaymentsService {
       ...(query.after ? { cursor: { id: query.after }, skip: 1 } : {}),
       select: {
         ...STAFF_REFUND_FIELDS,
-        payment: { select: { orderId: true } },
+        payment: {
+          select: { orderId: true, order: { select: { reference: true } } },
+        },
       },
     });
     const refunds = rows
@@ -296,6 +299,7 @@ export class PaymentsService {
       .map(({ payment, ...refund }) => ({
         ...refund,
         orderId: payment.orderId,
+        orderReference: payment.order.reference,
       }));
     return {
       refunds,

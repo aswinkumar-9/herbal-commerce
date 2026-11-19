@@ -17,6 +17,7 @@ import {
   forAdmin,
   orderOf,
   ordersOf,
+  listed,
   refundsOf,
   summaryOf,
 } from '../test/order-fixtures';
@@ -216,8 +217,8 @@ describe('the steps', () => {
 describe('the refunds', () => {
   it('lists them a page at a time, each naming its order', async () => {
     signedIn();
-    const failed = { ...FAILED_REFUND, orderId: PAID_LATER.id };
-    const pending = { ...REFUND, orderId: PAID.id };
+    const failed = listed(FAILED_REFUND, PAID_LATER);
+    const pending = listed(REFUND, PAID);
     const api = fakeApi({
       [REFUNDS()]: refundsOf([failed, pending], REFUND.id),
       [REFUNDS(`?status=FAILED&after=${REFUND.id}&limit=20`)]: refundsOf([]),
@@ -236,12 +237,13 @@ describe('the refunds', () => {
   it.each([
     ['a reason it does not know', { reason: 'CHANGED_MIND' }],
     ['no order', { orderId: undefined }],
+    ["no order's reference", { orderReference: undefined }],
   ])('refuses %s', async (_, change) => {
     signedIn();
     fakeApi({
       [REFUNDS()]: () =>
         json(200, {
-          refunds: [{ ...REFUND, orderId: PAID.id, ...change }],
+          refunds: [{ ...listed(REFUND, PAID), ...change }],
           nextAfter: null,
         }),
     });
