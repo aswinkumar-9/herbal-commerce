@@ -18,6 +18,9 @@
     "admin:preview": "pnpm --filter admin preview",
     "admin:test": "pnpm --filter admin test",
     "admin:lint": "pnpm --filter admin lint",
-    "admin:typecheck": "pnpm --filter admin typecheck"
+    "admin:typecheck": "pnpm --filter admin typecheck",
+    "design:build": "pnpm --filter @herbal/design build",
+    "design:test": "pnpm --filter @herbal/design test",
+    "design:typecheck": "pnpm --filter @herbal/design typecheck"
   }
 }

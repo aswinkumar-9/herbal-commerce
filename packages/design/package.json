@@ -1,0 +1,23 @@
+{
+  "name": "@herbal/design",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The design system: shared foundations and the looks of the console and the shop (ADR 0036)",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./console.css": "./css/console.css"
+  },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "6.0.3"
+  }
+}

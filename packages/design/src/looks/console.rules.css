@@ -1,0 +1,87 @@
+/* Frosted glass, for bars that float over the page. Solid when the browser
+   can't blur, or when the computer asks for less transparency or more
+   contrast. */
+@utility glass {
+  background-color: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+
+  @supports not (
+    (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))
+  ) {
+    background-color: var(--surface);
+  }
+
+  @media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+    background-color: var(--surface);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+html {
+  background-color: var(--canvas);
+}
+
+body {
+  @apply text-ink antialiased;
+  font-family: var(--font-sans);
+}
+
+/* A soft herbal glow behind the page, still while the page scrolls. It
+   gives the glass something to frost. */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image:
+    radial-gradient(
+      60rem 40rem at -10% -15%,
+      var(--glow-green),
+      transparent 65%
+    ),
+    radial-gradient(
+      50rem 36rem at 110% -10%,
+      var(--glow-amber),
+      transparent 60%
+    ),
+    radial-gradient(56rem 40rem at 70% 115%, var(--glow-mint), transparent 65%);
+}
+
+@media (prefers-contrast: more) {
+  body::before {
+    display: none;
+  }
+}
+
+/* A dialog's backdrop dims and blurs the page, and fades in. Its colours
+   are written out: older browsers don't pass the page's colour names to a
+   backdrop. */
+dialog::backdrop {
+  background-color: rgb(14 22 17 / 0.38);
+  -webkit-backdrop-filter: blur(6px) saturate(120%);
+  backdrop-filter: blur(6px) saturate(120%);
+  animation: backdrop-in 150ms ease-out;
+}
+
+@media (prefers-color-scheme: dark) {
+  dialog::backdrop {
+    background-color: rgb(0 0 0 / 0.55);
+  }
+}
+
+@media (prefers-reduced-transparency: reduce), (prefers-contrast: more) {
+  dialog::backdrop {
+    background-color: rgb(14 22 17 / 0.6);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@keyframes backdrop-in {
+  from {
+    opacity: 0;
+  }
+}

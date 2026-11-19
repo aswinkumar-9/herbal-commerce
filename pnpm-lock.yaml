@@ -222,6 +222,15 @@ importers:
         specifier: ^6.0.2
         version: 6.0.3
 
+  packages/design:
+    devDependencies:
+      '@types/node':
+        specifier: 24.19.2
+        version: 24.19.2
+      typescript:
+        specifier: 6.0.3
+        version: 6.0.3
+
 packages:
 
   '@adobe/css-tools@4.5.0':
