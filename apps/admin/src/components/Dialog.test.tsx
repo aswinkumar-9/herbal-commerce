@@ -178,6 +178,97 @@ describe('a dialog', () => {
     expect(screen.getByRole('main')).toHaveFocus();
   });
 
+  it('gives the focus to the main area when what opened it goes a moment after, as a row fading away', async () => {
+    function Fading() {
+      const [open, setOpen] = useState(false);
+      const [removed, setRemoved] = useState(false);
+      const [told, setTold] = useState(false);
+      return (
+        <main id="main" tabIndex={-1}>
+          {removed ? null : (
+            <Button onClick={() => setOpen(true)}>Remove Dev Patel</Button>
+          )}
+          {told ? <p>Dev Patel removed</p> : null}
+          <Dialog
+            open={open}
+            onClose={() => setOpen(false)}
+            title="Remove Dev Patel?"
+            actions={
+              <Button
+                onClick={() => {
+                  setOpen(false);
+                  // The row still shows while it fades, and the page
+                  // changes elsewhere meanwhile, as a note appears.
+                  setTimeout(() => setTold(true), 10);
+                  setTimeout(() => setRemoved(true), 60);
+                }}
+              >
+                Remove Dev Patel
+              </Button>
+            }
+          />
+        </main>
+      );
+    }
+    const user = userEvent.setup();
+    render(<Fading />);
+    await user.click(screen.getByRole('button', { name: 'Remove Dev Patel' }));
+    const dialog = await screen.findByRole('dialog');
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Remove Dev Patel' }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+    expect(
+      screen.getByRole('button', { name: 'Remove Dev Patel' }),
+    ).toHaveFocus();
+
+    await waitFor(() => expect(screen.getByRole('main')).toHaveFocus());
+  });
+
+  it('leaves the focus alone when it moved on before what opened it went', async () => {
+    function Elsewhere() {
+      const [open, setOpen] = useState(false);
+      const [removed, setRemoved] = useState(false);
+      return (
+        <main id="main" tabIndex={-1}>
+          {removed ? null : (
+            <Button onClick={() => setOpen(true)}>Remove Dev Patel</Button>
+          )}
+          <Button onClick={() => setRemoved(true)}>Invite an Admin</Button>
+          <Dialog
+            open={open}
+            onClose={() => setOpen(false)}
+            title="Remove Dev Patel?"
+            actions={<Button onClick={() => setOpen(false)}>Keep them</Button>}
+          />
+        </main>
+      );
+    }
+    const user = userEvent.setup();
+    render(<Elsewhere />);
+    await user.click(screen.getByRole('button', { name: 'Remove Dev Patel' }));
+    await user.click(
+      within(await screen.findByRole('dialog')).getByRole('button', {
+        name: 'Keep them',
+      }),
+    );
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+
+    await user.click(screen.getByRole('button', { name: 'Invite an Admin' }));
+
+    expect(
+      screen.queryByRole('button', { name: 'Remove Dev Patel' }),
+    ).toBeNull();
+    expect(
+      screen.getByRole('button', { name: 'Invite an Admin' }),
+    ).toHaveFocus();
+  });
+
   it('closes with Escape', async () => {
     const onClose = vi.fn();
     const { dialog } = await openIt({ onClose });

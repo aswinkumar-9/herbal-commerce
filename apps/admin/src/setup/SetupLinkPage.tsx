@@ -496,7 +496,7 @@ function KeyByHand({ link }: { link: SetupLink }) {
         <dt className="text-ink-muted">Account</dt>
         <dd className="break-all">{link.email}</dd>
         <dt className="text-ink-muted">Key</dt>
-        <dd className="font-mono break-all select-all">
+        <dd className="font-mono break-words select-all">
           {keyInGroups(link.key)}
         </dd>
         <dt className="text-ink-muted">Type</dt>

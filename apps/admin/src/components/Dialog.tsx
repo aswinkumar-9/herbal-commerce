@@ -27,6 +27,30 @@ interface DialogProps {
 const CONTROLS =
   'input:not(:disabled), select:not(:disabled), textarea:not(:disabled), button:not(:disabled), a[href]';
 
+const focusMain = () =>
+  document.getElementById('main')?.focus({ preventScroll: true });
+
+// What opened the dialog may still be on its way out when the focus goes
+// back to it, such as a removed row fading away: if it goes while it has
+// the focus, the page's main area takes it. Looked for a short while only.
+function leavingWithFocus(opener: HTMLElement) {
+  const watch = new MutationObserver(() => {
+    if (opener.isConnected) {
+      return;
+    }
+    stop();
+    if (document.activeElement === document.body || !document.activeElement) {
+      focusMain();
+    }
+  });
+  const timer = setTimeout(() => stop(), 3000);
+  function stop() {
+    watch.disconnect();
+    clearTimeout(timer);
+  }
+  watch.observe(document.body, { childList: true, subtree: true });
+}
+
 // A question that needs an answer before staff go on. The browser's own
 // modal dialog: the rest of the page cannot be reached while it is open, and
 // the focus goes back where it was when it closes.
@@ -123,8 +147,9 @@ function DialogBox({
       // the page's main area takes the focus, so it is not lost.
       if (opener?.isConnected) {
         opener.focus();
+        leavingWithFocus(opener);
       } else {
-        document.getElementById('main')?.focus({ preventScroll: true });
+        focusMain();
       }
     };
   }, []);
