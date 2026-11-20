@@ -1,0 +1,51 @@
+@import 'tailwindcss';
+
+/* The shop's look (ADR 0036): its colours, Poppins, glass, the scrim, the
+   named text styles and the motion come from the design system, and are
+   changed in packages/design, never here. Pages use its names (bg-canvas,
+   text-ink, heading-1 ...), never raw values, so both themes follow. The
+   rules for every page are in .claude/skills/landing-page-design. */
+@import '@herbal/design/shop.css';
+
+/* The menu bar floats over the page: what the browser scrolls to (a link's
+   target, a field with an error) stops below it. */
+html {
+  scroll-padding-top: 6rem;
+}
+
+/* The first screen arrives as the page opens: its words rise 32 px into
+   place and its picture settles from a touch larger, on the shop's curve
+   and its reveal time (SHOP_MOTION). Plain CSS, so it needs no script and
+   no style attribute. When less motion is asked for, shop.css stops it. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    translate: 0 2rem;
+  }
+}
+
+@keyframes settle {
+  from {
+    scale: 1.04;
+  }
+}
+
+@utility animate-rise-in {
+  animation: rise-in 700ms var(--ease-settle) both;
+}
+
+@utility animate-settle {
+  animation: settle 700ms var(--ease-settle) both;
+}
+
+/* A product's photo, chosen from its thumbnails, fades in (300 ms, the
+   shop's time for a colour or an opacity). */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@utility animate-fade-in {
+  animation: fade-in 300ms var(--ease-settle) both;
+}

@@ -23,9 +23,10 @@ export const SHOP_MOTION = {
 // The customer shop's look (ADR 0036), from the owner's reference
 // (2026-11-20): calm and premium, flat backgrounds, one typeface, big
 // pictures. Light or dark as the device is set, with a switch on the page.
-// The main colour is neutral (black or white) until the owner's
-// illustrations exist: then the accent is chosen from them, by changing
-// primary, accent and focus here.
+// The accent is saffron gold, from the golden light in the owner's
+// pictures (chosen 2026-11-20, part 14A): the shop's main buttons are gold
+// pills with dark text (gold, on-gold), and links and chosen states a
+// deeper gold that stays readable on white (primary).
 export const shopLook: Look = {
   name: 'shop',
   summary: `The customer shop's look (ADR 0036): calm and premium, flat backgrounds,
@@ -35,11 +36,13 @@ export const shopLook: Look = {
    - Glass (glass, glass-strong): the floating menu bar and the phone menu.
    - The hero heading (text-hero): a gradient on the text, never the
      background.
-   - Text on a picture sits on a scrim (scrim, scrim-fade): white text keeps
-     4.5:1 even over the whitest part of the picture.
+   - Text on a picture sits on a scrim (scrim, scrim-fade, scrim-rise):
+     white text keeps 4.5:1 even over the whitest part of the picture.
    - Named text styles (heading-1 ... caption-5) and the spacing steps from
      the foundations only.
-   The main colour stays neutral until the owner's illustrations exist.`,
+   - Saffron gold, from the owner's pictures: the main buttons are gold
+     pills with dark text (bg-gold text-on-gold); links and chosen states
+     a deeper gold that stays readable on white (text-primary).`,
   imports: [
     '@fontsource/poppins/latin-400.css',
     '@fontsource/poppins/latin-500.css',
@@ -56,21 +59,26 @@ export const shopLook: Look = {
       'line-strong': '#8a8a84',
       ink: '#111111',
       'ink-muted': '#5f5f5a',
-      primary: '#111111',
-      'primary-strong': '#2b2b29',
-      'primary-soft': '#f0f0ee',
+      primary: '#875610',
+      'primary-strong': '#734a0a',
+      'primary-soft': '#fbf1de',
       'on-primary': '#ffffff',
-      accent: '#6b6b66',
+      accent: '#b07414',
       danger: '#b42318',
       'danger-strong': '#912018',
       'danger-soft': '#fdecea',
       'on-danger': '#ffffff',
       warning: '#8a5a12',
       'warning-soft': '#fbf0dc',
-      focus: '#111111',
+      focus: '#875610',
       // The hero heading's gradient, left to right.
       'hero-from': '#000000',
       'hero-to': '#666666',
+      // The shop's main button: a saffron gold pill with dark text, and a
+      // deeper gold under the pointer.
+      gold: '#d89122',
+      'gold-strong': '#c88318',
+      'on-gold': '#111111',
     },
     // The page and its surfaces only in the reference's dark colours:
     // #131209, #1f1f1f, #272727, #313131 (#000000 and #181818 are the
@@ -83,20 +91,23 @@ export const shopLook: Look = {
       'line-strong': '#757571',
       ink: '#f5f5f4',
       'ink-muted': '#a8a8a3',
-      primary: '#ffffff',
-      'primary-strong': '#e7e7e4',
+      primary: '#e09a2c',
+      'primary-strong': '#e8ad4c',
       'primary-soft': '#272727',
       'on-primary': '#111111',
-      accent: '#b0b0aa',
+      accent: '#d89122',
       danger: '#f08c80',
       'danger-strong': '#f5a89f',
       'danger-soft': '#3a1d1a',
       'on-danger': '#2a0d0a',
       warning: '#e3b363',
       'warning-soft': '#33281a',
-      focus: '#f5f5f4',
+      focus: '#e09a2c',
       'hero-from': '#ffffff',
       'hero-to': '#9b9b9b',
+      gold: '#d89122',
+      'gold-strong': '#e09a2c',
+      'on-gold': '#111111',
     },
   },
   effects: {
@@ -220,6 +231,18 @@ export const shopLook: Look = {
       what: 'the main button under the pointer',
     },
     {
+      fore: 'on-gold',
+      back: 'gold',
+      min: CONTRAST.text,
+      what: "the shop's gold pill",
+    },
+    {
+      fore: 'on-gold',
+      back: 'gold-strong',
+      min: CONTRAST.text,
+      what: "the shop's gold pill under the pointer",
+    },
+    {
       fore: 'danger',
       back: 'surface',
       min: CONTRAST.text,
@@ -296,7 +319,9 @@ export const shopLook: Look = {
     },
   ],
   glass: [
-    { what: 'the floating menu bar', alpha: 0.72, text: ['ink', 'primary'] },
+    // Only main text sits on the bar's glass: a link chosen or under the
+    // pointer gets a solid chip (bg-primary-soft) behind its gold.
+    { what: 'the floating menu bar', alpha: 0.72, text: ['ink'] },
     {
       what: 'the phone menu',
       alpha: 0.94,

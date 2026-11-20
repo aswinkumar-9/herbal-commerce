@@ -17,11 +17,13 @@
    - Glass (glass, glass-strong): the floating menu bar and the phone menu.
    - The hero heading (text-hero): a gradient on the text, never the
      background.
-   - Text on a picture sits on a scrim (scrim, scrim-fade): white text keeps
-     4.5:1 even over the whitest part of the picture.
+   - Text on a picture sits on a scrim (scrim, scrim-fade, scrim-rise):
+     white text keeps 4.5:1 even over the whitest part of the picture.
    - Named text styles (heading-1 ... caption-5) and the spacing steps from
      the foundations only.
-   The main colour stays neutral until the owner's illustrations exist. */
+   - Saffron gold, from the owner's pictures: the main buttons are gold
+     pills with dark text (bg-gold text-on-gold); links and chosen states
+     a deeper gold that stays readable on white (text-primary). */
 
 :root {
   color-scheme: light;
@@ -32,20 +34,23 @@
   --line-strong: #8a8a84;
   --ink: #111111;
   --ink-muted: #5f5f5a;
-  --primary: #111111;
-  --primary-strong: #2b2b29;
-  --primary-soft: #f0f0ee;
+  --primary: #875610;
+  --primary-strong: #734a0a;
+  --primary-soft: #fbf1de;
   --on-primary: #ffffff;
-  --accent: #6b6b66;
+  --accent: #b07414;
   --danger: #b42318;
   --danger-strong: #912018;
   --danger-soft: #fdecea;
   --on-danger: #ffffff;
   --warning: #8a5a12;
   --warning-soft: #fbf0dc;
-  --focus: #111111;
+  --focus: #875610;
   --hero-from: #000000;
   --hero-to: #666666;
+  --gold: #d89122;
+  --gold-strong: #c88318;
+  --on-gold: #111111;
 
   /* Glass: the surface, see-through. The menu bar is lighter glass, as only
      main text sits on it; the phone menu is nearly solid. */
@@ -74,20 +79,23 @@
     --line-strong: #757571;
     --ink: #f5f5f4;
     --ink-muted: #a8a8a3;
-    --primary: #ffffff;
-    --primary-strong: #e7e7e4;
+    --primary: #e09a2c;
+    --primary-strong: #e8ad4c;
     --primary-soft: #272727;
     --on-primary: #111111;
-    --accent: #b0b0aa;
+    --accent: #d89122;
     --danger: #f08c80;
     --danger-strong: #f5a89f;
     --danger-soft: #3a1d1a;
     --on-danger: #2a0d0a;
     --warning: #e3b363;
     --warning-soft: #33281a;
-    --focus: #f5f5f4;
+    --focus: #e09a2c;
     --hero-from: #ffffff;
     --hero-to: #9b9b9b;
+    --gold: #d89122;
+    --gold-strong: #e09a2c;
+    --on-gold: #111111;
 
     --glass: color-mix(in oklab, var(--surface) 72%, transparent);
     --glass-strong: color-mix(in oklab, var(--surface) 94%, transparent);
@@ -107,20 +115,23 @@
   --line-strong: #757571;
   --ink: #f5f5f4;
   --ink-muted: #a8a8a3;
-  --primary: #ffffff;
-  --primary-strong: #e7e7e4;
+  --primary: #e09a2c;
+  --primary-strong: #e8ad4c;
   --primary-soft: #272727;
   --on-primary: #111111;
-  --accent: #b0b0aa;
+  --accent: #d89122;
   --danger: #f08c80;
   --danger-strong: #f5a89f;
   --danger-soft: #3a1d1a;
   --on-danger: #2a0d0a;
   --warning: #e3b363;
   --warning-soft: #33281a;
-  --focus: #f5f5f4;
+  --focus: #e09a2c;
   --hero-from: #ffffff;
   --hero-to: #9b9b9b;
+  --gold: #d89122;
+  --gold-strong: #e09a2c;
+  --on-gold: #111111;
 
   --glass: color-mix(in oklab, var(--surface) 72%, transparent);
   --glass-strong: color-mix(in oklab, var(--surface) 94%, transparent);
@@ -150,6 +161,9 @@
   --color-focus: var(--focus);
   --color-hero-from: var(--hero-from);
   --color-hero-to: var(--hero-to);
+  --color-gold: var(--gold);
+  --color-gold-strong: var(--gold-strong);
+  --color-on-gold: var(--on-gold);
   /* Glass's hairline edge, all the way round. */
   --inset-shadow-glass: inset 0 0 0 1px var(--glass-edge);
   /* Poppins, served by the shop itself; the device’s own font while it
@@ -399,6 +413,18 @@
     var(--scrim) 0%,
     var(--scrim) 50%,
     transparent 100%
+  );
+}
+
+/* The veil behind a block of words on a picture, as its background: whole
+   behind every line, however many the words wrap to, then fading out over
+   the 96 px above them, so the rest of the picture stays clear. */
+@utility scrim-rise {
+  background-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    var(--scrim) 6rem,
+    var(--scrim) 100%
   );
 }
 
