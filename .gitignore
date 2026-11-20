@@ -25,3 +25,6 @@ apps/api/src/generated/
 # Uploaded images on a laptop (ADR 0023)
 storage/
 
+# React Router's generated route types (the website, ADR 0039)
+.react-router/
+

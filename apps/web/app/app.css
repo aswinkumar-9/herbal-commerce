@@ -1,0 +1,14 @@
+@import 'tailwindcss';
+
+/* The shop's look (ADR 0036): its colours, Poppins, glass, the scrim, the
+   named text styles and the motion come from the design system, and are
+   changed in packages/design, never here. Pages use its names (bg-canvas,
+   text-ink, heading-1 ...), never raw values, so both themes follow. The
+   rules for every page are in .claude/skills/landing-page-design. */
+@import '@herbal/design/shop.css';
+
+/* The menu bar floats over the page: what the browser scrolls to (a link's
+   target, a field with an error) stops below it. */
+html {
+  scroll-padding-top: 6rem;
+}
