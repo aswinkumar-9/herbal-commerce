@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 12F)
 - Date: 2026-11-19
+- Updated: 2026-11-20 (part 12G: a failed refund is marked as given back by hand, closing open decision 7, see ADR 0038)
 
 ## Context
 

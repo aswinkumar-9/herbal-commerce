@@ -3,6 +3,7 @@
 - Status: Accepted and implemented (part 3B-5)
 - Date: 2026-10-31
 - Updated: 2026-11-01 (part 3B-6: the audit log view shows these entries, see ADR 0017)
+- Updated: 2026-11-20 (part 12G: the Admins page in the console, and resetting a lost authenticator app, see ADR 0038)
 
 ## Context
 

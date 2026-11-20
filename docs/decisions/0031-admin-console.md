@@ -8,6 +8,7 @@
 - Updated: 2026-11-20 (part 12E: the look, glass and clay, see ADR 0035)
 - Updated: 2026-11-19 (part 12F: the Orders area and the Refunds tab, see ADR 0037)
 - Updated: 2026-11-20 (part 13: the look comes from the design system, `packages/design`, see ADR 0036)
+- Updated: 2026-11-20 (part 12G: the Admins and audit log pages, and the emailed links' pages, see ADR 0038)
 
 ## Context
 

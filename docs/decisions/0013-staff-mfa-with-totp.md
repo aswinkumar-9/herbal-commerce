@@ -4,6 +4,7 @@
 - Date: 2026-10-29
 - Updated: 2026-10-30 (part 3B-3: codes are now used at the staff login, ADR 0014)
 - Updated: 2026-10-30 (part 3B-4: invited Admins get their MFA with the same command, ADR 0015)
+- Updated: 2026-11-20 (part 12G: invited Admins set up their app in the console, and a Super User resets a lost one, see ADR 0038; the command stays for Super Users)
 
 ## Context
 

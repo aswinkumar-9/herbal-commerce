@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.27.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.28.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -940,7 +940,7 @@ Money going back shows in the order's `payment.refunds`:
 "payment": {
   "paidAt": null,
   "refunds": [
-    { "amountRupees": 498, "reason": "ORDER_CANCELLED", "status": "PENDING", "createdAt": "2026-11-08T12:26:16.311Z" }
+    { "amountRupees": 498, "reason": "ORDER_CANCELLED", "status": "PENDING", "createdAt": "2026-11-08T12:26:16.311Z", "givenBackAt": null }
   ]
 }
 ```
@@ -952,7 +952,7 @@ Cancelling a paid order before it ships gives its payment back too: `CANCELLED_B
 | `REQUESTED` | Saved, but Razorpay hasn't taken it yet. The API asks again every minute. |
 | `PENDING` | Razorpay has taken it, and the money is on its way back. |
 | `PROCESSED` | The money is back with the customer. |
-| `FAILED` | Razorpay couldn't give it back. Staff give it back by hand. |
+| `FAILED` | Razorpay couldn't give it back. Staff give it back by hand, and then `givenBackAt` says when (since part 12G, ADR 0038). It stays `FAILED`. |
 
 The customer is emailed once the order is paid, and once a refund is `PROCESSED`. The Super Users are emailed when a refund is `FAILED` (see "Order emails").
 
@@ -1065,7 +1065,7 @@ No endpoint sends these directly: the changes below each save an email in their 
 
 ## Staff authentication
 
-For Admins and Super Users only. Customers cannot sign in here, and staff cannot sign in at `/v1/auth/login`. An invited Admin first chooses a password (`accept-invite` below). Then a developer sets up the staff member's authenticator app (README, "Set up staff MFA").
+For Admins and Super Users only. Customers cannot sign in here, and staff cannot sign in at `/v1/auth/login`. An invited Admin chooses a password and sets up an authenticator app with the emailed link (`setup-link` and `accept-invite` below), and sets the app up again the same way after a Super User reset it (`reset-authenticator`, ADR 0038). A developer sets up a Super User's app (README, "Set up staff MFA").
 
 Staff access tokens work only on staff endpoints, and customer tokens never work there (ADR 0014).
 
@@ -1118,35 +1118,92 @@ A customer refresh token gets `401 Invalid refresh token`, and is not used up: i
 
 ### POST `/v1/staff/auth/accept-invite`
 
-**Public.** The invited Admin chooses their password with the token from the invitation email. The link points to the admin console (`/staff/accept-invite?token=...`), which posts the token here. It is valid for **72 hours, once**.
+**Public.** The invited Admin chooses their password and sets up their authenticator app, together, with the token from the invitation email (ADR 0038). The link opens the admin console's page (`/accept-invite?token=...`), which first shows the key with `setup-link` below, then posts here. It is valid for **72 hours, once**.
 
 Request:
 ```json
-{ "token": "<token from the email>", "password": "a-long-staff-password-1" }
+{ "token": "<token from the email>", "password": "a-long-staff-password-1", "code": "123456" }
 ```
-Rules: the token is 20 to 200 characters; the password 16 to 128 characters.
+Rules: the token is 20 to 200 characters; the password 16 to 128 characters; the code exactly 6 digits, from the key `setup-link` showed (spaces around it are trimmed).
 
 Response `200`:
 ```json
-{ "message": "Your password has been set. Before you can sign in, a developer will set up an authenticator app on your phone with you." }
+{ "message": "Your password and authenticator app are set. Sign in with them." }
 ```
-What accepting also does:
+What accepting also does, in one transaction:
+- the password and the authenticator key are saved, and the code just typed can't be used again to sign in;
 - the email address counts as verified;
-- any session of the account ends, and any other unused invitation stops working;
-- the acceptance is written to the audit log (`admin.invite_accepted`).
+- any session of the account ends, and any other unused link of the Admin stops working;
+- two audit entries, both with the Admin as the actor: `admin.invite_accepted` and `staff.mfa_set_up`.
 
-The Admin is **not** signed in: staff sign in only with an authenticator code, which a developer sets up next.
+The Admin is **not** signed in: they sign in next, with the password and a new code.
 
 Errors:
 
 | Status | Body | When |
 |---|---|---|
-| `400` | `Validation failed` | Missing fields, or a password shorter than 16 characters |
+| `400` | `Validation failed` | Missing fields, a password shorter than 16 characters, or a code that is not 6 digits |
+| `400` | `Validation failed`, with `code`: `Open the link again, and add the key it shows to your authenticator app first.` | The link's key was never shown: call `setup-link` first |
+| `400` | `Validation failed`, with `code`: `That code is not right. Type the code your authenticator app shows now.` | The code doesn't come from the key the link showed, or is too old |
 | `400` | `Invalid or expired invitation link` | Unknown, used or expired link, or an account that is no longer an active Admin. One answer for all cases. |
-| `429` | `code: "RATE_LIMITED"` | Per-IP limit (20 per hour) |
+| `429` | `code: "RATE_LIMITED"` | Per-IP limit (20 per hour, shared with `setup-link` and `reset-authenticator`) |
 | `503` | `code: "SERVER_BUSY"` | Too many password hashes at once; try again after `Retry-After` |
 
 Client tip: on `400 Invalid or expired invitation link`, tell the Admin to ask a Super User for a new invitation.
+
+### POST `/v1/staff/auth/setup-link`
+
+**Public.** Whoever opened an emailed link asks for the key to put into the authenticator app (ADR 0038). Works for both kinds of link: an invitation, and a new start after a reset.
+
+Request:
+```json
+{ "token": "<token from the email>" }
+```
+
+Response `200`, with `Cache-Control: no-store`:
+```json
+{
+  "purpose": "INVITE",
+  "email": "dev.admin1@example.com",
+  "fullName": "Dev Admin One",
+  "key": "JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP",
+  "uri": "otpauth://totp/Herbal%20Commerce:dev.admin1%40example.com?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Herbal%20Commerce&algorithm=SHA1&digits=6&period=30",
+  "expiresAt": "2026-11-23T10:00:00.000Z"
+}
+```
+- `purpose`: `INVITE` or `AUTHENTICATOR_RESET`.
+- `key`: the key in base32 (`A`–`Z`, `2`–`7`), to type in by hand. `uri`: the same key as an address for a QR code.
+- **The key is made the first time the link is opened,** and every later call answers the same key, so a page opened again shows what was already scanned. Of two calls at the same moment, one key wins. Nothing else changes until `accept-invite` or `reset-authenticator` confirms it with a code.
+- Not audited: it changes nothing an Admin can use.
+
+Errors: `400 Validation failed` (a missing token); `400 Invalid or expired invitation link`, or `Invalid or expired link` for a reset link: one answer for every link that doesn't work, as for `accept-invite`; `429` (20 per hour per IP, shared with `accept-invite` and `reset-authenticator`).
+
+### POST `/v1/staff/auth/reset-authenticator`
+
+**Public.** After a Super User reset their authenticator app (`POST /v1/staff/admins/:id/authenticator-reset`), the Admin sets it up again with the emailed link, their own password and a code from the new key (ADR 0038). The link opens the admin console's page (`/reset-authenticator?token=...`). It is valid for **72 hours, once**.
+
+Request:
+```json
+{ "token": "<token from the email>", "password": "the-admin-s-own-password", "code": "123456" }
+```
+Rules: the token is 20 to 200 characters; the password 1 to 128 characters; the code exactly 6 digits, from the key `setup-link` showed.
+
+Response `200`:
+```json
+{ "message": "Your authenticator app is set. Sign in with it." }
+```
+What it also does, in one transaction: the new key is saved, and the code just typed can't be used again to sign in; every session of the Admin ends; any other unused link stops working; `staff.mfa_set_up` is written, with the Admin as the actor.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | Missing fields, or a code that is not 6 digits |
+| `400` | `Validation failed`, with `code`: `Open the link again, and add the key it shows to your authenticator app first.` | The link's key was never shown |
+| `400` | `Invalid or expired link` | Unknown, used or expired link, or an Admin who is no longer active. One answer for all cases. |
+| `401` | `Invalid password or code` | A wrong password or a wrong code. One answer for both, as at the staff login, and it counts against the same failure limits. |
+| `429` | `code: "RATE_LIMITED"` | 20 per hour per IP, or too many failed attempts for this Admin (as at the staff login) |
+| `503` | `code: "SERVER_BUSY"` | Too many password checks at once; try again after `Retry-After` |
 
 ### GET `/v1/staff/me`
 
@@ -1175,6 +1232,7 @@ These endpoints need a **Super User's** staff access token. An Admin's token get
 | `GET /v1/staff/admins` | List every Admin |
 | `POST /v1/staff/admins` | Invite an Admin |
 | `POST /v1/staff/admins/:id/invitation` | Send a pending Admin a new invitation |
+| `POST /v1/staff/admins/:id/authenticator-reset` | Reset a lost authenticator app, and email a link to set it up again |
 | `PATCH /v1/staff/admins/:id` | Disable or enable an Admin |
 | `DELETE /v1/staff/admins/:id` | Remove a disabled or pending Admin |
 
@@ -1203,7 +1261,7 @@ Response `201`:
 - `invitationSent`: `false` if the email could not be sent. The Admin exists anyway: send a new invitation with `POST /v1/staff/admins/:id/invitation`.
 - The answer never contains the token or the link.
 
-Until the invitation is accepted, the Admin cannot sign in. After that, a developer sets up their authenticator app (README, "Invite an Admin").
+Until the invitation is accepted, the Admin cannot sign in. Accepting it sets up their authenticator app too (`accept-invite`, ADR 0038).
 
 Errors:
 
@@ -1231,6 +1289,7 @@ Response `200`:
       "status": "ACTIVE",
       "invitationAcceptedAt": "2026-10-30T11:43:18.000Z",
       "invitationExpiresAt": null,
+      "authenticatorLinkExpiresAt": null,
       "mfaEnabledAt": "2026-10-30T11:47:36.000Z",
       "createdAt": "2026-10-30T11:28:51.000Z"
     }
@@ -1240,7 +1299,8 @@ Response `200`:
 - `status`: `ACTIVE` or `DISABLED`.
 - `invitationAcceptedAt`: when the Admin chose their password, or `null` while the invitation is pending.
 - `invitationExpiresAt`: when the newest unused invitation ends, or `null` if there is none. A time in the past means the link has expired: send a new one.
-- `mfaEnabledAt`: when a developer set up the authenticator app, or `null`. Until then the Admin cannot sign in.
+- `authenticatorLinkExpiresAt`: after a reset, when the newest unused link to set up the app again ends, or `null` if there is none (since part 12G). A time in the past means it has expired: reset again to send a new one.
+- `mfaEnabledAt`: when the authenticator app was set up, or `null`: never yet, or reset since. Until it is set, the Admin cannot sign in.
 
 Errors: `401`, `403` (as above); `429` (the 600 per minute limit).
 
@@ -1260,6 +1320,39 @@ Errors:
 | `409` | `This Admin has already accepted the invitation.` | The Admin already chose a password: there is nothing to invite them to |
 | `409` | `Enable this Admin before inviting them again.` | The Admin is disabled |
 | `429` | `code: "RATE_LIMITED"` | Per-IP limit (20 invitations per hour, first ones and new ones together), or 5 emails per hour to this address. Nothing was changed: the old link still works. |
+
+### POST `/v1/staff/admins/:id/authenticator-reset`
+
+An Admin lost their phone, or someone else may have it (ADR 0038). No request body. In one transaction:
+- their authenticator key is cleared, so the old app's codes stop working at once;
+- every session of the Admin ends;
+- every older unused link stops working, and a new one is made, valid for 72 hours and once;
+- `admin.authenticator_reset` is written, with the link's end.
+
+Then the Admin is emailed the link ("Set up your authenticator app again for Herbal Commerce"), which opens the console's page for `reset-authenticator`. They set the app up again there with their own password.
+
+Response `201`:
+```json
+{
+  "id": "3c9a7e21-5b4d-4f8e-9a16-7d2e0c5b8f41",
+  "email": "dev.admin1@example.com",
+  "fullName": "Dev Admin One",
+  "authenticatorLinkExpiresAt": "2026-11-23T10:00:00.000Z",
+  "emailSent": true
+}
+```
+`emailSent` is `false` if the email could not be sent. The reset stands anyway: reset again to send a new link. The answer never contains the token or the link.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `401`, `403` | as above | |
+| `404` | `Admin not found` | No Admin with this ID |
+| `409` | `Enable this Admin before resetting their authenticator app.` | The Admin is disabled |
+| `409` | `This Admin has not accepted the invitation yet: send the invitation again.` | The Admin never accepted: the invitation sets up the app |
+| `429` | `code: "RATE_LIMITED"` | Per-IP limit (20 per hour, shared with invitations), or 5 emails per hour to this address. Nothing was changed. |
 
 ### PATCH `/v1/staff/admins/:id`
 
@@ -2345,6 +2438,7 @@ Query parameters, all optional:
 | `limit` | Whole number, 1 to 100, default 50 | Refunds per page |
 | `after` | UUID | The `nextAfter` of the previous page: continue just after it |
 | `status` | `REQUESTED`, `PENDING`, `PROCESSED` or `FAILED`, else `Use REQUESTED, PENDING, PROCESSED or FAILED` | Only refunds in this status |
+| `givenBack` | `true` or `false`, else `Use true or false` | `false`: only those not given back by hand. `true`: only those that were (since part 12G) |
 
 Response `200`:
 ```json
@@ -2359,6 +2453,9 @@ Response `200`:
       "status": "PENDING",
       "createdAt": "2026-11-10T17:08:32.294Z",
       "updatedAt": "2026-11-10T17:08:33.010Z",
+      "givenBackAt": null,
+      "givenBackNote": null,
+      "givenBackBy": null,
       "orderId": "4f7c2a9e-3b1d-4e8a-9c6f-2d5b8e1a7c30",
       "orderReference": "7KQ2M9XDPA"
     }
@@ -2374,10 +2471,40 @@ Response `200`:
 | `razorpayRefundId` | Razorpay's refund ID, once Razorpay has taken the refund, else `null` |
 | `orderId` | The order it belongs to: see it with `GET /v1/staff/orders/:id` |
 | `orderReference` | That order's reference, as the customer quotes it (since part 12F) |
+| `givenBackAt`, `givenBackNote`, `givenBackBy` | For a `FAILED` refund a Super User gave back by hand: when, how, and who (`id` and `fullName`). All `null` otherwise (since part 12G) |
 
-`?status=FAILED` lists the refunds to give back by hand. `nextAfter` is `null` on the last page.
+`?status=FAILED&givenBack=false` lists the refunds still to give back by hand. `nextAfter` is `null` on the last page.
 
 Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401`; `403 Only a Super User may do this.` (an Admin); `429` (the 600 per minute limit).
+
+### POST `/v1/staff/refunds/:id/given-back`
+
+A refund Razorpay could not give back (`FAILED`), which a Super User gave back another way: in the Razorpay dashboard, or by a bank transfer (ADR 0038). They say how, once. Needs a **Super User's** staff access token.
+
+Request:
+```json
+{ "note": "Bank transfer, UTR 412345678901, on 20 Nov" }
+```
+Rules: the note is trimmed, and Windows line breaks are made plain. Then 3 to 500 characters, else `Say how the money was given back, in 3 to 500 characters`.
+
+Response `200`: the refund as `GET /v1/staff/refunds` lists it, with `givenBackAt`, `givenBackNote` and `givenBackBy` set. Its `status` stays `FAILED`.
+
+- **Once only, and atomic:** of two Super Users at the same moment, one wins, and the other gets `409`.
+- **The audit log** gets `order.refund_given_back` on the refund's order, with the refund's ID, the amount, the time and the note, so the order's history shows it.
+- **No email:** whoever gave the money back tells the customer.
+- **The database holds the rules too:** the three fields come together, only on a `FAILED` refund, only with a Super User, and never change afterwards.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | A missing note, or one too short or too long |
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `401`, `403` | as for `GET /v1/staff/refunds` | |
+| `404` | `Refund not found` | No refund with this ID |
+| `409` | `Only a refund Razorpay could not give back is given back by hand.` | The refund is not `FAILED` |
+| `409` | `This refund is already marked as given back by hand.` | Someone marked it already |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
 ## Audit log (Super Users only)
 
@@ -2392,6 +2519,7 @@ Query parameters, all optional:
 | `limit` | Whole number, 1 to 100, default 50 | Entries per page |
 | `before` | UUID | The `nextBefore` of the previous page: continue just after it |
 | `action` | Like `thing.verb`, for example `admin.removed` | Only this action |
+| `kind` | `accounts`, `sign_ins`, `orders`, `catalog` or `stock`, else `Use accounts, sign_ins, orders, catalog or stock` | Only one kind of change (since part 12G, ADR 0038): `accounts` is every `admin.` action, `super_user.created` and `staff.mfa_set_up`; `sign_ins` is `staff.signed_in`; `orders` every `order.` action; `catalog` every `category.`, `product.`, `variant.` and `image.` action; `stock` every `batch.` and `stock.` action |
 | `actorId` | UUID | Only what this account did |
 | `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's, a category's, a product's, a pack's, an image's, a batch's or an order's ID |
 
@@ -2413,7 +2541,8 @@ Response `200`:
       "before": { "email": "dev.admin2@example.com", "fullName": "Dev Admin Two", "status": "ACTIVE", "mfaEnabledAt": null, "invitationAcceptedAt": null },
       "after": null,
       "ip": "127.0.0.1",
-      "requestId": "fe5c63ec-..."
+      "requestId": "fe5c63ec-...",
+      "subject": null
     }
   ],
   "nextBefore": "1ebda37e-6c2d-4f41-9a7b-2c0d5e8f4a13"
@@ -2421,10 +2550,11 @@ Response `200`:
 ```
 - `actor`: the account that acted, or `null` for the developer commands or an account that no longer exists. `actorId` stays either way.
 - `target`: the account an entry is about, for user targets only. It is `null` for other targets, such as the session of a `staff.signed_in`, a category, a product, a pack, an image or a batch, and for removed accounts.
+- `subject` (since part 12G): what any other target is called now, `{ "name": …, "parent": { "id": …, "name": … } }`, so a client can say it in words. A category or a product by its name; a pack by its SKU, with its product as `parent`; an image by its description (`name` may be `null`), with its product; a batch by its batch number, with its pack (by SKU); an order by its reference. `null` when the thing no longer exists, or for any other target, such as an account or a session.
 - `before` and `after`: the relevant fields before and after the change, never a password, secret or token.
 - `nextBefore`: send it as `?before=` to get the next, older page. It is `null` on the last page.
 
-Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way, since part 4C `variant.created`, `variant.updated` and `variant.deleted` for pack sizes, since part 4D `image.created`, `image.updated` and `image.deleted` for product images, since part 5 `batch.received`, `batch.updated` and `stock.changed` for stock (with the quantity before and after, the change, the reason and the note), and since part 9 `order.packed`, `order.shipped` (with the courier and tracking number), `order.delivered`, `order.shipment_corrected` (with only the fields that changed) and `order.cancelled` (with the status before, and the refund's ID for a paid order) for orders. A price change is a `variant.updated` with the old and new price. A `product.deleted` entry also keeps the product's packs and images, in `before.variants` and `before.images`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
+Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way, since part 4C `variant.created`, `variant.updated` and `variant.deleted` for pack sizes, since part 4D `image.created`, `image.updated` and `image.deleted` for product images, since part 5 `batch.received`, `batch.updated` and `stock.changed` for stock (with the quantity before and after, the change, the reason and the note), and since part 9 `order.packed`, `order.shipped` (with the courier and tracking number), `order.delivered`, `order.shipment_corrected` (with only the fields that changed) and `order.cancelled` (with the status before, and the refund's ID for a paid order) for orders, and since part 12G `admin.authenticator_reset` (with when the new link ends) and `order.refund_given_back` (on the order, with the refund's ID, the amount, the time and the note). Since part 12G, an Admin who sets up their app from an emailed link writes `staff.mfa_set_up` as the actor. A price change is a `variant.updated` with the old and new price. A `product.deleted` entry also keeps the product's packs and images, in `before.variants` and `before.images`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
 
 Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` and `403` (as for the Admin endpoints); `429` (the 600 per minute limit).
 
@@ -2434,4 +2564,4 @@ Rules for clients:
 
 ## Not yet implemented
 
-Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: search. Of orders: GST invoices, emails about them and their payments, returns and their refunds, recording a `FAILED` refund that staff gave back by hand, and a courier integration. Of stock: a list of batches near their expiry. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0028 and `docs/security.md`.
+Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: search. Of orders: GST invoices, emails about them and their payments, returns and their refunds, and a courier integration. Of stock: a list of batches near their expiry. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0028 and `docs/security.md`.

@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries, write stock off and put it right after counting a shelf, every change is kept as a movement, and a batch sells only with at least 6 months left. Each pack size has its own low-stock number, 10 packs unless staff change it. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. The admin console has begun (part 12A): staff sign in with the password and the authenticator code, stay signed in through a cookie the page cannot read, see the menu for their role, and are signed out after 30 minutes without activity. Since part 12B, staff run the categories and products there: they find products by name, filter them, drag them into the order customers see, edit each product on its own page with the same checks as the API, and Super Users delete them after a dialog that says what is lost. Since part 12C, each product's page has its pack sizes and images too: staff add and change pack sizes in a dialog, put them and the images in order by dragging, and upload several photos at once, each with its progress, so a product now goes live from the console. Since part 12D, the Stock page lists every pack size with its stock, filtered to those out of stock, low or with a batch that stops selling within 30 days, and each pack size has its own page: its batches, receiving a delivery, correcting a label, writing packs off, counting a shelf, and each batch's history. A count that went stale while staff typed it is never saved. Each product's page shows its pack sizes' stock too. Since part 12E, the console has its own look: frosted glass on the menu, the save bar and behind dialogs, and soft raised cards, buttons and chips, as readable as before in light and dark. Since part 13, a design system (`packages/design`) holds what the console and the coming website share, the console's look, and the shop's own look, with a preview page for the owner. Since part 12F, staff handle orders in the console: the paid orders to pack first, the oldest first, each step by its chip, an order found by the reference the customer quotes, each order's page with its next step, a packing slip to print, several orders packed at once, and the number to pack beside Orders in the menu. Super Users cancel orders there and see the refunds, the failed ones first. Admins and the audit log come next. There is no customer app or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries, write stock off and put it right after counting a shelf, every change is kept as a movement, and a batch sells only with at least 6 months left. Each pack size has its own low-stock number, 10 packs unless staff change it. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. The admin console has begun (part 12A): staff sign in with the password and the authenticator code, stay signed in through a cookie the page cannot read, see the menu for their role, and are signed out after 30 minutes without activity. Since part 12B, staff run the categories and products there: they find products by name, filter them, drag them into the order customers see, edit each product on its own page with the same checks as the API, and Super Users delete them after a dialog that says what is lost. Since part 12C, each product's page has its pack sizes and images too: staff add and change pack sizes in a dialog, put them and the images in order by dragging, and upload several photos at once, each with its progress, so a product now goes live from the console. Since part 12D, the Stock page lists every pack size with its stock, filtered to those out of stock, low or with a batch that stops selling within 30 days, and each pack size has its own page: its batches, receiving a delivery, correcting a label, writing packs off, counting a shelf, and each batch's history. A count that went stale while staff typed it is never saved. Each product's page shows its pack sizes' stock too. Since part 12E, the console has its own look: frosted glass on the menu, the save bar and behind dialogs, and soft raised cards, buttons and chips, as readable as before in light and dark. Since part 13, a design system (`packages/design`) holds what the console and the coming website share, the console's look, and the shop's own look, with a preview page for the owner. Since part 12F, staff handle orders in the console: the paid orders to pack first, the oldest first, each step by its chip, an order found by the reference the customer quotes, each order's page with its next step, a packing slip to print, several orders packed at once, and the number to pack beside Orders in the menu. Super Users cancel orders there and see the refunds, the failed ones first. Since part 12G, Super Users run the Admins in the console: they invite them, send an invitation again, reset an Admin's lost authenticator app, disable, enable and remove them. An invited Admin chooses a password and sets up the authenticator app on the console's page for the emailed link, from a QR code. Super Users read the audit log there in sentences, filtered by kind of change and by person, with what changed on request, and mark a refund Razorpay couldn't give back as given back by hand, with a note. There is no customer app or website yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -170,7 +170,7 @@ Remove-Item Env:SUPER_USER_EMAIL, Env:SUPER_USER_NAME, Env:SUPER_USER_PASSWORD
 
 ## Set up staff MFA
 
-Every staff member needs an authenticator app (Google Authenticator, Microsoft Authenticator or similar) before they can sign in. Only a developer can set it up (ADR 0013).
+Every staff member needs an authenticator app (Google Authenticator, Microsoft Authenticator or similar) before they can sign in. A Super User's is set up by a developer, with this command (ADR 0013). An Admin sets up theirs in the admin console, from the invitation link, and after a lost phone from a new link a Super User sends (see "Invite an Admin" and "Manage Admins in the console", ADR 0038). The command still works for an Admin, as a way out.
 
 Stop `pnpm api:dev` first, then in the repository root:
 
@@ -184,7 +184,7 @@ pnpm api:setup-staff-mfa
 3. Type the 6-digit code the app shows into the waiting command. Only a valid code saves the key. Saving also ends that person's sessions and is written to the audit log.
 4. Then run `Clear-Host` and `Remove-Item Env:STAFF_EMAIL`.
 
-- Running it again gives a new key, and the old one stops working. That's how a lost phone is handled for now. **Only the newest key works:** delete every older entry for that account from the app, or its codes will be refused.
+- Running it again gives a new key, and the old one stops working: that's how a Super User's lost phone is handled. For an Admin, a Super User resets the app in the console instead. **Only the newest key works:** delete every older entry for that account from the app, or its codes will be refused.
 - **Each staff account has its own entry.** Keep the entries of other accounts: a deleted entry cannot be brought back, only replaced by running the setup again for that account.
 - The key only contains the letters `A`–`Z` and the digits `2`–`7`. A round character is the letter **O**, and a straight one the letter **I**.
 - Never paste the key into chats or tickets.
@@ -210,7 +210,7 @@ Remove-Variable secure, code, body, login
 
 ## Open the admin console
 
-The admin console is a web app for staff (ADR 0031). Since part 12B its Catalog area has the categories and products (ADR 0032), since part 12C each product's pack sizes and images (ADR 0033), since part 12D its Stock area (ADR 0034), since part 12E its look, glass and clay (ADR 0035), and since part 12F its Orders area (ADR 0037): see "Manage the catalog in the console", "Manage pack sizes and images in the console", "Manage stock in the console" and "Handle orders in the console" below. Admins and the audit log come in the next parts.
+The admin console is a web app for staff (ADR 0031). Since part 12B its Catalog area has the categories and products (ADR 0032), since part 12C each product's pack sizes and images (ADR 0033), since part 12D its Stock area (ADR 0034), since part 12E its look, glass and clay (ADR 0035), since part 12F its Orders area (ADR 0037), and since part 12G its Admins and Audit log, for Super Users (ADR 0038): see "Manage the catalog in the console", "Manage pack sizes and images in the console", "Manage stock in the console", "Handle orders in the console", "Manage Admins in the console" and "Read the audit log in the console" below.
 
 1. Start the API (`pnpm api:dev`), then, in a second terminal:
    ```powershell
@@ -222,7 +222,7 @@ The admin console is a web app for staff (ADR 0031). Since part 12B its Catalog 
 - **Reloading keeps you signed in,** for up to 12 hours: the refresh token is in a cookie the page cannot read, and the access token only in the page's memory.
 - **After 30 minutes without activity,** in any tab of the console, you are signed out. A panel warns you a minute before.
 - **Signing out in one tab signs out the others.**
-- **Admins don't see Admins, the audit log, payments or refunds.** The areas marked "Soon" arrive in the next parts.
+- **Admins don't see Admins, the audit log, payments or refunds.**
 - **The dev server runs without the page's security policy,** because live reload needs inline scripts. To see the console as it will be served, with its policy and headers, stop `admin:dev` and run `pnpm admin:build` then `pnpm admin:preview`. The browser's console (F12) should show no `Refused to …` messages.
 
 ### Manage the catalog in the console
@@ -306,9 +306,43 @@ Open **Orders** in the menu (ADR 0037). Beside it, a number says how many paid o
   - an order someone else packed or cancelled meanwhile is skipped, with the reason, and the rest are still packed;
   - if the server can't be reached, it stops there. Those not packed stay ticked: try again when the connection is back.
 - **Refunds,** for Super Users: the second tab at the top of Orders.
-  - **Failed refunds come first,** in a red card: Razorpay couldn't give the money back. Give it back by hand in the Razorpay dashboard, from the payment named on it, and let the customer know. The card keeps them, as nothing marks one as given back yet;
+  - **Failed refunds come first,** in a red card: Razorpay couldn't give the money back. Give it back by hand in the Razorpay dashboard, from the payment named on it, and let the customer know;
+  - **then mark it as given back:** "Mark as given back by hand" on it, or on its order's Payment card, asks how, such as the new Razorpay refund ID or a bank transfer's UTR, and the day. It leaves the red card at once, and shows "Given back by hand", who, when and how, on every refund list and on its order. It can't be undone, and the customer gets no email from the shop;
   - **then every refund, the newest first,** with its amount, status, reason and Razorpay's IDs, which you can select and copy;
   - "Order 7KQ2M9XDPA" opens its order, and "Refunds" on that page brings you back.
+- **History,** for Super Users, at the top of an order's page: the audit log of that order only.
+
+### Manage Admins in the console
+
+Open **Admins** in the menu, as a Super User (ADR 0038). Admins don't have it.
+
+- **Each Admin** shows a tag and a sentence saying where they stand, and the steps for it:
+
+  | Tag | What it means | The steps |
+  |---|---|---|
+  | Active | Signs in with their password and app | Reset authenticator app, Disable |
+  | No authenticator app | Their app was reset, and their link is on its way | Send a new link, Disable |
+  | Invited | Their invitation link still works | Send the invitation again, Remove |
+  | Invitation ended | Their link ran out unused | Send the invitation again, Remove |
+  | Disabled | Can't sign in | Enable, Remove |
+
+- **Invite an Admin:** the name and the email. See "Invite an Admin" for what the Admin does next.
+- **Each step asks first,** saying what follows. Only a new link works after "Send the invitation again" or "Send a new link".
+- **Reset authenticator app,** only when an Admin lost their phone, or someone else may have it: the app on it stops working at once, the Admin is signed out everywhere, and a link to set it up again goes to their email. They set it up with their own password: see "Set up an Admin's app again" below.
+- **An email that couldn't be sent** stays on the page: send it again from the row.
+- **What they did** opens the audit log for that Admin.
+
+**Set up an Admin's app again,** after a reset: the Admin opens the link from the email ("Set up your authenticator app again for Herbal Commerce"), types their own password, deletes the old Herbal Commerce entry from the app, scans the new QR code, and types the code. Then they sign in as before.
+
+### Read the audit log in the console
+
+Open **Audit log** in the menu, as a Super User (ADR 0038).
+
+- **Each entry is a sentence,** such as "Asha Verma packed order 7KQ2M9XDPA", under its day in India, the newest first. What it is about links to its page.
+- **"What changed"** opens each field, before and after. "Details" opens where it came from, when nothing else changed: the IP and the request ID.
+- **Show:** Everything, Admins and accounts, Sign-ins, Orders and refunds, Catalog or Stock. **Done by:** everyone, you, or one Admin. Both stay in the page's address, to share or come back to.
+- **"Show older entries"** reads the next page.
+- **From elsewhere:** "What they did" on an Admin's row, and "History" on an order's page, open the log for that Admin or that order. "Show everything" clears it.
 
 ## See the shop's look
 
@@ -329,8 +363,18 @@ The design system (ADR 0036) holds what the console and the coming website share
 
 ## Invite an Admin
 
-Only a Super User can invite an Admin (ADR 0015). The Admin then chooses their own password with the link from the email, and a developer sets up their MFA. The admin console has no page for the link yet (ADR 0031), so the link is not clicked: the token is read from Mailpit instead.
+Only a Super User can invite an Admin (ADR 0015). The Admin chooses their own password and sets up their authenticator app with the link from the email, on the admin console's page (ADR 0038).
 
+**In the console:**
+1. **Sign in as a Super User** at http://localhost:5173, open **Admins** and choose **Invite an Admin**. Type the name and the email (in development, a made-up `example.com` address), then **Send the invitation**. The row says "Invited", and until when the link works.
+2. **Open the email** "You are invited to Herbal Commerce as an Admin". In development, it is in Mailpit (http://localhost:8025). Open its link in a **private window**, so the Super User stays signed in in the other one.
+3. **The Admin's page** takes the token out of the address bar at once. Then:
+   1. **Choose a password,** at least 16 characters, different from every other account's, and type it twice;
+   2. **In the authenticator app,** add an account and scan the QR code. A phone that can't scan: "Enter a setup key", type the key shown, and choose **Time based**;
+   3. **Type the code** the app shows, and choose **Join Herbal Commerce**.
+4. **Go to sign in,** and sign in with the Admin's email, password and a new code.
+
+**With the API, by hand,** as the console does it:
 1. **Sign in as a Super User**, as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`: `$login` is needed in the next step.
 2. **Send the invitation, then sign the Super User out:**
    ```powershell
@@ -349,35 +393,42 @@ Only a Super User can invite an Admin (ADR 0015). The Admin then chooses their o
    $inviteToken.Length
    ```
    It should say `43`.
-4. **Choose the Admin's password** (at least 16 characters, different from every other account's). Save it where you keep your dev passwords first. You type it twice, because nothing on screen shows a typo:
+4. **Ask for the key, and add it to the app** with "Enter a setup key", as a **new** entry, **Time based**:
+   ```powershell
+   $link = Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/setup-link -ContentType 'application/json' -Body (@{ token = $inviteToken } | ConvertTo-Json)
+   $link.key -replace '(.{4})(?=.)', '$1 '
+   ```
+5. **Choose the Admin's password and confirm the app** (at least 16 characters, different from every other account's). Save the password where you keep your dev passwords first. Type the code last, just after the app shows a new one:
    ```powershell
    $first = Read-Host 'New password for the Admin (16+ characters)' -AsSecureString
    $second = Read-Host 'The same password again' -AsSecureString
+   $code = Read-Host 'The code your authenticator app shows now'
    $password = [System.Net.NetworkCredential]::new('', $first).Password
    if ($password -ceq [System.Net.NetworkCredential]::new('', $second).Password) {
-     $accept = @{ token = $inviteToken; password = $password } | ConvertTo-Json
+     $accept = @{ token = $inviteToken; password = $password; code = $code } | ConvertTo-Json
      Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/accept-invite -ContentType 'application/json' -Body $accept
    } else { 'The two passwords differ. Nothing was sent: run these lines again.' }
-   Remove-Variable first, second, password, accept, inviteToken, query, found, message -ErrorAction SilentlyContinue
+   Clear-Host
+   Remove-Variable first, second, code, password, accept, inviteToken, link, query, found, message -ErrorAction SilentlyContinue
    ```
-   The answer says the password has been set. `-ceq` compares case-sensitively; PowerShell's `-eq` ignores case.
-5. **Set up the Admin's MFA** as in "Set up staff MFA", with `$env:STAFF_EMAIL = 'dev.admin1@example.com'`. Add it as a **new** entry in the app, next to the Super User's.
-6. **Sign in as the Admin**, as in "Sign in as staff", with the Admin's email, password and app entry.
+   The answer says the password and the app are set. `-ceq` compares case-sensitively; PowerShell's `-eq` ignores case. `Clear-Host` takes the key off the screen.
+6. **Sign in as the Admin**, as in "Sign in as staff", with the Admin's email, password and a new code.
 
-- The link works for 72 hours, once. To send a new one, see "Manage Admins".
+- The link works for 72 hours, once. To send a new one, choose "Send the invitation again" on the Admin's row.
+- Opening the link again shows the same key, until the code confirms it. The first page opened makes it.
 - An Admin who calls a Super-User-only route, such as `POST /v1/staff/admins`, gets `403 Only a Super User may do this.`
-- Each step is in the audit log: `admin.invited` (by the Super User), `admin.invite_accepted` (by the Admin) and `staff.mfa_set_up`.
+- Each step is in the audit log: `admin.invited` (by the Super User), then `admin.invite_accepted` and `staff.mfa_set_up` (both by the Admin).
 
 ## Manage Admins
 
-Only a Super User can list, disable, enable and remove Admins, or send an invitation again (ADR 0016).
+Only a Super User can list, disable, enable and remove Admins, send an invitation again, or reset an Admin's lost authenticator app (ADR 0016, ADR 0038). The Admins page in the console does all of it (see "Manage Admins in the console"). By hand with the API:
 
 1. **Sign in as a Super User**, as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`: `$login` is needed here.
 2. **List the Admins and pick one:**
    ```powershell
    $auth = @{ Authorization = "Bearer $($login.accessToken)" }
    $admins = (Invoke-RestMethod -Uri http://localhost:3000/v1/staff/admins -Headers $auth).admins
-   $admins | Format-Table email, status, invitationAcceptedAt, invitationExpiresAt, mfaEnabledAt
+   $admins | Format-Table email, status, invitationAcceptedAt, invitationExpiresAt, mfaEnabledAt, authenticatorLinkExpiresAt
    $id = ($admins | Where-Object email -eq 'dev.admin1@example.com').id
    "[$id]"
    ```
@@ -388,6 +439,8 @@ Only a Super User can list, disable, enable and remove Admins, or send an invita
    Invoke-RestMethod -Method Patch -Uri "http://localhost:3000/v1/staff/admins/$id" -Headers $auth -ContentType 'application/json' -Body '{"status":"DISABLED"}'
    # Send a pending Admin a new invitation: every older link stops working.
    Invoke-RestMethod -Method Post -Uri "http://localhost:3000/v1/staff/admins/$id/invitation" -Headers $auth
+   # Reset a lost authenticator app: its codes stop at once, every session ends, and a link to set it up again is emailed.
+   Invoke-RestMethod -Method Post -Uri "http://localhost:3000/v1/staff/admins/$id/authenticator-reset" -Headers $auth
    # Remove a disabled or pending Admin.
    Invoke-RestMethod -Method Delete -Uri "http://localhost:3000/v1/staff/admins/$id" -Headers $auth
    ```
@@ -401,11 +454,12 @@ Only a Super User can list, disable, enable and remove Admins, or send an invita
 - Enabling a disabled Admin does not bring their old sessions back: they sign in again, with a new code.
 - After a new invitation, only the newest link works. An older one fails like a made-up link (`unknown_token` in the log).
 - The Super User's access token lasts 15 minutes. After that, sign in again (step 1).
-- Every change is in the audit log: `admin.disabled`, `admin.enabled`, `admin.invitation_resent` and `admin.removed` (with who was removed).
+- After a reset, the Admin sets the app up again from the new link's page, with their own password. Only an active Admin who accepted the invitation can be reset (`409` otherwise).
+- Every change is in the audit log: `admin.disabled`, `admin.enabled`, `admin.invitation_resent`, `admin.authenticator_reset` and `admin.removed` (with who was removed).
 
 ## Read the audit log
 
-Only a Super User can read the audit log (ADR 0017). It holds every staff change and every successful staff sign-in, newest first.
+Only a Super User can read the audit log (ADR 0017). It holds every staff change and every successful staff sign-in, newest first. The console's Audit log page tells it in sentences (see "Read the audit log in the console"). By hand with the API:
 
 1. **Sign in as a Super User**, as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`: `$login` is needed here.
 2. **Read the newest page:**
@@ -421,6 +475,7 @@ Only a Super User can read the audit log (ADR 0017). It holds every staff change
    ```
 4. **Filter,** and combine filters as you like:
    - `?action=admin.removed`: one kind of entry;
+   - `?kind=orders`: one kind of change: `accounts`, `sign_ins`, `orders`, `catalog` or `stock`;
    - `?actorId=<an account's ID>`: what that person did;
    - `?targetId=<an Admin's ID>`: that Admin's whole story, from invitation to removal;
    - `?targetId=<a category's ID>`, `?targetId=<a product's ID>`, `?targetId=<a pack's ID>`, `?targetId=<an image's ID>` or `?targetId=<a batch's ID>`: that category's, product's, pack's, image's or batch's story, from creation to deletion. A pack's story is its price history, and a batch's its stock history. `?targetId=<an order's ID>` shows the steps staff took with that order.
@@ -965,13 +1020,21 @@ The shop needs a paid order: see "Pay for an order".
    ```powershell
    (Invoke-RestMethod -Uri "$api/staff/refunds" -Headers $auth).refunds | Format-Table createdAt, amountRupees, reason, status, orderReference
    ```
+   Once you gave a failed one back by hand, mark it so, saying how. Only those not marked yet are listed (`givenBack=false`):
+   ```powershell
+   $failed = (Invoke-RestMethod -Uri "$api/staff/refunds?status=FAILED&givenBack=false" -Headers $auth).refunds
+   $failed | Format-Table id, amountRupees, orderReference
+   $note = @{ note = 'Bank transfer, UTR 412345678901, on 20 Nov' } | ConvertTo-Json
+   Invoke-RestMethod -Method Post -Uri "$api/staff/refunds/$($failed[0].id)/given-back" -Headers $auth -ContentType 'application/json; charset=utf-8' -Body $note
+   ```
+   It stays `FAILED`, with `givenBackAt`, `givenBackNote` and `givenBackBy` set. The customer gets no email.
 9. **Read the order's story** in the audit log, as a Super User:
    ```powershell
    (Invoke-RestMethod -Uri "$api/staff/audit-log?targetId=$orderId" -Headers $auth).entries | Format-Table createdAt, action, @{ n = 'actor'; e = { $_.actor.email } }
    ```
 10. **Clean up:**
     ```powershell
-    Remove-Variable login, auth, page, orderId, order, body, cancelled -ErrorAction SilentlyContinue
+    Remove-Variable login, auth, page, orderId, order, body, cancelled, failed, note -ErrorAction SilentlyContinue
     ```
 
 - **Each step follows the one before:** a paid order is packed, a packed one shipped, and a shipped one delivered. A step done already answers `409` and changes nothing, so a double click does no harm.
@@ -979,7 +1042,7 @@ The shop needs a paid order: see "Pay for an order".
 - **A customer cancels their own order the same way,** until it ships (`POST /v1/me/orders/:id/cancel`). Its refund's reason is then `CANCELLED_BY_CUSTOMER`.
 - **Each refund costs Razorpay's fee,** about 2.36% of the order (ADR 0027). The owner accepted that for orders cancelled before they ship.
 - **The customer sees each step** on their order: `packedAt`, `shippedAt`, `courierName`, `trackingNumber` and `deliveredAt`.
-- **The audit log keeps every step:** `order.packed`, `order.shipped` (with the courier and tracking number), `order.shipment_corrected` (only what changed), `order.delivered` and `order.cancelled` (with the refund's ID).
+- **The audit log keeps every step:** `order.packed`, `order.shipped` (with the courier and tracking number), `order.shipment_corrected` (only what changed), `order.delivered`, `order.cancelled` (with the refund's ID) and `order.refund_given_back` (with the note).
 - **The customer is emailed** at each step, when the courier or tracking number is corrected, and when the order is cancelled (see "Order emails").
 - **The API's log** says `Order moved to its next step`, `Order shipment corrected` and `Order cancelled by staff`, with the order's and the staff member's IDs.
 
@@ -1025,7 +1088,10 @@ Each email is saved with the change it tells of, and sent within a second of it.
 │   │       ├── auth/           signing in, the session and its tabs, the role guards, the idle sign-out
 │   │       ├── catalog/        the catalog pages: categories, products with their pack sizes and images, and ordering by drag and drop (ADR 0032, ADR 0033)
 │   │       ├── stock/          the Stock page, each pack size's batches, and their dialogs: receive, change, correct, count (ADR 0034)
-│   │       ├── orders/         the Orders page, each order's page and its dialogs, the packing slip, packing several, and the Refunds tab (ADR 0037)
+│   │       ├── orders/         the Orders page, each order's page and its dialogs, the packing slip, packing several, the Refunds tab, and giving a refund back by hand (ADR 0037, ADR 0038)
+│   │       ├── admins/         the Admins page and its dialogs (ADR 0038)
+│   │       ├── audit/          the audit log page: entries in sentences, what changed, the filters (ADR 0038)
+│   │       ├── setup/          the pages of the emailed links: a password, the QR code and the key, and the code (ADR 0038)
 │   │       ├── components/, layout/, pages/   the screens, the menu and the pages
 │   │       ├── security-headers.ts   the page's Content Security Policy and security headers
 │   │       ├── motion.ts       the console's motion: durations and movements, from the design system
@@ -1114,7 +1180,7 @@ Each email is saved with the change it tells of, and sent within a second of it.
 - **A step says "This order is packed already." (or shipped, or delivered):** someone else took it a step meanwhile, perhaps in another tab. The page now shows the order as it is.
 - **Packing several stopped with "Not sent":** the server couldn't be reached, or the session ended, so the rest were kept back. They are still ticked: check the connection, then click "Mark N packed" again.
 - **The printed packing slip has the page's address and the date at its edges:** turn off "Headers and footers" in the print dialog, under "More settings".
-- **A failed refund stays in the red card after you gave the money back by hand:** that is expected for now. Nothing marks a refund as given back yet, so note it with the order.
+- **"Mark as given back by hand" says "This refund is already marked as given back by hand.":** another Super User marked it meanwhile. The lists have been read again: close the dialog. Its note is on the refund.
 - **An image row says "The server had a problem. Try again in a moment.":** the API may be busy checking other photos (2 at once, and 10 waiting). Click "Try again" after a few seconds. If it fails again, look at the API's log.
 - **The admin console signed you out unexpectedly:** after 30 minutes without activity it does so on purpose, and says so. Otherwise the session's 12 hours ran out, or you signed out in another tab.
 - **The API refuses to start: `MFA_ENCRYPTION_KEY: ...`:** add your own value to `.env` (see First-time setup, step 1). It must differ from `JWT_ACCESS_SECRET`.
@@ -1126,34 +1192,38 @@ Each email is saved with the change it tells of, and sent within a second of it.
 - **`pnpm api:pay-test` says port 4400 is in use:** another payment test is still open. Stop it with Ctrl+C.
 - **After paying, the order still waits for payment:** Razorpay hasn't captured the payment. Check in the dashboard that payments are captured automatically, Razorpay's default.
 - **The authenticator app says "illegal character":** a `0`, `1`, `8` or `9` was typed. The key only has `A`–`Z` and `2`–`7`, so type the letters O, I or B instead.
-- **The setup command refuses every code:** the key in the app differs from the one shown (often `0` for O), or the entry is not **Time based**, or the phone's clock is off. Set the phone's time automatically, delete the app entry and run the command again.
+- **The setup command, or a setup link's page, refuses every code:** the key in the app differs from the one shown (often `0` for O), or the entry is not **Time based**, or the phone's clock is off. Set the phone's time automatically, delete the app entry and run the command again.
 - **A product isn't found by the search:** check that it is live, in an active category (see "Manage products"). A word only in its ingredients, usage or maker isn't searched. A spelling that shares too little with the name, such as "tulasi" for "Tulsi", isn't found either.
 - **The search answers `400 Validation failed`:** the `errors` list names the parameter. Words need 2 to 100 characters, `sort=relevance` needs words, and the lowest price can't be above the highest.
 - **`429 Too Many Requests` while testing by hand:** you used up a rate limit (the `Retry-After` header says for how long). Wait, or run `pnpm api:limits:clear`.
 - **The staff login answers `401`:** find `Staff sign-in failed` in the API log. Its `reason` says why, without the email, password or code:
-  - `wrong_code` (the password was right): usually the app shows codes from an **older** key. After a second setup, only the newest key works. Delete the old entries from the app, or run `pnpm api:setup-staff-mfa` again if you're unsure which one is right. Also check that the code comes from the entry with **this** account's email.
+  - `wrong_code` (the password was right): usually the app shows codes from an **older** key. After a second setup, only the newest key works. Delete the old entries from the app. If you're unsure which one is right: for a Super User, run `pnpm api:setup-staff-mfa` again; for an Admin, a Super User resets the app on the Admins page. Also check that the code comes from the entry with **this** account's email.
   - `wrong_password`: not the password chosen when the account was created (for an Admin: when the invitation was accepted). Each staff account has its own password: check that it isn't another account's.
-  - `mfa_not_set_up`: run `pnpm api:setup-staff-mfa` first.
+  - `mfa_not_set_up`: a Super User runs `pnpm api:setup-staff-mfa` first. An Admin sets the app up from their invitation link, or after a reset from the new link ("No authenticator app" on the Admins page).
 
   After 5 failures in an hour, the login answers `429` for 15 minutes, even with the right password. So find the reason before trying again.
-- **A staff member's entry was deleted from the authenticator app:** it cannot be brought back. Run `pnpm api:setup-staff-mfa` again for that account and add the new entry.
+- **A staff member's entry was deleted from the authenticator app:** it cannot be brought back. For an Admin, a Super User resets the app on the Admins page, and the Admin sets it up again from the emailed link. For a Super User, run `pnpm api:setup-staff-mfa` again and add the new entry.
 - **Inviting an Admin answers `409`:** the email already has an account, maybe a customer's. Customers are never turned into staff, so use another address.
 - **An Admin route answers `403 Only a Super User may do this.`:** you are signed in as an Admin. Sign in as a Super User.
-- **`accept-invite` answers `400 Invalid or expired invitation link`:** find `Admin invitation refused` in the API log. Its `reason` says why:
-  - `unknown_token`: the token was copied incompletely;
-  - `already_used`: the password was already set with this link;
+- **A setup link's page says "This link no longer works",** or `accept-invite`, `setup-link` or `reset-authenticator` answers `400 Invalid or expired invitation link` (`Invalid or expired link` for a reset): find `Staff link refused` in the API log. Its `reason` says why:
+  - `unknown_token`: the token was copied incompletely, or a newer email replaced the link;
+  - `wrong_purpose`: an invitation's link used to set an app up again, or the other way round;
+  - `already_used`: the link was used already;
   - `expired`: the 72 hours have passed;
-  - `not_allowed`: the account is not an active Admin;
-  - `lost_race`: the same link was sent twice at the same moment, and the other request set the password.
+  - `not_allowed`: the account is not an active Admin, or, for a reset, never accepted the invitation;
+  - `lost_race`: the same link was sent twice at the same moment, and the other request used it.
 
-  A Super User can send the Admin a new link, or remove a pending Admin (see "Manage Admins").
+  A Super User sends a new link from the Admin's row: "Send the invitation again", or "Send a new link" after a reset. A pending Admin can also be removed.
+- **A setup link's page says "This link is not complete":** the link was cut short when it was copied. Open it from the email again, or copy all of it. Nothing was sent to the API.
+- **Setting up the app again says "The password or the code is not right.":** the Admin's own password, the one they sign in with, or a code from the **new** entry. It never says which was wrong. It counts as a failed sign-in, so after 5 failures in an hour it answers `429` for 15 minutes.
+- **Resetting an Admin's app answers `409`:** `Enable this Admin before resetting their authenticator app.` (the Admin is disabled), or `This Admin has not accepted the invitation yet: send the invitation again.` (the invitation sets up the app).
 - **Removing an Admin answers `409 Disable this Admin before removing them.`:** the Admin is active and has accepted the invitation. Disable them first, then remove them.
 - **Inviting an Admin again answers `409`:** either `This Admin has already accepted the invitation.` (there is nothing to invite them to), or `Enable this Admin before inviting them again.`
 - **An Admin route answers `404`:** read the body.
   - `Admin not found`: the API looked, and there is no Admin with this ID. A Super User's ID gets the same answer.
   - `Cannot DELETE /v1/staff/admins/` (or `PATCH`, or `POST`): the URL had no ID, so no route matched. Usually the PowerShell variable was empty. Print it in brackets first, for example `"[$id]"`.
 - **An Admin route answers `400 Validation failed (uuid is expected)`:** the ID in the URL is not a UUID.
-- **The audit log answers `400 Validation failed`:** the `errors` list names the parameter. `limit` must be 1 to 100, `before` must be a `nextBefore` value from an earlier page, `actorId` must be a UUID, and `action` looks like `admin.removed`.
+- **The audit log answers `400 Validation failed`:** the `errors` list names the parameter. `limit` must be 1 to 100, `before` must be a `nextBefore` value from an earlier page, `actorId` must be a UUID, `action` looks like `admin.removed`, and `kind` is `accounts`, `sign_ins`, `orders`, `catalog` or `stock`.
 - **A sign-in is missing from the audit log:** only successful staff sign-ins are recorded. A failed one is in the API log, as `Staff sign-in failed` with its reason.
 - **A pasted password is refused:** count the `*` that `Read-Host` showed, one per character. A much longer count than the password means something extra was pasted with it.
 - **Changing the password answers `400 The current password is wrong.`:** it counts as a failed login. The 6th wrong password in an hour answers `429`, and then both the change and the login refuse for 15 minutes.
