@@ -1,0 +1,42 @@
+// What a page tells search engines and link previews (WhatsApp, and
+// others): its title and description, its own address, and a picture.
+// Addresses are whole, from the website's own (WEB_ORIGIN), as previews
+// need. Only the page's real words and pictures, never made-up facts.
+import type { MetaDescriptor } from 'react-router';
+import { text } from './text/en.ts';
+
+export function pageMeta({
+  title,
+  description,
+  origin,
+  path,
+  image,
+}: {
+  title: string;
+  description: string;
+  origin: string;
+  path: string;
+  image?: { src: string; alt: string; width: number; height: number };
+}): MetaDescriptor[] {
+  const url = new URL(path, origin).href;
+  return [
+    { title },
+    { name: 'description', content: description },
+    { tagName: 'link', rel: 'canonical', href: url },
+    { property: 'og:type', content: 'website' },
+    { property: 'og:site_name', content: text.shop.name },
+    { property: 'og:locale', content: 'en_IN' },
+    { property: 'og:title', content: title },
+    { property: 'og:description', content: description },
+    { property: 'og:url', content: url },
+    ...(image
+      ? [
+          { property: 'og:image', content: new URL(image.src, origin).href },
+          { property: 'og:image:width', content: String(image.width) },
+          { property: 'og:image:height', content: String(image.height) },
+          { property: 'og:image:alt', content: image.alt },
+          { name: 'twitter:card', content: 'summary_large_image' },
+        ]
+      : [{ name: 'twitter:card', content: 'summary' }]),
+  ];
+}

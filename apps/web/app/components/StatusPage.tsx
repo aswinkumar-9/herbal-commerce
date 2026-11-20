@@ -12,14 +12,13 @@ export function StatusPage({
   action: ReactNode;
 }) {
   return (
-    <section className="mx-auto flex max-w-2xl flex-col items-start gap-6 px-6 pt-40 pb-24">
-      <h1 className="heading-3 text-ink">{heading}</h1>
-      <p className="body-3 text-ink-muted">{body}</p>
-      {action}
+    <section className="mx-auto w-full max-w-2xl px-6 py-24">
+      {/* Clear of the floating menu bar. */}
+      <div className="mt-16 flex flex-col items-start gap-6">
+        <h1 className="heading-3 text-ink">{heading}</h1>
+        <p className="body-3 text-ink-muted">{body}</p>
+        {action}
+      </div>
     </section>
   );
 }
-
-// The page's one button, as a link: a pill, like every main button.
-export const PILL =
-  'button-md inline-flex items-center rounded-full bg-primary px-6 py-3 text-on-primary transition-colors hover:bg-primary-strong';

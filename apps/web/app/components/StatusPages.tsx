@@ -1,7 +1,8 @@
 import { Link, useLocation } from 'react-router';
 import { text } from '../text/en.ts';
 import { pageTitle } from '../page-title.ts';
-import { PILL, StatusPage } from './StatusPage.tsx';
+import { GOLD_PILL } from './pills.ts';
+import { StatusPage } from './StatusPage.tsx';
 
 export function NotFoundPage() {
   return (
@@ -11,7 +12,7 @@ export function NotFoundPage() {
         heading={text.notFound.heading}
         body={text.notFound.body}
         action={
-          <Link to="/" className={PILL}>
+          <Link to="/" className={GOLD_PILL}>
             {text.notFound.home}
           </Link>
         }
@@ -51,7 +52,7 @@ export function FailedPage() {
 function Again({ label }: { label: string }) {
   const { pathname, search } = useLocation();
   return (
-    <a href={`${pathname}${search}`} className={PILL}>
+    <a href={`${pathname}${search}`} className={GOLD_PILL}>
       {label}
     </a>
   );

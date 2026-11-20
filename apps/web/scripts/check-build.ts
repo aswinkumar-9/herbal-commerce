@@ -1,19 +1,43 @@
 // Checks the built website before it can be served (part of `pnpm
 // web:build`, ADR 0039). It starts the built website on a spare port, with
-// the API out of reach on purpose, and reads two pages as a browser would:
-// "not found" (404) and the home page, which then says the shop is taking
-// a break (503). Each must carry its own policy with a fresh nonce, every
-// inline script that nonce, and no inline style at all. No source map may
-// be published, and no font or picture may hide in a data: address.
+// a stand-in for the API, and reads its pages as a browser would: the home
+// page, "not found" (404), and the home page again while the API is busy,
+// which then says the shop is taking a break (503). Each must carry its own
+// policy with a fresh nonce, every inline script that nonce, and no inline
+// style at all. No source map may be published, and no font or picture may
+// hide in a data: address.
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import { createServer } from 'node:http';
 import type { Server } from 'node:http';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { ServerBuild } from 'react-router';
 
 process.env.NODE_ENV = 'production';
-// Port 9 (discard) answers nothing: the API is out of reach.
-process.env['WEB_API_URL'] = 'http://127.0.0.1:9';
+
+// The stand-in for the API: one category, or busy when asked to be.
+let busy = false;
+const api = createServer((request, response) => {
+  const found = request.url === '/v1/categories';
+  response.writeHead(busy ? 503 : found ? 200 : 404, {
+    'content-type': 'application/json',
+  });
+  response.end(
+    JSON.stringify(
+      found && !busy
+        ? {
+            categories: [
+              { name: 'Wellness', slug: 'wellness', description: null },
+            ],
+          }
+        : { message: 'x' },
+    ),
+  );
+});
+await new Promise<void>((resolve) => api.listen(0, '127.0.0.1', resolve));
+const apiAt = api.address();
+process.env['WEB_API_URL'] =
+  `http://127.0.0.1:${typeof apiAt === 'object' && apiAt ? apiAt.port : 0}`;
 
 // This folder as Windows spells it, so React loads once (see server.ts).
 const web = realpathSync.native(
@@ -137,10 +161,13 @@ async function checkPage(path: string, status: number): Promise<void> {
 }
 
 try {
+  await checkPage('/', 200);
   await checkPage('/this-page-does-not-exist', 404);
+  busy = true;
   await checkPage('/', 503);
 } finally {
   await new Promise((resolve) => server.close(resolve));
+  await new Promise((resolve) => api.close(resolve));
 }
 
 if (problems.length > 0) {

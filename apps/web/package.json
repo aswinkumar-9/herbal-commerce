@@ -13,6 +13,7 @@
     "typecheck": "react-router typegen && tsc --noEmit",
     "lint": "oxlint app/ server/",
     "test": "vitest run",
+    "art": "node scripts/make-art.ts",
     "format": "prettier --write \"app/**/*.{ts,tsx,css}\" \"server/**/*.ts\" \"*.ts\""
   },
   "dependencies": {

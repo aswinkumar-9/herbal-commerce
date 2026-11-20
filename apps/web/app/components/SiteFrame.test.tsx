@@ -34,6 +34,26 @@ describe('every page’s frame', () => {
     );
   });
 
+  it('shows which page you are on, in the bar and the phone menu', () => {
+    renderPage({ Component: Page });
+    for (const home of screen.getAllByRole('link', {
+      name: 'Home',
+      hidden: true,
+    })) {
+      expect(home).toHaveAttribute('aria-current', 'page');
+    }
+  });
+
+  it('shows no page as current elsewhere', () => {
+    renderPage({ path: '/elsewhere', url: '/elsewhere', Component: Page });
+    for (const home of screen.getAllByRole('link', {
+      name: 'Home',
+      hidden: true,
+    })) {
+      expect(home).not.toHaveAttribute('aria-current');
+    }
+  });
+
   it('has the phone menu closed and hidden at first', () => {
     renderPage({ Component: Page });
     expect(toggle()).toHaveAttribute('aria-expanded', 'false');

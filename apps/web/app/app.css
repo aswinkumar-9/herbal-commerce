@@ -12,3 +12,28 @@
 html {
   scroll-padding-top: 6rem;
 }
+
+/* The first screen arrives as the page opens: its words rise 32 px into
+   place and its picture settles from a touch larger, on the shop's curve
+   and its reveal time (SHOP_MOTION). Plain CSS, so it needs no script and
+   no style attribute. When less motion is asked for, shop.css stops it. */
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    translate: 0 2rem;
+  }
+}
+
+@keyframes settle {
+  from {
+    scale: 1.04;
+  }
+}
+
+@utility animate-rise-in {
+  animation: rise-in 700ms var(--ease-settle) both;
+}
+
+@utility animate-settle {
+  animation: settle 700ms var(--ease-settle) both;
+}

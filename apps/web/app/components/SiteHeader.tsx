@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link } from 'react-router';
+import { Link, NavLink } from 'react-router';
 import { SHOP_MOTION } from '@herbal/design';
 import { text } from '../text/en.ts';
 import { ThemeSwitch } from './ThemeSwitch.tsx';
@@ -111,12 +111,13 @@ export function SiteHeader({
           <ul className="hidden items-center lg:flex">
             {SITE_LINKS.map((link) => (
               <li key={link.to}>
-                <Link
+                {/* The page you are on sits on a solid chip, in gold. */}
+                <NavLink
                   to={link.to}
-                  className="body-5 block rounded-full px-3 py-2 text-ink transition-colors hover:bg-primary-soft hover:text-primary"
+                  className="body-5 block rounded-full px-3 py-2 text-ink transition-colors hover:bg-primary-soft hover:text-primary aria-[current=page]:bg-primary-soft aria-[current=page]:text-primary"
                 >
                   {link.label}
-                </Link>
+                </NavLink>
               </li>
             ))}
           </ul>
@@ -157,13 +158,13 @@ export function SiteHeader({
                 data-menu-item
                 className="translate-y-6 opacity-0 transition duration-500 group-data-open:translate-y-0 group-data-open:opacity-100"
               >
-                <Link
+                <NavLink
                   to={link.to}
                   onClick={() => onMenuChange(false)}
-                  className="heading-5 block rounded-2xl py-2 text-ink"
+                  className="heading-5 block rounded-2xl py-2 text-ink aria-[current=page]:text-primary"
                 >
                   {link.label}
-                </Link>
+                </NavLink>
               </li>
             ))}
           </ul>

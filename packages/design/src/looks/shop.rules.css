@@ -56,6 +56,18 @@
   );
 }
 
+/* The veil behind a block of words on a picture, as its background: whole
+   behind every line, however many the words wrap to, then fading out over
+   the 96 px above them, so the rest of the picture stays clear. */
+@utility scrim-rise {
+  background-image: linear-gradient(
+    to bottom,
+    transparent 0,
+    var(--scrim) 6rem,
+    var(--scrim) 100%
+  );
+}
+
 /* The hero heading: a gradient on the text, left to right. One colour
    when the device asks for more contrast, and in Windows' contrast
    themes. */

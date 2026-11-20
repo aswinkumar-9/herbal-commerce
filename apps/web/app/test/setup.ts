@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { cleanup, configure } from '@testing-library/react';
-import { afterEach, vi } from 'vitest';
+import { afterEach, beforeEach, vi } from 'vitest';
 import { forgetThemeChoice } from '../theme.ts';
 
 // A page drawn from cold while every other test file runs too can take
@@ -41,9 +41,12 @@ function matchMedia(query: string): MediaQueryList {
     dispatchEvent: () => false,
   } as unknown as MediaQueryList;
 }
-if (typeof window !== 'undefined') {
-  vi.stubGlobal('matchMedia', matchMedia);
-}
+// Again before each test, as a test may put the browser's globals back.
+beforeEach(() => {
+  if (typeof window !== 'undefined') {
+    vi.stubGlobal('matchMedia', matchMedia);
+  }
+});
 
 afterEach(() => {
   vi.useRealTimers();
