@@ -1,23 +1,26 @@
-import { screen, waitFor, within } from '@testing-library/react';
+import { act, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
-import { openSignedIn } from '../test/console';
+import { heldBack, openSignedIn } from '../test/console';
 import { RAVI, json } from '../test/fake-api';
 import {
   CANCELLED,
   FAILED_REFUND,
+  GIVE_BACK,
+  GIVEN_BACK_NOTE,
   ORDER,
   ORDERS,
   PAID,
   PAID_LATER,
   REFUND,
   REFUNDS,
+  givenBack,
   listed,
   orderOf,
   ordersOf,
   refundsOf,
 } from '../test/order-fixtures';
 
-const FAILED_LIST = REFUNDS('?status=FAILED');
+const FAILED_LIST = REFUNDS('?status=FAILED&givenBack=false');
 const EVERY_LIST = REFUNDS();
 const failed = listed(FAILED_REFUND, PAID_LATER);
 const pending = listed(REFUND, CANCELLED);
@@ -83,6 +86,7 @@ describe('the Refunds tab', () => {
     // to find in the dashboard.
     expect(only).toHaveTextContent('₹498');
     expect(only).toHaveTextContent('Failed: give it back by hand');
+    expect(only).not.toHaveTextContent('Given back');
     expect(only).toHaveTextContent('12 Nov 2026, 15:35');
     expect(only).toHaveTextContent(
       'A second payment for an order already paid',
@@ -207,9 +211,9 @@ describe('the Refunds tab', () => {
   it('shows more of each a page at a time', async () => {
     const { user } = openRefunds({
       [FAILED_LIST]: refundsOf([failed], failed.id),
-      [REFUNDS(`?status=FAILED&after=${failed.id}`)]: refundsOf([
-        { ...failed, id: 'e5f4a3b2-1c0d-4e9f-8a7b-6c5d4e3f2a11' },
-      ]),
+      [REFUNDS(`?status=FAILED&givenBack=false&after=${failed.id}`)]: refundsOf(
+        [{ ...failed, id: 'e5f4a3b2-1c0d-4e9f-8a7b-6c5d4e3f2a11' }],
+      ),
       [EVERY_LIST]: refundsOf([pending], pending.id),
       [REFUNDS(`?after=${pending.id}`)]: refundsOf([failed]),
     });
@@ -253,5 +257,207 @@ describe('the Refunds tab', () => {
     expect(
       screen.queryByRole('navigation', { name: 'Orders and refunds' }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('giving a failed refund back by hand', () => {
+  const MARK = `Mark as given back by hand: ₹498 for order ${PAID_LATER.reference}`;
+  const MARK_PATH = `/v1/staff/refunds/${failed.id}/given-back`;
+  const FAILED_PATH = '/v1/staff/refunds?status=FAILED&givenBack=false';
+  const marked = givenBack(failed);
+  const dialog = () => screen.getByRole('dialog');
+  const inDialog = (name: string) =>
+    within(dialog()).getByRole('button', { name });
+  const note = () => screen.getByLabelText('How it was given back');
+
+  async function openMark(answers: Parameters<typeof openRefunds>[0] = {}) {
+    const console = openRefunds(answers);
+    const list = await screen.findByRole('list', { name: 'Failed refunds' });
+    await console.user.click(within(list).getByRole('button', { name: MARK }));
+    return console;
+  }
+
+  it('asks only for the failed ones not given back yet', async () => {
+    const { api } = openRefunds();
+
+    await screen.findByRole('list', { name: 'Failed refunds' });
+    expect(api.to('GET', FAILED_PATH)).toHaveLength(1);
+    expect(failedCard()).toHaveTextContent(
+      'Then mark it as given back, saying how.',
+    );
+    expect(api.unexpected).toEqual([]);
+  });
+
+  it('marks it, saying how: it leaves the failed card at once, and every refund shows how', async () => {
+    // The lists are read again, but those answers never come: the refund
+    // moves from the answer to the mark itself.
+    const failedAgain = heldBack();
+    const everyAgain = heldBack();
+    const { user, api } = await openMark({
+      [FAILED_LIST]: [refundsOf([failed]), failedAgain.answer],
+      [EVERY_LIST]: [refundsOf([failed, pending]), everyAgain.answer],
+      [GIVE_BACK(failed)]: () => json(200, marked),
+    });
+
+    expect(dialog()).toHaveAccessibleName(
+      `Mark ₹498 for ${PAID_LATER.reference} as given back?`,
+    );
+    expect(dialog()).toHaveTextContent(
+      'The customer gets no email from the shop: tell them yourself.',
+    );
+    expect(dialog()).toHaveTextContent('It can’t be undone.');
+    expect(note()).toHaveFocus();
+    await user.type(note(), `  ${GIVEN_BACK_NOTE}  `);
+    await user.click(inDialog('Mark as given back'));
+
+    expect(
+      await screen.findByText(
+        `₹498 for ${PAID_LATER.reference} marked as given back`,
+      ),
+    ).toBeInTheDocument();
+    expect(api.to('POST', MARK_PATH).map((sent) => sent.body)).toEqual([
+      { note: GIVEN_BACK_NOTE },
+    ]);
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(
+      screen.queryByRole('region', { name: 'Failed: give these back by hand' }),
+    ).toBeNull();
+    const [first] = rows('Every refund');
+    expect(first).toHaveTextContent('Given back by hand');
+    expect(first).not.toHaveTextContent('Failed');
+    expect(first).toHaveTextContent(
+      'Given back by hand by Ravi Kumar, 20 Nov 2026, 10:05:',
+    );
+    expect(first).toHaveTextContent(GIVEN_BACK_NOTE);
+    // Every refund offers no mark: only the failed card does.
+    expect(within(first!).queryByRole('button')).toBeNull();
+    // Then both lists are read again.
+    expect(api.to('GET', FAILED_PATH)).toHaveLength(2);
+    expect(api.to('GET', '/v1/staff/refunds')).toHaveLength(2);
+  });
+
+  it('keeps the others in the failed card', async () => {
+    const other = {
+      ...failed,
+      id: 'e5f4a3b2-1c0d-4e9f-8a7b-6c5d4e3f2a11',
+      amountRupees: 120,
+    };
+    const failedAgain = heldBack();
+    const { user } = await openMark({
+      [FAILED_LIST]: [refundsOf([failed, other]), failedAgain.answer],
+      [GIVE_BACK(failed)]: () => json(200, marked),
+    });
+
+    await user.type(note(), GIVEN_BACK_NOTE);
+    await user.click(inDialog('Mark as given back'));
+
+    await waitFor(() => expect(rows('Failed refunds')).toHaveLength(1));
+    expect(rows('Failed refunds')[0]).toHaveTextContent('₹120');
+  });
+
+  it('asks how before sending anything', async () => {
+    const { user, api } = await openMark();
+    expect(note()).toHaveAttribute('maxlength', '500');
+
+    await user.type(note(), '  ok  ');
+    await user.click(inDialog('Mark as given back'));
+
+    expect(note()).toHaveAccessibleDescription(
+      expect.stringContaining(
+        'Say how the money was given back, in 3 to 500 characters',
+      ),
+    );
+    expect(note()).toHaveFocus();
+    expect(api.to('POST', MARK_PATH)).toEqual([]);
+  });
+
+  it('shows what the API refused at the note, and anything else above it', async () => {
+    const { user } = await openMark({
+      [GIVE_BACK(failed)]: [
+        () =>
+          json(400, {
+            message: 'Validation failed',
+            errors: [{ field: 'note', message: 'Say it another way' }],
+          }),
+        () => json(503, { message: 'Service Unavailable' }),
+      ],
+    });
+    await user.type(note(), GIVEN_BACK_NOTE);
+
+    await user.click(inDialog('Mark as given back'));
+    await waitFor(() =>
+      expect(note()).toHaveAccessibleDescription(
+        expect.stringContaining('Say it another way'),
+      ),
+    );
+    expect(note()).toHaveFocus();
+    expect(within(dialog()).queryByRole('alert')).toBeNull();
+
+    await user.click(inDialog('Mark as given back'));
+    expect(await within(dialog()).findByRole('alert')).toBeInTheDocument();
+    expect(dialog()).toBeInTheDocument();
+  });
+
+  it.each([
+    [409, 'This refund is already marked as given back by hand.'],
+    [404, 'Refund not found'],
+  ])(
+    'says why on a %i (marked by someone else, or gone), and reads the refunds again, the dialog staying',
+    async (status, message) => {
+      const { user, api } = await openMark({
+        [FAILED_LIST]: [refundsOf([failed]), refundsOf([])],
+        [GIVE_BACK(failed)]: () => json(status, { message }),
+      });
+      await user.type(note(), GIVEN_BACK_NOTE);
+
+      await user.click(inDialog('Mark as given back'));
+
+      expect(await within(dialog()).findByRole('alert')).toHaveTextContent(
+        message,
+      );
+      await waitFor(() => expect(api.to('GET', FAILED_PATH)).toHaveLength(2));
+      // The refund left the list, but the dialog stays to say why.
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('region', {
+            name: 'Failed: give these back by hand',
+          }),
+        ).toBeNull(),
+      );
+      expect(within(dialog()).getByRole('alert')).toHaveTextContent(message);
+      expect(note()).toHaveValue(GIVEN_BACK_NOTE);
+    },
+  );
+
+  it('closes without sending, and opens again with an empty note', async () => {
+    const { user, api } = await openMark();
+    await user.type(note(), GIVEN_BACK_NOTE);
+
+    await user.click(inDialog('Not yet'));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    await user.click(screen.getByRole('button', { name: MARK }));
+
+    expect(note()).toHaveValue('');
+    expect(api.to('POST', MARK_PATH)).toEqual([]);
+  });
+
+  it('stays open while the mark is on its way', async () => {
+    const answer = heldBack();
+    const { user, api } = await openMark({
+      [GIVE_BACK(failed)]: answer.answer,
+    });
+    await user.type(note(), GIVEN_BACK_NOTE);
+
+    await user.click(inDialog('Mark as given back'));
+    act(() => {
+      dialog().dispatchEvent(new Event('cancel', { cancelable: true }));
+    });
+    await user.click(inDialog('Saving…'));
+
+    expect(dialog()).toBeInTheDocument();
+    expect(inDialog('Not yet')).toBeDisabled();
+    expect(api.to('POST', MARK_PATH)).toHaveLength(1);
+    await act(async () => answer.release(json(200, marked)));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 });

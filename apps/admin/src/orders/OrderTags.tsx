@@ -4,6 +4,7 @@ import {
   STATUS_NAMES,
   STATUS_STYLES,
   countName,
+  refundShown,
 } from './order-display';
 import type { OrderStatus, RefundStatus } from './orders-api';
 import { useToPackCount } from './orders-queries';
@@ -21,11 +22,17 @@ export function StatusTag({ status }: { status: OrderStatus }) {
   );
 }
 
-// A refund's status, the same way.
-export function RefundTag({ status }: { status: RefundStatus }) {
+// A refund's status, the same way: a failed one given back by hand shows
+// as given back.
+export function RefundTag({
+  refund,
+}: {
+  refund: { status: RefundStatus; givenBackAt: string | null };
+}) {
+  const shown = refundShown(refund);
   return (
-    <span className={`${TAG} ${REFUND_STATUS_STYLES[status]}`}>
-      {REFUND_STATUS_NAMES[status]}
+    <span className={`${TAG} ${REFUND_STATUS_STYLES[shown]}`}>
+      {REFUND_STATUS_NAMES[shown]}
     </span>
   );
 }

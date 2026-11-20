@@ -1,11 +1,13 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { openSignedIn } from '../test/console';
+import { heldBack, openSignedIn } from '../test/console';
 import { RAVI, json } from '../test/fake-api';
 import {
   CANCELLED,
   DELIVERED,
   FAILED_REFUND,
+  GIVE_BACK,
+  GIVEN_BACK_NOTE,
   ORDER,
   ORDERS,
   PACKED,
@@ -16,6 +18,8 @@ import {
   TO_PACK,
   WAITING,
   forAdmin,
+  givenBack,
+  listed,
   orderOf,
   ordersOf,
 } from '../test/order-fixtures';
@@ -429,6 +433,70 @@ describe("an order's page", () => {
     expect(refund).toHaveTextContent(
       'Give it back by hand in the Razorpay dashboard',
     );
+    expect(
+      within(refund).getByRole('button', {
+        name: `Mark as given back by hand: ₹498 for order ${CANCELLED.reference}`,
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('marks a failed refund as given back by hand, the page changing at once', async () => {
+    const order = {
+      ...CANCELLED,
+      payment: { ...CANCELLED.payment, refunds: [FAILED_REFUND] },
+    };
+    // The order is read again, but that answer never comes: the refund
+    // changes from the answer to the mark itself.
+    const reRead = heldBack();
+    const { user, api } = await openOrder(order, {
+      superUser: true,
+      answers: {
+        [ORDER(order)]: [orderOf(order), reRead.answer],
+        [GIVE_BACK(FAILED_REFUND)]: () =>
+          json(200, listed(givenBack(FAILED_REFUND), order)),
+      },
+    });
+
+    await user.click(
+      within(card('Payment')).getByRole('button', {
+        name: /^Mark as given back by hand/,
+      }),
+    );
+    await user.type(
+      within(dialog()).getByLabelText('How it was given back'),
+      GIVEN_BACK_NOTE,
+    );
+    await user.click(
+      within(dialog()).getByRole('button', { name: 'Mark as given back' }),
+    );
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    const refund = within(card('Payment')).getByRole('listitem');
+    expect(refund).toHaveTextContent('Given back by hand by Ravi Kumar');
+    expect(refund).toHaveTextContent(GIVEN_BACK_NOTE);
+    expect(refund).not.toHaveTextContent('Failed');
+    expect(within(refund).queryByRole('button')).toBeNull();
+    expect(
+      api.to('POST', `/v1/staff/refunds/${FAILED_REFUND.id}/given-back`),
+    ).toHaveLength(1);
+    // Then the order is read again.
+    expect(api.to('GET', `/v1/staff/orders/${order.id}`)).toHaveLength(2);
+  });
+
+  it('shows how a failed refund was given back, with nothing left to do', async () => {
+    const order = {
+      ...CANCELLED,
+      payment: { ...CANCELLED.payment, refunds: [givenBack(FAILED_REFUND)] },
+    };
+    await openOrder(order, { superUser: true });
+
+    const refund = within(card('Payment')).getByRole('listitem');
+    expect(refund).toHaveTextContent('Given back by hand');
+    expect(refund).toHaveTextContent(
+      `Given back by hand by Ravi Kumar, 20 Nov 2026, 10:05:${GIVEN_BACK_NOTE}`,
+    );
+    expect(refund).not.toHaveTextContent('Razorpay dashboard');
+    expect(within(refund).queryByRole('button')).toBeNull();
   });
 
   it('prints a packing slip with what to pack and where, and no prices', async () => {

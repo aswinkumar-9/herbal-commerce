@@ -87,6 +87,11 @@ export const refundSchema = z.object({
   status: z.enum(REFUND_STATUSES),
   createdAt: moment,
   updatedAt: moment,
+  // A failed refund a Super User gave back another way (ADR 0038): when,
+  // how, and who. Null until then, and for every other refund.
+  givenBackAt: moment.nullable(),
+  givenBackNote: z.string().nullable(),
+  givenBackBy: z.object({ id: z.string(), fullName: z.string() }).nullable(),
 });
 export type Refund = z.infer<typeof refundSchema>;
 
@@ -171,6 +176,8 @@ export interface OrderQuery {
 
 export interface RefundQuery {
   status?: RefundStatus | undefined;
+  // false: only the failed ones not given back by hand yet.
+  givenBack?: boolean | undefined;
   after?: string | undefined;
   limit?: number | undefined;
 }
@@ -252,8 +259,19 @@ export async function correctShipment(
 export function listRefunds(query: RefundQuery, signal?: AbortSignal) {
   const path = withParams(REFUNDS, {
     status: query.status,
+    givenBack: query.givenBack,
     after: query.after,
     limit: query.limit,
   });
   return apiRequest(path, { schema: refundPageSchema, signal });
+}
+
+// A failed refund the Super User gave back another way, such as a bank
+// transfer, and how (ADR 0038). Once only: the API refuses a second time.
+export async function giveBackByHand(id: string, note: string) {
+  return apiRequest(`${idInPath(REFUNDS, id)}/given-back`, {
+    method: 'POST',
+    body: { note },
+    schema: listedRefundSchema,
+  });
 }
