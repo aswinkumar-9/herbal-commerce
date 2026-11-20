@@ -12,6 +12,7 @@ export const text = {
     phoneLabel: 'Main, on a phone',
     menu: 'Menu',
     home: 'Home',
+    shop: 'Shop',
   },
   theme: {
     label: 'Theme',
@@ -138,6 +139,89 @@ export const text = {
       heading: 'Find the herbs that suit you',
       cta: 'Shop the herbs',
     },
+  },
+  // A product as a card in a list, and its price: the lowest of its packs
+  // on sale, in whole rupees with GST.
+  card: {
+    from: (price: string) => `From ${price}`,
+    notOnSale: 'Not on sale yet',
+    outOfStock: 'Out of stock',
+  },
+  // The shop: every product, searched by words, filtered and sorted.
+  shopPage: {
+    title: 'Shop',
+    resultsTitle: (words: string) => `Results for “${words}”`,
+    description:
+      'All our herbs, grown on our own fields and tested in a lab. Prices include GST, and delivery is free from ₹499.',
+    heading: 'The shop',
+    search: {
+      label: 'Search the shop',
+      placeholder: 'Search by name',
+      submit: 'Search',
+    },
+    filters: {
+      summary: 'Filters',
+      inUse: (count: number) => `${count} in use`,
+      category: 'Category',
+      allCategories: 'All categories',
+      type: 'Type',
+      allTypes: 'All types',
+      min: 'Lowest price in rupees',
+      max: 'Highest price in rupees',
+      apply: 'Show results',
+      chipsLabel: 'Filters in use',
+      remove: (name: string) => `Remove ${name}`,
+      clear: 'Clear filters',
+    },
+    types: {
+      'ayurvedic-medicine': 'Ayurvedic medicine',
+      'food-or-supplement': 'Food or supplement',
+      cosmetic: 'Cosmetic',
+    },
+    priceRange: (min?: string, max?: string) =>
+      min && max ? `${min} to ${max}` : min ? `From ${min}` : `Up to ${max}`,
+    sort: {
+      label: 'Sort by',
+      apply: 'Sort',
+      relevance: 'Best match',
+      'price-asc': 'Price, low to high',
+      'price-desc': 'Price, high to low',
+      name: 'Name, A to Z',
+    },
+    found: (count: number) => (count === 1 ? '1 product' : `${count} products`),
+    foundFor: (count: number, words: string) =>
+      `${count === 1 ? '1 product' : `${count} products`} for “${words}”`,
+    loading: 'Finding products',
+    none: 'Nothing matches your search.',
+    noneHint: 'Try fewer words or another spelling, or clear the filters.',
+    seeAll: 'See all products',
+    stocking: 'The shop is being stocked. Please come back soon.',
+    beyond: 'There are no more products to show here.',
+    firstPage: 'Back to the first page',
+    pages: {
+      label: 'Pages',
+      previous: 'Previous page',
+      next: 'Next page',
+      at: (page: number, of: number) => `Page ${page} of ${of}`,
+    },
+    problems: {
+      short: 'Type at least 2 characters to search.',
+      long: 'Search with at most 100 characters.',
+      price: 'Give a price in whole rupees, like 499.',
+      range: 'The highest price is below the lowest.',
+    },
+  },
+  // A category's page: its products, in the order staff chose.
+  categoryPage: {
+    // When staff gave the category no description: no claim, only facts.
+    description: (name: string) =>
+      `${name} at Herbal Commerce. Prices include GST, and delivery is free from ₹499.`,
+    trail: 'You are here',
+    empty: 'Nothing here yet. Please come back soon.',
+    more: 'Show more',
+    shown: (count: number) =>
+      count === 1 ? '1 more product shown' : `${count} more products shown`,
+    start: 'Back to the start',
   },
   notFound: {
     title: 'Page not found',

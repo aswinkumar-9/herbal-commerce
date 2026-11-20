@@ -43,13 +43,13 @@ describe('the home page’s first screen', () => {
     ).toEqual(['Herbs from our fields,', 'made with care.']);
   });
 
-  it('has one main action, a gold pill to the shop’s categories', async () => {
+  it('has one main action, a gold pill to the shop', async () => {
     const heading = await renderHome();
     const hero = heading.closest('section') as HTMLElement;
     const actions = within(hero).getAllByRole('link');
     expect(actions).toHaveLength(1);
     expect(actions[0]).toHaveAccessibleName('Shop the herbs');
-    expect(actions[0]).toHaveAttribute('href', '#shop');
+    expect(actions[0]).toHaveAttribute('href', '/shop');
     expect(actions[0]).toHaveClass('bg-gold', 'text-on-gold', 'rounded-full');
   });
 
@@ -138,15 +138,18 @@ describe('the rest of the home page', () => {
     expect(steps[0]).toHaveTextContent('01');
   });
 
-  it('lists the categories in the order staff chose, where the pills lead', async () => {
+  it('lists the categories in the order staff chose, each a link to its page', async () => {
     await renderHome();
     const shop = section('Shop by category');
     expect(shop).toHaveAttribute('id', 'shop');
     expect(
       within(shop)
-        .getAllByRole('listitem')
-        .map((item) => item.textContent),
-    ).toEqual(['Wellness', 'Hair Care']);
+        .getAllByRole('link')
+        .map((link) => [link.textContent, link.getAttribute('href')]),
+    ).toEqual([
+      ['Wellness', '/categories/wellness'],
+      ['Hair Care', '/categories/hair-care'],
+    ]);
   });
 
   it('says the shop is being stocked while no category is showing', async () => {
@@ -191,7 +194,7 @@ describe('the rest of the home page', () => {
     const closing = section('Find the herbs that suit you');
     expect(
       within(closing).getByRole('link', { name: 'Shop the herbs' }),
-    ).toHaveAttribute('href', '#shop');
+    ).toHaveAttribute('href', '/shop');
   });
 });
 

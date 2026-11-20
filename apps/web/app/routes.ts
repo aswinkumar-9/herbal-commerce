@@ -5,5 +5,7 @@ import type { RouteConfig } from '@react-router/dev/routes';
 // page, with the status 404.
 export default [
   index('routes/home.tsx'),
+  route('shop', 'routes/shop.tsx'),
+  route('categories/:slug', 'routes/category.tsx'),
   route('*', 'routes/not-found.tsx'),
 ] satisfies RouteConfig;

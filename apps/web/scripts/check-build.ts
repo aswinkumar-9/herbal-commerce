@@ -1,8 +1,9 @@
 // Checks the built website before it can be served (part of `pnpm
 // web:build`, ADR 0039). It starts the built website on a spare port, with
 // a stand-in for the API, and reads its pages as a browser would: the home
-// page, "not found" (404), and the home page again while the API is busy,
-// which then says the shop is taking a break (503). Each must carry its own
+// page, the shop and a search, a category, "not found" (404) and an
+// unknown category, and the home page again while the API is busy, which
+// then says the shop is taking a break (503). Each must carry its own
 // policy with a fresh nonce, every inline script that nonce, and no inline
 // style at all. No source map may be published, and no font or picture may
 // hide in a data: address.
@@ -15,24 +16,37 @@ import type { ServerBuild } from 'react-router';
 
 process.env.NODE_ENV = 'production';
 
-// The stand-in for the API: one category, or busy when asked to be.
+// The stand-in for the API: one category with one product, or busy when
+// asked to be.
 let busy = false;
+const WELLNESS = { name: 'Wellness', slug: 'wellness', description: null };
+const TULSI = {
+  name: 'Tulsi Drops',
+  slug: 'tulsi-drops',
+  summary: 'Holy basil',
+  fromPriceRupees: 299,
+  imageUrl: 'http://127.0.0.1:3000/media/products/k-small.webp',
+};
+const answers: Record<string, unknown> = {
+  '/v1/categories': { categories: [WELLNESS] },
+  '/v1/products': {
+    products: [{ ...TULSI, inStock: true }],
+    total: 1,
+    page: 1,
+    nextPage: null,
+  },
+  '/v1/categories/wellness/products': {
+    category: WELLNESS,
+    products: [TULSI],
+    nextAfter: null,
+  },
+};
 const api = createServer((request, response) => {
-  const found = request.url === '/v1/categories';
-  response.writeHead(busy ? 503 : found ? 200 : 404, {
+  const body = answers[new URL(request.url ?? '/', 'http://x').pathname];
+  response.writeHead(busy ? 503 : body ? 200 : 404, {
     'content-type': 'application/json',
   });
-  response.end(
-    JSON.stringify(
-      found && !busy
-        ? {
-            categories: [
-              { name: 'Wellness', slug: 'wellness', description: null },
-            ],
-          }
-        : { message: 'x' },
-    ),
-  );
+  response.end(JSON.stringify(busy || !body ? { message: 'x' } : body));
 });
 await new Promise<void>((resolve) => api.listen(0, '127.0.0.1', resolve));
 const apiAt = api.address();
@@ -134,6 +148,15 @@ async function checkPage(path: string, status: number): Promise<void> {
       );
     }
   }
+  // Pictures only from the website itself or the shop's media address.
+  for (const [, src] of html.matchAll(/<img\b[^>]*\ssrc="([^"]*)"/g)) {
+    if (
+      !src?.startsWith('/') &&
+      !src?.startsWith('http://127.0.0.1:3000/media/')
+    ) {
+      problems.push(`${where} a picture from elsewhere: ${src}`);
+    }
+  }
   if (/<style\b|\sstyle=/.test(html)) {
     problems.push(`${where} inline style, which the policy refuses`);
   }
@@ -162,7 +185,11 @@ async function checkPage(path: string, status: number): Promise<void> {
 
 try {
   await checkPage('/', 200);
+  await checkPage('/shop', 200);
+  await checkPage('/shop?q=tulsi&sort=price-asc', 200);
+  await checkPage('/categories/wellness', 200);
   await checkPage('/this-page-does-not-exist', 404);
+  await checkPage('/categories/no-such-category', 404);
   busy = true;
   await checkPage('/', 503);
 } finally {

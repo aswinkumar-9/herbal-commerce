@@ -6,7 +6,10 @@ import { ThemeSwitch } from './ThemeSwitch.tsx';
 
 // The website's places, in the menu bar and the phone menu. More come with
 // each page.
-export const SITE_LINKS = [{ to: '/', label: text.nav.home }] as const;
+export const SITE_LINKS = [
+  { to: '/', label: text.nav.home },
+  { to: '/shop', label: text.nav.shop },
+] as const;
 
 const WIDE = '(min-width: 64rem)';
 const reducedMotion = (): boolean =>

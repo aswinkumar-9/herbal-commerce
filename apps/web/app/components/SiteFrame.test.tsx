@@ -44,6 +44,17 @@ describe('every page’s frame', () => {
     }
   });
 
+  it('leads to the shop, marked as current there', () => {
+    renderPage({ path: '/shop', url: '/shop?q=tulsi', Component: Page });
+    const bar = screen.getByRole('navigation', { name: 'Main' });
+    const shop = within(bar).getByRole('link', { name: 'Shop' });
+    expect(shop).toHaveAttribute('href', '/shop');
+    expect(shop).toHaveAttribute('aria-current', 'page');
+    expect(within(bar).getByRole('link', { name: 'Home' })).not.toHaveAttribute(
+      'aria-current',
+    );
+  });
+
   it('shows no page as current elsewhere', () => {
     renderPage({ path: '/elsewhere', url: '/elsewhere', Component: Page });
     for (const home of screen.getAllByRole('link', {

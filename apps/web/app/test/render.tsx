@@ -14,7 +14,10 @@ export function renderPage({
   path?: string;
   url?: string;
   Component: ComponentType<never>;
-  loader?: () => unknown;
+  loader?: (args: {
+    request: Request;
+    params: Record<string, string | undefined>;
+  }) => unknown;
   ErrorBoundary?: ComponentType<never>;
 }) {
   const Stub = createRoutesStub([

@@ -7,6 +7,7 @@ import {
   SealCheck,
 } from '@phosphor-icons/react';
 import { Fragment } from 'react';
+import { Link } from 'react-router';
 import fields960 from '../art/fields-960.webp';
 import fields1672 from '../art/fields-1672.webp';
 import heroTall640 from '../art/hero-tall-640.webp';
@@ -98,11 +99,13 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           ) : (
             <ul className="flex flex-wrap gap-3">
               {categories.map((category) => (
-                <li
-                  key={category.slug}
-                  className="title-3 rounded-full border border-line-strong px-6 py-3 text-ink"
-                >
-                  {category.name}
+                <li key={category.slug}>
+                  <Link
+                    to={`/categories/${category.slug}`}
+                    className="title-3 block rounded-full border border-line-strong px-6 py-3 text-ink transition hover:border-primary hover:bg-primary-soft hover:text-primary active:scale-98"
+                  >
+                    {category.name}
+                  </Link>
                 </li>
               ))}
             </ul>
@@ -155,9 +158,9 @@ function Hero() {
             ))}
           </h1>
           <p className="body-3 max-w-170 md:title-1">{home.hero.body}</p>
-          <a href="#shop" className={GOLD_PILL_LARGE}>
+          <Link to="/shop" className={GOLD_PILL_LARGE}>
             {home.hero.cta}
-          </a>
+          </Link>
           <ul className="caption-1 flex flex-wrap gap-x-6 gap-y-2">
             {home.hero.proof.map((fact) => (
               <li key={fact} className="flex items-center gap-2">
@@ -319,9 +322,9 @@ function Closing() {
         >
           {home.closing.heading}
         </h2>
-        <a href="#shop" className={GOLD_PILL}>
+        <Link to="/shop" className={GOLD_PILL}>
           {home.closing.cta}
-        </a>
+        </Link>
       </Reveal>
     </section>
   );

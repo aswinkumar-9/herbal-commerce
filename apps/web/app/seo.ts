@@ -2,6 +2,9 @@
 // others): its title and description, its own address, and a picture.
 // Addresses are whole, from the website's own (WEB_ORIGIN), as previews
 // need. Only the page's real words and pictures, never made-up facts.
+// A page that is one of many views of another (a search, a filter, a later
+// page of a list) asks search engines not to list it, and names no
+// canonical address of its own.
 import type { MetaDescriptor } from 'react-router';
 import { text } from './text/en.ts';
 
@@ -11,18 +14,22 @@ export function pageMeta({
   origin,
   path,
   image,
+  noindex = false,
 }: {
   title: string;
   description: string;
   origin: string;
   path: string;
-  image?: { src: string; alt: string; width: number; height: number };
+  image?: { src: string; alt: string; width?: number; height?: number };
+  noindex?: boolean;
 }): MetaDescriptor[] {
   const url = new URL(path, origin).href;
   return [
     { title },
     { name: 'description', content: description },
-    { tagName: 'link', rel: 'canonical', href: url },
+    noindex
+      ? { name: 'robots', content: 'noindex, follow' }
+      : { tagName: 'link', rel: 'canonical', href: url },
     { property: 'og:type', content: 'website' },
     { property: 'og:site_name', content: text.shop.name },
     { property: 'og:locale', content: 'en_IN' },
@@ -32,8 +39,12 @@ export function pageMeta({
     ...(image
       ? [
           { property: 'og:image', content: new URL(image.src, origin).href },
-          { property: 'og:image:width', content: String(image.width) },
-          { property: 'og:image:height', content: String(image.height) },
+          ...(image.width && image.height
+            ? [
+                { property: 'og:image:width', content: String(image.width) },
+                { property: 'og:image:height', content: String(image.height) },
+              ]
+            : []),
           { property: 'og:image:alt', content: image.alt },
           { name: 'twitter:card', content: 'summary_large_image' },
         ]
