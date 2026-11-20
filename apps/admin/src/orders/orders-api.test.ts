@@ -5,6 +5,8 @@ import { fakeApi, json } from '../test/fake-api';
 import {
   CANCELLED,
   FAILED_REFUND,
+  GIVE_BACK,
+  GIVEN_BACK_NOTE,
   ORDER,
   ORDERS,
   PAID,
@@ -15,6 +17,7 @@ import {
   STEP,
   TO_PACK,
   forAdmin,
+  givenBack,
   orderOf,
   ordersOf,
   listed,
@@ -26,6 +29,7 @@ import {
   correctShipment,
   countToPack,
   getOrder,
+  giveBackByHand,
   listOrders,
   listRefunds,
   markDelivered,
@@ -221,7 +225,9 @@ describe('the refunds', () => {
     const pending = listed(REFUND, PAID);
     const api = fakeApi({
       [REFUNDS()]: refundsOf([failed, pending], REFUND.id),
-      [REFUNDS(`?status=FAILED&after=${REFUND.id}&limit=20`)]: refundsOf([]),
+      [REFUNDS(`?status=FAILED&givenBack=false&after=${REFUND.id}&limit=20`)]:
+        refundsOf([]),
+      [REFUNDS('?status=FAILED&givenBack=true')]: refundsOf([]),
     });
 
     await expect(listRefunds({})).resolves.toEqual({
@@ -229,7 +235,15 @@ describe('the refunds', () => {
       nextAfter: REFUND.id,
     });
     await expect(
-      listRefunds({ status: 'FAILED', after: REFUND.id, limit: 20 }),
+      listRefunds({
+        status: 'FAILED',
+        givenBack: false,
+        after: REFUND.id,
+        limit: 20,
+      }),
+    ).resolves.toEqual({ refunds: [], nextAfter: null });
+    await expect(
+      listRefunds({ status: 'FAILED', givenBack: true }),
     ).resolves.toEqual({ refunds: [], nextAfter: null });
     expect(api.unexpected).toEqual([]);
   });
@@ -238,6 +252,8 @@ describe('the refunds', () => {
     ['a reason it does not know', { reason: 'CHANGED_MIND' }],
     ['no order', { orderId: undefined }],
     ["no order's reference", { orderReference: undefined }],
+    ['no word on being given back by hand', { givenBackAt: undefined }],
+    ['a note with no one who gave it back', { givenBackBy: { id: 'x' } }],
   ])('refuses %s', async (_, change) => {
     signedIn();
     fakeApi({
@@ -249,6 +265,37 @@ describe('the refunds', () => {
     });
 
     await expect(listRefunds({})).rejects.toThrow(NOT_UNDERSTOOD);
+  });
+
+  it('marks a failed one as given back by hand, saying how', async () => {
+    signedIn();
+    const marked = listed(givenBack(FAILED_REFUND), PAID_LATER);
+    const api = fakeApi({
+      [GIVE_BACK(FAILED_REFUND)]: () => json(200, marked),
+    });
+
+    await expect(
+      giveBackByHand(FAILED_REFUND.id, GIVEN_BACK_NOTE),
+    ).resolves.toEqual(marked);
+    expect(
+      api.sent.map(({ method, path, body }) => ({ method, path, body })),
+    ).toEqual([
+      {
+        method: 'POST',
+        path: `/v1/staff/refunds/${FAILED_REFUND.id}/given-back`,
+        body: { note: GIVEN_BACK_NOTE },
+      },
+    ]);
+  });
+
+  it('sends no mark for an ID that is not one', async () => {
+    signedIn();
+    const api = fakeApi({});
+
+    await expect(giveBackByHand('../orders', 'Bank transfer')).rejects.toEqual(
+      new ApiError(404, 'There is no such item.'),
+    );
+    expect(api.sent).toEqual([]);
   });
 });
 

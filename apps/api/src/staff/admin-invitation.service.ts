@@ -5,36 +5,33 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { AuditContext } from '../audit/audit-context';
 import { AuditService } from '../audit/audit.service';
 import { PasswordService } from '../auth/password.service';
-import { generateToken, hashToken } from '../auth/token.util';
-import { Env } from '../config/env';
+import { generateToken } from '../auth/token.util';
 import { MailService } from '../mail/mail.service';
 import { isUniqueViolation } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { RateLimitService } from '../rate-limit/rate-limit.service';
 import { ADMIN_NOT_FOUND } from './admins.service';
+import { SETUP_LINK_TTL_MS, SetupLinksService } from './setup-links.service';
 import type { AcceptInviteInput, AdminInviteInput } from './staff.schemas';
+import { StaffMfaService } from './staff-mfa.service';
 
 // People do not always read their email at once, so an invitation waits a
 // few days. It still works only once.
-export const INVITATION_TTL_MS = 72 * 60 * 60 * 1000;
+export const INVITATION_TTL_MS = SETUP_LINK_TTL_MS;
 const EMAIL_TAKEN = 'An account with this email address already exists.';
-const INVALID_INVITATION = 'Invalid or expired invitation link';
-const PASSWORD_SET =
-  'Your password has been set. Before you can sign in, a developer will set up an authenticator app on your phone with you.';
+const ALL_SET =
+  'Your password and authenticator app are set. Sign in with them.';
+// A code typed before the key was shown, or one the app did not make now.
+export const WRONG_CODE =
+  'That code is not right. Type the code your authenticator app shows now.';
+export const NO_KEY_YET =
+  'Open the link again, and add the key it shows to your authenticator app first.';
 const ALREADY_ACCEPTED = 'This Admin has already accepted the invitation.';
 const ENABLE_FIRST = 'Enable this Admin before inviting them again.';
-
-type AcceptFailure =
-  | 'unknown_token'
-  | 'already_used'
-  | 'expired'
-  | 'not_allowed'
-  | 'lost_race';
 
 export interface InvitedAdmin {
   id: string;
@@ -55,7 +52,8 @@ export class AdminInvitationService {
     private readonly passwords: PasswordService,
     private readonly audit: AuditService,
     private readonly mail: MailService,
-    private readonly config: ConfigService<Env, true>,
+    private readonly links: SetupLinksService,
+    private readonly mfa: StaffMfaService,
     private readonly limits: RateLimitService,
     @InjectPinoLogger(AdminInvitationService.name)
     private readonly logger: PinoLogger,
@@ -128,39 +126,26 @@ export class AdminInvitationService {
   }
 
   // Public: the Admin has no password yet. The link proves they control the
-  // invited inbox, and it works only once.
+  // invited inbox, and it works only once. They choose a password and set
+  // up the authenticator app together (ADR 0038): the key shown when the
+  // link was opened is saved only with a code the app makes from it.
   async accept(
     input: AcceptInviteInput,
     context: AuditContext,
   ): Promise<{ message: string }> {
-    const invitation = await this.prisma.staffInvitation.findUnique({
-      where: { tokenHash: hashToken(input.token) },
-      select: {
-        id: true,
-        userId: true,
-        expiresAt: true,
-        usedAt: true,
-        user: { select: { role: true, status: true } },
-      },
-    });
     // Checked before hashing, so a made-up token costs no password work.
-    if (!invitation) {
-      throw this.acceptFailure('unknown_token');
+    const invitation = await this.links.usable(input.token, 'INVITE');
+    const { userId, secret } = invitation;
+    if (secret === null) {
+      throw codeRefused(NO_KEY_YET);
     }
-    const { userId, user } = invitation;
-    if (invitation.usedAt) {
-      throw this.acceptFailure('already_used', userId);
-    }
-    if (invitation.expiresAt <= new Date()) {
-      throw this.acceptFailure('expired', userId);
-    }
-    // A disabled Admin stays out, even with a valid link.
-    if (user.role !== 'ADMIN' || user.status !== 'ACTIVE') {
-      throw this.acceptFailure('not_allowed', userId);
+    const now = new Date();
+    const step = this.mfa.check(secret, input.code, now.getTime());
+    if (step === null) {
+      throw codeRefused(WRONG_CODE);
     }
 
     const passwordHash = await this.passwords.hash(input.password);
-    const now = new Date();
     const accepted = await this.prisma.$transaction(async (tx) => {
       // Atomic claim: if two requests send the same link, only one wins.
       const claim = await tx.staffInvitation.updateMany({
@@ -173,8 +158,15 @@ export class AdminInvitationService {
       await tx.user.update({
         where: { id: userId },
         // The link proves the Admin controls this inbox, so the email
-        // counts as verified.
-        data: { passwordHash, emailVerifiedAt: now },
+        // counts as verified. The code just typed must not also work for
+        // signing in.
+        data: {
+          passwordHash,
+          emailVerifiedAt: now,
+          mfaSecret: this.mfa.seal(secret, userId),
+          mfaEnabledAt: now,
+          mfaLastUsedStep: step,
+        },
       });
       // Whenever a password is set, every session of the account ends.
       await tx.session.updateMany({
@@ -193,14 +185,25 @@ export class AdminInvitationService {
         targetType: 'user',
         targetId: userId,
       });
+      await this.audit.record(tx, {
+        ...context,
+        actorId: userId,
+        action: 'staff.mfa_set_up',
+        targetType: 'user',
+        targetId: userId,
+        after: { mfaEnabled: true },
+      });
       return true;
     });
     if (!accepted) {
-      throw this.acceptFailure('lost_race', userId);
+      throw this.links.refused('INVITE', 'lost_race', userId);
     }
 
-    this.logger.info({ userId }, 'Admin invitation accepted: password set');
-    return { message: PASSWORD_SET };
+    this.logger.info(
+      { userId },
+      'Admin invitation accepted: password and authenticator set',
+    );
+    return { message: ALL_SET };
   }
 
   // Sends a pending Admin a new link. Every older link stops working, so
@@ -278,7 +281,7 @@ export class AdminInvitationService {
       await this.mail.sendAdminInvitation(
         admin.email,
         admin.fullName,
-        this.invitationUrl(token),
+        this.links.url('INVITE', token),
       );
       return true;
     } catch (error) {
@@ -294,17 +297,13 @@ export class AdminInvitationService {
     }
   }
 
-  // Logs the reason and builds the one answer every refused link gets.
-  private acceptFailure(
-    reason: AcceptFailure,
-    userId?: string,
-  ): BadRequestException {
-    this.logger.info({ userId, reason }, 'Admin invitation refused');
-    return new BadRequestException(INVALID_INVITATION);
-  }
+}
 
-  private invitationUrl(token: string): string {
-    const base = this.config.get('WEB_BASE_URL', { infer: true });
-    return `${base}/staff/accept-invite?token=${encodeURIComponent(token)}`;
-  }
+// A code refused at its field, as the validation pipe answers
+// (common/zod-validation.pipe.ts).
+export function codeRefused(message: string): BadRequestException {
+  return new BadRequestException({
+    message: 'Validation failed',
+    errors: [{ field: 'code', message }],
+  });
 }

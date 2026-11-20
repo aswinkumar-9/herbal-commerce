@@ -173,20 +173,49 @@ export const REFUND_REASON_NAMES: Record<RefundReason, string> = {
   CANCELLED_BY_STAFF: 'A Super User cancelled the order',
 };
 
-export const REFUND_STATUS_NAMES: Record<RefundStatus, string> = {
+// How a refund shows: as its status, or, once a Super User gave a failed
+// one back by hand (ADR 0038), as given back.
+export type RefundShown = RefundStatus | 'GIVEN_BACK';
+
+export function refundShown(refund: {
+  status: RefundStatus;
+  givenBackAt: string | null;
+}): RefundShown {
+  return refund.status === 'FAILED' && refund.givenBackAt
+    ? 'GIVEN_BACK'
+    : refund.status;
+}
+
+export const REFUND_STATUS_NAMES: Record<RefundShown, string> = {
   REQUESTED: 'Being sent to Razorpay',
   PENDING: 'On its way back',
   PROCESSED: 'Back with the customer',
   FAILED: 'Failed: give it back by hand',
+  GIVEN_BACK: 'Given back by hand',
 };
 
-export const REFUND_STATUS_STYLES: Record<RefundStatus, string> = {
+export const REFUND_STATUS_STYLES: Record<RefundShown, string> = {
   REQUESTED: 'bg-surface-muted text-ink-muted',
   PENDING: 'bg-warning-soft text-warning',
   PROCESSED: 'bg-primary-soft text-primary-strong',
   FAILED: 'bg-danger-soft text-danger',
+  GIVEN_BACK: 'bg-primary-soft text-primary-strong',
 };
 
 // What a failed refund asks of a Super User.
 export const FAILED_REFUND_HELP =
-  'Razorpay could not give this money back. Give it back by hand in the Razorpay dashboard, from the payment named here.';
+  'Razorpay could not give this money back. Give it back by hand in the Razorpay dashboard, from the payment named here, then mark it as given back.';
+
+// How a Super User gave a failed refund back (ADR 0038), as the API takes
+// it: 3 to 500 characters, without spaces at the ends.
+export const GIVEN_BACK_NOTE_MAX = 500;
+export const GIVEN_BACK_NOTE_PROBLEM =
+  'Say how the money was given back, in 3 to 500 characters';
+
+// The note as it will be sent, or undefined if the API would refuse it.
+export function givenBackNote(typed: string): string | undefined {
+  const note = typed.trim().replace(/\r\n?/g, '\n');
+  return note.length >= 3 && note.length <= GIVEN_BACK_NOTE_MAX
+    ? note
+    : undefined;
+}

@@ -3,6 +3,8 @@ import {
   adminInviteSchema,
   adminStatusSchema,
   auditLogQuerySchema,
+  resetAuthenticatorSchema,
+  setupLinkSchema,
   staffLoginSchema,
   superUserSchema,
 } from './staff.schemas';
@@ -85,7 +87,20 @@ describe('adminInviteSchema', () => {
 });
 
 describe('acceptInviteSchema', () => {
-  const valid = { token: 'x'.repeat(43), password: 'a-staff-pass-16ch' };
+  const valid = {
+    token: 'x'.repeat(43),
+    password: 'a-staff-pass-16ch',
+    code: ' 287082 ',
+  };
+
+  it('requires the code the authenticator app shows, 6 digits, spaces around them trimmed (ADR 0038)', () => {
+    const accepts = (changes: object) =>
+      acceptInviteSchema.safeParse({ ...valid, ...changes }).success;
+    expect(acceptInviteSchema.parse(valid).code).toBe('287082');
+    expect(accepts({ code: undefined })).toBe(false);
+    expect(accepts({ code: '28708' })).toBe(false);
+    expect(accepts({ code: '28708a' })).toBe(false);
+  });
 
   it('requires the token from the link', () => {
     const accepts = (changes: object) =>
@@ -159,5 +174,37 @@ describe('auditLogQuerySchema', () => {
     expect(accepts({ targetId: '' })).toBe(false);
     expect(accepts({ targetId: 'x'.repeat(101) })).toBe(false);
   });
+
+  it('takes one kind of change, from the kinds there are (ADR 0038)', () => {
+    for (const kind of ['accounts', 'sign_ins', 'orders', 'catalog', 'stock']) {
+      expect(auditLogQuerySchema.parse({ kind })).toEqual({ limit: 50, kind });
+    }
+    for (const kind of ['', 'Orders', 'order', 'payments', ['orders']]) {
+      expect(accepts({ kind })).toBe(false);
+    }
+  });
 });
 
+
+describe('setupLinkSchema and resetAuthenticatorSchema (ADR 0038)', () => {
+  it('asks for the key with the token from the link alone', () => {
+    expect(setupLinkSchema.safeParse({ token: 'x'.repeat(43) }).success).toBe(
+      true,
+    );
+    expect(setupLinkSchema.safeParse({ token: 'too-short' }).success).toBe(
+      false,
+    );
+  });
+
+  it('sets the app up again with the link, any password of the right length, and a code', () => {
+    const valid = { token: 'x'.repeat(43), password: 'old', code: '287082' };
+    const accepts = (changes: object) =>
+      resetAuthenticatorSchema.safeParse({ ...valid, ...changes }).success;
+    // The password is checked, not chosen: an older, shorter one works.
+    expect(accepts({})).toBe(true);
+    expect(accepts({ password: '' })).toBe(false);
+    expect(accepts({ password: 'x'.repeat(129) })).toBe(false);
+    expect(accepts({ code: '12345' })).toBe(false);
+    expect(accepts({ token: undefined })).toBe(false);
+  });
+});

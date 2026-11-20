@@ -1,10 +1,13 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import { HEADERS_METADATA } from '@nestjs/common/constants';
 import type { ConfigService } from '@nestjs/config';
 import type { Response } from 'express';
 import type { AuditContext } from '../audit/audit-context';
 import type { SessionService } from '../auth/session.service';
 import type { Env } from '../config/env';
 import type { AdminInvitationService } from './admin-invitation.service';
+import type { AuthenticatorResetService } from './authenticator-reset.service';
+import type { SetupLinksService } from './setup-links.service';
 import { StaffAuthController } from './staff-auth.controller';
 import type { StaffAuthService } from './staff-auth.service';
 import { StaffBrowserSession } from './staff-browser-session';
@@ -36,17 +39,23 @@ function setup() {
     logout: jest.fn().mockResolvedValue(undefined),
   };
   const config = { get: jest.fn().mockReturnValue(CONSOLE) };
+  const resets = { complete: jest.fn().mockResolvedValue({ message: 'set' }) };
+  const links = { key: jest.fn().mockResolvedValue({ key: 'K' }) };
   const response = { setHeader: jest.fn() };
   const controller = new StaffAuthController(
     staffAuth as unknown as StaffAuthService,
     sessions as unknown as SessionService,
     {} as AdminInvitationService,
+    resets as unknown as AuthenticatorResetService,
+    links as unknown as SetupLinksService,
     new StaffBrowserSession(config as unknown as ConfigService<Env, true>),
   );
   return {
     controller,
     staffAuth,
     sessions,
+    resets,
+    links,
     response,
     res: response as unknown as Response,
     // The Set-Cookie values sent.
@@ -196,5 +205,31 @@ describe('StaffAuthController, from any other client', () => {
     }
     expect(sessions.refresh).not.toHaveBeenCalled();
     expect(sessions.logout).not.toHaveBeenCalled();
+  });
+});
+
+describe('StaffAuthController, an emailed link (ADR 0038)', () => {
+  it('gives the key for the link, and sets up the app again with the link, the password and a code', async () => {
+    const { controller, links, resets } = setup();
+    const token = 'x'.repeat(43);
+
+    await expect(controller.setupLink({ token })).resolves.toEqual({ key: 'K' });
+    expect(links.key).toHaveBeenCalledWith(token);
+
+    const body = { token, password: 'a-password', code: '123456' };
+    await expect(
+      controller.resetAuthenticator(body, context),
+    ).resolves.toEqual({ message: 'set' });
+    expect(resets.complete).toHaveBeenCalledWith(body, context);
+  });
+
+  it('never lets the key be stored by a browser or a proxy', () => {
+    expect(
+      Reflect.getMetadata(
+        HEADERS_METADATA,
+        (StaffAuthController.prototype as unknown as Record<string, object>)
+          .setupLink,
+      ),
+    ).toEqual([{ name: 'Cache-Control', value: 'no-store' }]);
   });
 });

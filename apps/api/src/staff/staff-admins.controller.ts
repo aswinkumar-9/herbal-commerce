@@ -17,6 +17,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
 import { AdminInvitationService } from './admin-invitation.service';
 import { AdminsService } from './admins.service';
+import { AuthenticatorResetService } from './authenticator-reset.service';
 import { adminInviteSchema, adminStatusSchema } from './staff.schemas';
 import type { AdminInviteInput, AdminStatusInput } from './staff.schemas';
 
@@ -28,6 +29,7 @@ export class StaffAdminsController {
   constructor(
     private readonly invitations: AdminInvitationService,
     private readonly admins: AdminsService,
+    private readonly resets: AuthenticatorResetService,
   ) {}
 
   // Every Admin, pending invitations included. Reading changes nothing, so
@@ -58,6 +60,19 @@ export class StaffAdminsController {
     @CurrentAuditContext() context: AuditContext,
   ) {
     return this.invitations.resend(id, context);
+  }
+
+  // An Admin lost their phone: their authenticator app stops working, their
+  // sessions end, and they are emailed a link to set it up again (ADR
+  // 0038). It sends an email, so it shares the invitation limit.
+  @RateLimit('staffInvites')
+  @Post(':id/authenticator-reset')
+  @HttpCode(HttpStatus.CREATED)
+  resetAuthenticator(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentAuditContext() context: AuditContext,
+  ) {
+    return this.resets.reset(id, context);
   }
 
   // Disables or enables an Admin. Disabling also ends their sessions.

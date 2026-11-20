@@ -90,27 +90,53 @@ describe('MailService', () => {
     await service.sendAdminInvitation(
       'dev.admin1@example.com',
       'Dev Admin',
-      'http://localhost:3001/staff/accept-invite?token=abc',
+      'http://localhost:5173/accept-invite?token=abc',
     );
     const message = send.mock.calls[0][0];
     expect(message.to).toBe('dev.admin1@example.com');
     expect(message.subject).toBe('You are invited to Herbal Commerce as an Admin');
     expect(message.text).toContain(
-      'http://localhost:3001/staff/accept-invite?token=abc',
+      'http://localhost:5173/accept-invite?token=abc',
     );
     expect(message.html).toContain(
-      'href="http://localhost:3001/staff/accept-invite?token=abc"',
+      'href="http://localhost:5173/accept-invite?token=abc"',
     );
     expect(message.text).toContain('72 hours');
+    // The Admin sets up the app themselves now (ADR 0038).
+    expect(message.text).toContain('authenticator app');
+    expect(message.text).not.toContain('developer');
   });
 
   it('escapes the name in the invitation', async () => {
     await service.sendAdminInvitation(
       'dev.admin1@example.com',
       '<b onmouseover=alert(1)>',
-      'http://localhost:3001/staff/accept-invite?token=abc',
+      'http://localhost:5173/accept-invite?token=abc',
     );
     const message = send.mock.calls[0][0];
+    expect(message.html).not.toContain('<b ');
+    expect(message.html).toContain('&lt;b onmouseover');
+  });
+
+  it('sends the link to set up the authenticator app again, with the name escaped (ADR 0038)', async () => {
+    await service.sendAuthenticatorReset(
+      'dev.admin1@example.com',
+      '<b onmouseover=alert(1)>',
+      'http://localhost:5173/reset-authenticator?token=abc',
+    );
+    const message = send.mock.calls[0][0];
+    expect(message.to).toBe('dev.admin1@example.com');
+    expect(message.subject).toBe(
+      'Set up your authenticator app again for Herbal Commerce',
+    );
+    expect(message.text).toContain(
+      'http://localhost:5173/reset-authenticator?token=abc',
+    );
+    expect(message.html).toContain(
+      'href="http://localhost:5173/reset-authenticator?token=abc"',
+    );
+    expect(message.text).toContain('72 hours');
+    expect(message.text).toContain('tell a Super User');
     expect(message.html).not.toContain('<b ');
     expect(message.html).toContain('&lt;b onmouseover');
   });

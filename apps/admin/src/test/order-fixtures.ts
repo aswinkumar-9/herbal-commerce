@@ -134,6 +134,9 @@ export const REFUND = {
   status: 'PENDING',
   createdAt: '2026-11-10T17:08:32.294Z',
   updatedAt: '2026-11-10T17:08:33.010Z',
+  givenBackAt: null as string | null,
+  givenBackNote: null as string | null,
+  givenBackBy: null as { id: string; fullName: string } | null,
 };
 
 export const CANCELLED = {
@@ -152,6 +155,15 @@ export const FAILED_REFUND = {
   createdAt: '2026-11-12T10:00:00.000Z',
   updatedAt: '2026-11-12T10:05:00.000Z',
 };
+
+// A failed refund once a Super User gave it back by hand (ADR 0038).
+export const GIVEN_BACK_NOTE = 'Bank transfer, UTR 412345678901, on 20 Nov';
+export const givenBack = <T extends typeof REFUND>(refund: T): T => ({
+  ...refund,
+  givenBackAt: '2026-11-20T04:35:00.000Z',
+  givenBackNote: GIVEN_BACK_NOTE,
+  givenBackBy: { id: 'staff-2', fullName: 'Ravi Kumar' },
+});
 
 type Order = typeof PAID;
 
@@ -180,6 +192,8 @@ export const STEP = (order: { id: string }, step: string) =>
 // The menu's count of orders to pack.
 export const TO_PACK = ORDERS('?status=PAID&limit=100');
 export const REFUNDS = (query = '') => `GET /v1/staff/refunds${query}`;
+export const GIVE_BACK = (refund: { id: string }) =>
+  `POST /v1/staff/refunds/${refund.id}/given-back`;
 
 export const ordersOf =
   (orders: Order[], nextAfter: string | null = null) =>

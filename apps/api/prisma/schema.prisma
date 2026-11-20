@@ -44,6 +44,8 @@ model User {
   addresses               Address[]
   cart                    Cart?
   orders                  Order[]
+  // The failed refunds this Super User gave back by hand (ADR 0038).
+  refundsGivenBack        Refund[]
 
   @@index([role])
   @@map("users")
@@ -77,14 +79,26 @@ model PasswordResetToken {
   @@map("password_reset_tokens")
 }
 
-// An invitation for a new Admin to choose their own password (ADR 0015).
-// Only the SHA-256 hash of the link's token is stored, as for reset links.
+// What an emailed link for an Admin is for (ADR 0038): an invitation to
+// choose a password and set up the authenticator app, or setting up the
+// app again after a Super User reset it.
+enum StaffLinkPurpose {
+  INVITE
+  AUTHENTICATOR_RESET
+}
+
+// An emailed link for an Admin (ADR 0015, ADR 0038). Only the SHA-256 hash
+// of the link's token is stored, as for reset links.
 model StaffInvitation {
-  id        String    @id @default(uuid()) @db.Uuid
-  userId    String    @db.Uuid
-  tokenHash String    @unique
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @db.Uuid
+  purpose   StaffLinkPurpose @default(INVITE)
+  tokenHash String           @unique
   expiresAt DateTime
   usedAt    DateTime?
+  // The authenticator key shown to whoever opened the link, until a code
+  // from the app confirms it. Encrypted like the account's own key.
+  pendingMfaSecret String?
   createdAt DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -587,13 +601,22 @@ model Refund {
   razorpayRefundId  String?      @unique
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
+  // Razorpay could not give it back, so a Super User gave the money back
+  // another way, such as a bank transfer, and said how (ADR 0038): when,
+  // the note, and who. Only for a FAILED refund, and only once.
+  givenBackAt       DateTime?
+  givenBackNote     String?
+  givenBackById     String?      @db.Uuid
 
   // Never deleted either.
   payment       Payment        @relation(fields: [paymentId], references: [id], onDelete: Restrict)
   // The emails about it (ADR 0029).
   notifications Notification[]
+  // Super Users are never deleted, so the refund keeps its person.
+  givenBackBy   User?          @relation(fields: [givenBackById], references: [id], onDelete: Restrict)
 
   @@index([paymentId])
+  @@index([givenBackById])
   // For the job that asks Razorpay again.
   @@index([status, createdAt])
   @@map("refunds")

@@ -76,6 +76,31 @@ export class StaffMfaService {
     return true;
   }
 
+  // For setting up the app from an emailed link (ADR 0038): a new key, its
+  // otpauth:// address for a QR code, and the key kept encrypted while the
+  // link waits for a code. Each sealed key is bound to what it belongs to.
+  newKey(email: string): { secret: string; uri: string } {
+    const secret = generateTotpSecret();
+    return { secret, uri: otpauthUri(secret, email) };
+  }
+
+  keyUri(secret: string, email: string): string {
+    return otpauthUri(secret, email);
+  }
+
+  seal(secret: string, boundTo: string): string {
+    return this.box.seal(secret, boundTo);
+  }
+
+  open(sealed: string, boundTo: string): string {
+    return this.box.open(sealed, boundTo);
+  }
+
+  // The time step of a valid code, or null. Nothing is saved.
+  check(secret: string, code: string, now = Date.now()): number | null {
+    return verifyTotp(secret, code, now);
+  }
+
   // For staff login (part 3B-3): checks a code and uses it up. False for a
   // wrong or already used code, or when MFA is not set up.
   async verifyAndUse(

@@ -1,6 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { z } from 'zod';
+import type { AuditContext } from '../audit/audit-context';
+import { AuditService } from '../audit/audit.service';
 import type { Prisma } from '../generated/prisma/client';
 import type { RefundReason, RefundStatus } from '../generated/prisma/enums';
 import {
@@ -8,7 +14,7 @@ import {
   type RefundNotificationKind,
 } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
-import type { RefundListQuery } from './payments.schemas';
+import type { GivenBackInput, RefundListQuery } from './payments.schemas';
 import {
   RazorpayError,
   RazorpayGateway,
@@ -48,6 +54,8 @@ export interface PaymentSummary {
     reason: RefundReason;
     status: RefundStatus;
     createdAt: Date;
+    // A failed refund a Super User gave back by hand (ADR 0038).
+    givenBackAt: Date | null;
   }[];
 }
 
@@ -62,7 +70,18 @@ export interface StaffRefund {
   status: RefundStatus;
   createdAt: Date;
   updatedAt: Date;
+  // A failed refund a Super User gave back by hand (ADR 0038): when, how,
+  // and who.
+  givenBackAt: Date | null;
+  givenBackNote: string | null;
+  givenBackBy: { id: string; fullName: string } | null;
 }
+
+// A refund in the Super Users' list, naming its order (ADR 0037).
+export type ListedRefund = StaffRefund & {
+  orderId: string;
+  orderReference: string;
+};
 
 // An order's payment as Super Users see it: Razorpay's IDs, and every
 // refund (ADR 0028).
@@ -84,7 +103,24 @@ const STAFF_REFUND_FIELDS = {
   status: true,
   createdAt: true,
   updatedAt: true,
+  givenBackAt: true,
+  givenBackNote: true,
+  givenBackBy: { select: { id: true, fullName: true } },
 } satisfies Prisma.RefundSelect;
+
+// With the order it belongs to, for the list.
+const LISTED_REFUND_FIELDS = {
+  ...STAFF_REFUND_FIELDS,
+  payment: {
+    select: { orderId: true, order: { select: { reference: true } } },
+  },
+} satisfies Prisma.RefundSelect;
+
+export const REFUND_NOT_FOUND = 'Refund not found';
+export const NOT_FAILED =
+  'Only a refund Razorpay could not give back is given back by hand.';
+export const ALREADY_GIVEN_BACK =
+  'This refund is already marked as given back by hand.';
 
 // Razorpay's refund statuses, as ours.
 const REFUND_STATUS = {
@@ -131,6 +167,7 @@ export class PaymentsService {
     private readonly prisma: PrismaService,
     private readonly razorpay: RazorpayGateway,
     private readonly notifications: NotificationsService,
+    private readonly audit: AuditService,
     @InjectPinoLogger(PaymentsService.name)
     private readonly logger: PinoLogger,
   ) {}
@@ -250,6 +287,7 @@ export class PaymentsService {
             reason: true,
             status: true,
             createdAt: true,
+            givenBackAt: true,
           },
         },
       },
@@ -274,38 +312,98 @@ export class PaymentsService {
 
   // Refunds for Super Users, the newest first, one page at a time: those in
   // one status if asked, such as the FAILED ones that staff give back by
-  // hand. Each names its order (ADR 0028), by its ID and by the reference
-  // the customer quotes (ADR 0037).
+  // hand, and of those the ones not given back yet (ADR 0038). Each names
+  // its order (ADR 0028), by its ID and by the reference the customer
+  // quotes (ADR 0037).
   async listRefunds(query: RefundListQuery): Promise<{
-    refunds: (StaffRefund & { orderId: string; orderReference: string })[];
+    refunds: ListedRefund[];
     nextAfter: string | null;
   }> {
     const rows = await this.prisma.refund.findMany({
       // A filter left out is undefined, and Prisma ignores it.
-      where: { status: query.status },
+      where: {
+        status: query.status,
+        givenBackAt:
+          query.givenBack === undefined
+            ? undefined
+            : query.givenBack
+              ? { not: null }
+              : null,
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       // One more than asked for, to know whether another page exists.
       take: query.limit + 1,
       ...(query.after ? { cursor: { id: query.after }, skip: 1 } : {}),
-      select: {
-        ...STAFF_REFUND_FIELDS,
-        payment: {
-          select: { orderId: true, order: { select: { reference: true } } },
-        },
-      },
+      select: LISTED_REFUND_FIELDS,
     });
-    const refunds = rows
-      .slice(0, query.limit)
-      .map(({ payment, ...refund }) => ({
-        ...refund,
-        orderId: payment.orderId,
-        orderReference: payment.order.reference,
-      }));
+    const refunds = rows.slice(0, query.limit).map(listed);
     return {
       refunds,
       nextAfter:
         rows.length > query.limit ? refunds[refunds.length - 1].id : null,
     };
+  }
+
+  // A refund Razorpay could not give back, which a Super User gave back
+  // another way, such as a bank transfer (ADR 0038). They say how, once.
+  // The customer gets no email: whoever gave the money back told them.
+  // Only for Super Users: the route is @SuperUserOnly(), and the database
+  // refuses anyone else.
+  async giveBackByHand(
+    id: string,
+    input: GivenBackInput,
+    byId: string,
+    context: AuditContext,
+    now = new Date(),
+  ): Promise<ListedRefund> {
+    const refund = await this.prisma.$transaction(async (tx) => {
+      // Atomic: still FAILED and not given back, so when two Super Users
+      // mark it at the same moment, only one does.
+      const marked = await tx.refund.updateMany({
+        where: { id, status: 'FAILED', givenBackAt: null },
+        data: {
+          givenBackAt: now,
+          givenBackNote: input.note,
+          givenBackById: byId,
+        },
+      });
+      if (marked.count === 0) {
+        const found = await tx.refund.findUnique({
+          where: { id },
+          select: { givenBackAt: true },
+        });
+        if (!found) {
+          throw new NotFoundException(REFUND_NOT_FOUND);
+        }
+        throw new ConflictException(
+          found.givenBackAt ? ALREADY_GIVEN_BACK : NOT_FAILED,
+        );
+      }
+      const row = await tx.refund.findUniqueOrThrow({
+        where: { id },
+        select: LISTED_REFUND_FIELDS,
+      });
+      // On the order, so the order's history shows it.
+      await this.audit.record(tx, {
+        ...context,
+        action: 'order.refund_given_back',
+        targetType: 'order',
+        targetId: row.payment.orderId,
+        before: { refundId: id, givenBackAt: null, givenBackNote: null },
+        after: {
+          refundId: id,
+          amountRupees: row.amountRupees,
+          givenBackAt: now,
+          givenBackNote: input.note,
+        },
+      });
+      return listed(row);
+    });
+    this.logger.info(
+      { refundId: id, orderId: refund.orderId, actorId: byId },
+      'Refund given back by hand',
+    );
+    return refund;
   }
 
   // A payment as Razorpay knows it now: the only word on whether money came.
@@ -572,4 +670,18 @@ export class PaymentsService {
       throw error;
     }
   }
+}
+
+// A refund in the list, its order named by ID and reference.
+function listed({
+  payment,
+  ...refund
+}: Prisma.RefundGetPayload<{
+  select: typeof LISTED_REFUND_FIELDS;
+}>): ListedRefund {
+  return {
+    ...refund,
+    orderId: payment.orderId,
+    orderReference: payment.order.reference,
+  };
 }

@@ -52,6 +52,8 @@ describe('public routes', () => {
       'refresh',
       'logout',
       'acceptInvite',
+      'setupLink',
+      'resetAuthenticator',
     ]);
     expect(publicHandlers(StaffMeController)).toEqual([]);
     expect(publicHandlers(StaffAdminsController)).toEqual([]);

@@ -6,6 +6,7 @@
 - Updated: 2026-11-01 (part 3B-6: the staff sign-in question decided, see ADR 0017)
 - Updated: 2026-11-03 (part 4A: the Admins' first work, product categories, and `@SuperUserOnly()` on a single handler, see ADR 0020)
 - Updated: 2026-11-10 (part 9: Admins pack, ship and deliver orders, and only Super Users cancel them, see ADR 0028)
+- Updated: 2026-11-20 (part 12G: accepting the invitation sets up the authenticator app too, in the console, see ADR 0038)
 
 ## Context
 

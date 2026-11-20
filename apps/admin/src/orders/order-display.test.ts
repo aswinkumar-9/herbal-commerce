@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { ORDER_FILTERS, countName, orderFilter } from './order-display';
+import {
+  ORDER_FILTERS,
+  countName,
+  givenBackNote,
+  orderFilter,
+  refundShown,
+} from './order-display';
 
 describe('the order filters', () => {
   it('reads the one in the address, and opens on the orders to pack otherwise', () => {
@@ -30,5 +36,30 @@ describe("the menu's count", () => {
     [{ count: 100, more: true }, '99+'],
   ])('reads %j as %s', (count, name) => {
     expect(countName(count)).toBe(name);
+  });
+});
+
+describe('a failed refund given back by hand', () => {
+  it('shows as given back only when it failed and was given back', () => {
+    const at = '2026-11-20T04:35:00.000Z';
+    expect(refundShown({ status: 'FAILED', givenBackAt: at })).toBe(
+      'GIVEN_BACK',
+    );
+    expect(refundShown({ status: 'FAILED', givenBackAt: null })).toBe('FAILED');
+    expect(refundShown({ status: 'PROCESSED', givenBackAt: at })).toBe(
+      'PROCESSED',
+    );
+  });
+
+  it('takes the note as the API does: 3 to 500 characters, without spaces at the ends', () => {
+    expect(givenBackNote('  UPI, ref 123  ')).toBe('UPI, ref 123');
+    expect(givenBackNote('Bank transfer\r\nUTR 4123')).toBe(
+      'Bank transfer\nUTR 4123',
+    );
+    expect(givenBackNote('Bank\rUTR')).toBe('Bank\nUTR');
+    expect(givenBackNote('  ok \n ')).toBeUndefined();
+    expect(givenBackNote('abc')).toBe('abc');
+    expect(givenBackNote('a'.repeat(500))).toHaveLength(500);
+    expect(givenBackNote('a'.repeat(501))).toBeUndefined();
   });
 });

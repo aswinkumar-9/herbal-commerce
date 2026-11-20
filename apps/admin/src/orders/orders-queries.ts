@@ -3,10 +3,16 @@ import {
   useInfiniteQuery,
   useQuery,
 } from '@tanstack/react-query';
-import type { QueryClient } from '@tanstack/react-query';
+import type { InfiniteData, QueryClient } from '@tanstack/react-query';
 import { stockKeys } from '../stock/stock-queries';
 import { countToPack, getOrder, listOrders, listRefunds } from './orders-api';
-import type { Order, OrderQuery, RefundQuery } from './orders-api';
+import type {
+  ListedRefund,
+  Order,
+  OrderQuery,
+  RefundPage,
+  RefundQuery,
+} from './orders-api';
 
 // New orders arrive while staff work: the lists and the menu's count look
 // again every minute, while the console is in view. TanStack Query pauses
@@ -23,6 +29,7 @@ export const orderKeys = {
     ['orders', 'list', query] as const,
   order: (id: string) => ['orders', 'order', id] as const,
   toPack: () => ['orders', 'to-pack'] as const,
+  allRefunds: () => ['orders', 'refunds'] as const,
   refunds: (query: Omit<RefundQuery, 'after'>) =>
     ['orders', 'refunds', query] as const,
 };
@@ -90,4 +97,47 @@ export function ordersChanged(queryClient: QueryClient, saved: Order[]): void {
     predicate: (query) => query.queryKey[1] !== 'order',
   });
   void queryClient.invalidateQueries({ queryKey: stockKeys.all });
+}
+
+// A failed refund, once given back by hand (ADR 0038): at once in every
+// list of refunds and on its order's page, gone from the lists of those
+// not given back yet; then the lists and that order are read again.
+export function refundGivenBack(
+  queryClient: QueryClient,
+  saved: ListedRefund,
+): void {
+  const { orderId, orderReference: _reference, ...refund } = saved;
+  for (const [key, data] of queryClient.getQueriesData<
+    InfiniteData<RefundPage>
+  >({ queryKey: orderKeys.allRefunds() })) {
+    if (!data) {
+      continue;
+    }
+    const query = key[2] as Omit<RefundQuery, 'after'> | undefined;
+    queryClient.setQueryData<InfiniteData<RefundPage>>(key, {
+      ...data,
+      pages: data.pages.map((page) => ({
+        ...page,
+        refunds:
+          query?.givenBack === false
+            ? page.refunds.filter((one) => one.id !== saved.id)
+            : page.refunds.map((one) => (one.id === saved.id ? saved : one)),
+      })),
+    });
+  }
+  queryClient.setQueryData<Order>(orderKeys.order(orderId), (order) =>
+    order?.payment
+      ? {
+          ...order,
+          payment: {
+            ...order.payment,
+            refunds: order.payment.refunds.map((one) =>
+              one.id === refund.id ? refund : one,
+            ),
+          },
+        }
+      : order,
+  );
+  void queryClient.invalidateQueries({ queryKey: orderKeys.allRefunds() });
+  void queryClient.invalidateQueries({ queryKey: orderKeys.order(orderId) });
 }

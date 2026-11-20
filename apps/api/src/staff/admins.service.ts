@@ -6,7 +6,11 @@ import {
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import type { AuditContext } from '../audit/audit-context';
 import { AuditService } from '../audit/audit.service';
-import type { Prisma, UserStatus } from '../generated/prisma/client';
+import type {
+  Prisma,
+  StaffLinkPurpose,
+  UserStatus,
+} from '../generated/prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 export const ADMIN_NOT_FOUND = 'Admin not found';
@@ -24,6 +28,9 @@ export interface AdminSummary {
   invitationAcceptedAt: Date | null;
   // When the newest unused invitation ends, or null if there is none.
   invitationExpiresAt: Date | null;
+  // When the newest unused link to set up the authenticator app again ends,
+  // after a Super User reset it, or null if there is none (ADR 0038).
+  authenticatorLinkExpiresAt: Date | null;
   mfaEnabledAt: Date | null;
   createdAt: Date;
 }
@@ -40,17 +47,16 @@ const ADMIN_FIELDS = {
   staffInvitations: {
     where: { usedAt: null },
     orderBy: { expiresAt: 'desc' },
-    take: 1,
-    select: { expiresAt: true },
+    select: { expiresAt: true, purpose: true },
   },
 } satisfies Prisma.UserSelect;
 
 type StoredAdmin = Omit<
   AdminSummary,
-  'invitationAcceptedAt' | 'invitationExpiresAt'
+  'invitationAcceptedAt' | 'invitationExpiresAt' | 'authenticatorLinkExpiresAt'
 > & {
   emailVerifiedAt: Date | null;
-  staffInvitations: { expiresAt: Date }[];
+  staffInvitations: { expiresAt: Date; purpose: StaffLinkPurpose }[];
 };
 
 function toSummary({
@@ -61,7 +67,13 @@ function toSummary({
   return {
     ...admin,
     invitationAcceptedAt: emailVerifiedAt,
-    invitationExpiresAt: staffInvitations[0]?.expiresAt ?? null,
+    // The newest of each kind: the links come newest first.
+    invitationExpiresAt:
+      staffInvitations.find((link) => link.purpose === 'INVITE')?.expiresAt ??
+      null,
+    authenticatorLinkExpiresAt:
+      staffInvitations.find((link) => link.purpose === 'AUTHENTICATOR_RESET')
+        ?.expiresAt ?? null,
   };
 }
 

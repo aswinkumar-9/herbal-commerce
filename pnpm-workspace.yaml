@@ -20,3 +20,5 @@ overrides:
   multer: ^2.5.0
   # From ajv, used by the dev tools (@nestjs/cli, prisma)
   fast-uri: ^3.1.9
+  # Pinned to 3.20.0 by @prisma/config (Prisma's CLI): GHSA-7589-6fvf-x4pw
+  effect: ^3.22.1

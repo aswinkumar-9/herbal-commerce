@@ -1,8 +1,15 @@
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import type { PinoLogger } from 'nestjs-pino';
+import type { AuditService } from '../audit/audit.service';
 import type { Prisma } from '../generated/prisma/client';
 import type { NotificationsService } from '../notifications/notifications.service';
 import type { PrismaService } from '../prisma/prisma.service';
-import { PaymentsService } from './payments.service';
+import {
+  ALREADY_GIVEN_BACK,
+  NOT_FAILED,
+  PaymentsService,
+  REFUND_NOT_FOUND,
+} from './payments.service';
 import { RazorpayError, type RazorpayGateway } from './razorpay.gateway';
 
 const ORDER = {
@@ -85,16 +92,19 @@ function setup() {
     queue: jest.fn().mockResolvedValue(undefined),
     wake: jest.fn(),
   };
-  const logger = { warn: jest.fn(), error: jest.fn() };
+  const audit = { record: jest.fn().mockResolvedValue(undefined) };
+  const logger = { info: jest.fn(), warn: jest.fn(), error: jest.fn() };
   const service = new PaymentsService(
     prisma as unknown as PrismaService,
     razorpay as unknown as RazorpayGateway,
     notifications as unknown as NotificationsService,
+    audit as unknown as AuditService,
     logger as unknown as PinoLogger,
   );
   return {
     service,
     prisma,
+    audit,
     tx: tx as unknown as Prisma.TransactionClient,
     txMock: tx,
     razorpay,
@@ -283,7 +293,7 @@ describe('PaymentsService', () => {
   });
 
   describe('summaryFor', () => {
-    it('shows when the order was paid, and its refunds oldest first, without Razorpay IDs', async () => {
+    it('shows when the order was paid, and its refunds oldest first, without Razorpay IDs, or how or by whom one was given back by hand', async () => {
       const { service, prisma } = setup();
       const summary = {
         paidAt: NOW,
@@ -293,6 +303,7 @@ describe('PaymentsService', () => {
             reason: 'ALREADY_PAID',
             status: 'PENDING',
             createdAt: NOW,
+            givenBackAt: null,
           },
         ],
       };
@@ -310,6 +321,7 @@ describe('PaymentsService', () => {
               reason: true,
               status: true,
               createdAt: true,
+              givenBackAt: true,
             },
           },
         },
@@ -393,6 +405,9 @@ describe('PaymentsService', () => {
               status: true,
               createdAt: true,
               updatedAt: true,
+              givenBackAt: true,
+              givenBackNote: true,
+              givenBackBy: { select: { id: true, fullName: true } },
             },
           },
         },
@@ -416,6 +431,9 @@ describe('PaymentsService', () => {
       status: 'FAILED',
       createdAt: NOW,
       updatedAt: NOW,
+      givenBackAt: null,
+      givenBackNote: null,
+      givenBackBy: null,
       payment: { orderId, order: { reference: `REF${orderId.slice(-1)}` } },
     });
 
@@ -442,7 +460,7 @@ describe('PaymentsService', () => {
       expect(page.refunds[0]).not.toHaveProperty('payment');
       expect(page.nextAfter).toBe('r2');
       expect(prisma.refund.findMany).toHaveBeenCalledWith({
-        where: { status: 'FAILED' },
+        where: { status: 'FAILED', givenBackAt: undefined },
         orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
         take: 3,
         cursor: { id: REFUND_ID },
@@ -456,6 +474,9 @@ describe('PaymentsService', () => {
           status: true,
           createdAt: true,
           updatedAt: true,
+          givenBackAt: true,
+          givenBackNote: true,
+          givenBackBy: { select: { id: true, fullName: true } },
           payment: {
             select: { orderId: true, order: { select: { reference: true } } },
           },
@@ -472,10 +493,126 @@ describe('PaymentsService', () => {
       expect(page.nextAfter).toBeNull();
       expect(page.refunds).toHaveLength(1);
       const query = prisma.refund.findMany.mock.calls[0][0];
-      expect(query.where).toEqual({ status: undefined });
+      expect(query.where).toEqual({ status: undefined, givenBackAt: undefined });
       expect(query.take).toBe(2);
       expect(query).not.toHaveProperty('cursor');
       expect(query).not.toHaveProperty('skip');
+    });
+
+    it('lists only the failed refunds not given back by hand yet, or only those given back, when asked', async () => {
+      const { service, prisma } = setup();
+
+      await service.listRefunds({ limit: 50, status: 'FAILED', givenBack: false });
+      await service.listRefunds({ limit: 50, givenBack: true });
+
+      expect(prisma.refund.findMany.mock.calls.map(([q]) => q.where)).toEqual([
+        { status: 'FAILED', givenBackAt: null },
+        { status: undefined, givenBackAt: { not: null } },
+      ]);
+    });
+  });
+
+  describe('giveBackByHand (ADR 0038)', () => {
+    const SUPER_USER_ID = 'c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c301';
+    const NOTE = 'Bank transfer, UTR 412345678901';
+    const CONTEXT = { actorId: SUPER_USER_ID, ip: '203.0.113.9', requestId: 'req-7' };
+    const givenBack = {
+      id: REFUND_ID,
+      razorpayPaymentId: 'pay_Late00000001',
+      razorpayRefundId: null,
+      amountRupees: 498,
+      reason: 'ORDER_CANCELLED',
+      status: 'FAILED',
+      createdAt: NOW,
+      updatedAt: NOW,
+      givenBackAt: NOW,
+      givenBackNote: NOTE,
+      givenBackBy: { id: SUPER_USER_ID, fullName: 'Ravi Kumar' },
+      payment: { orderId: ORDER.orderId, order: { reference: ORDER.reference } },
+    };
+
+    it('marks a failed refund given back, with the note and who, audits it on its order, and answers it naming the order', async () => {
+      const { service, prisma, audit } = setup();
+      prisma.refund.findUniqueOrThrow.mockResolvedValueOnce(givenBack);
+
+      const refund = await service.giveBackByHand(
+        REFUND_ID,
+        { note: NOTE },
+        SUPER_USER_ID,
+        CONTEXT,
+        NOW,
+      );
+
+      expect(prisma.refund.updateMany).toHaveBeenCalledWith({
+        where: { id: REFUND_ID, status: 'FAILED', givenBackAt: null },
+        data: { givenBackAt: NOW, givenBackNote: NOTE, givenBackById: SUPER_USER_ID },
+      });
+      expect(prisma.refund.findUniqueOrThrow.mock.calls[0][0].select).toMatchObject({
+        givenBackAt: true,
+        givenBackNote: true,
+        givenBackBy: { select: { id: true, fullName: true } },
+        payment: { select: { orderId: true, order: { select: { reference: true } } } },
+      });
+      expect(audit.record).toHaveBeenCalledWith(prisma, {
+        ...CONTEXT,
+        action: 'order.refund_given_back',
+        targetType: 'order',
+        targetId: ORDER.orderId,
+        before: { refundId: REFUND_ID, givenBackAt: null, givenBackNote: null },
+        after: { refundId: REFUND_ID, amountRupees: 498, givenBackAt: NOW, givenBackNote: NOTE },
+      });
+      const { payment: _payment, ...fields } = givenBack;
+      expect(refund).toEqual({
+        ...fields,
+        orderId: ORDER.orderId,
+        orderReference: ORDER.reference,
+      });
+    });
+
+    it('sends the customer no email, and asks Razorpay nothing', async () => {
+      const { service, prisma, notifications, razorpay } = setup();
+      prisma.refund.findUniqueOrThrow.mockResolvedValueOnce(givenBack);
+
+      await service.giveBackByHand(REFUND_ID, { note: NOTE }, SUPER_USER_ID, CONTEXT, NOW);
+
+      expect(notifications.queue).not.toHaveBeenCalled();
+      expect(notifications.wake).not.toHaveBeenCalled();
+      expect(razorpay.refund).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ['an unknown refund', null, NotFoundException, REFUND_NOT_FOUND],
+      ['one already given back', { givenBackAt: NOW }, ConflictException, ALREADY_GIVEN_BACK],
+      ['one Razorpay has not refused', { givenBackAt: null }, ConflictException, NOT_FAILED],
+    ])('refuses %s, and audits nothing', async (_name, found, Refusal, message) => {
+      const { service, prisma, audit, logger } = setup();
+      prisma.refund.updateMany.mockResolvedValueOnce({ count: 0 });
+      prisma.refund.findUnique.mockResolvedValueOnce(found);
+
+      const attempt = service.giveBackByHand(REFUND_ID, { note: NOTE }, SUPER_USER_ID, CONTEXT, NOW);
+
+      await expect(attempt).rejects.toThrow(Refusal);
+      await expect(attempt).rejects.toThrow(message);
+      expect(prisma.refund.findUnique).toHaveBeenCalledWith({
+        where: { id: REFUND_ID },
+        select: { givenBackAt: true },
+      });
+      expect(prisma.refund.findUniqueOrThrow).not.toHaveBeenCalled();
+      expect(audit.record).not.toHaveBeenCalled();
+      expect(logger.info).not.toHaveBeenCalled();
+    });
+
+    it('logs the refund, its order and who, never the note', async () => {
+      const { service, prisma, logger } = setup();
+      prisma.refund.findUniqueOrThrow.mockResolvedValueOnce(givenBack);
+
+      await service.giveBackByHand(REFUND_ID, { note: NOTE }, SUPER_USER_ID, CONTEXT, NOW);
+
+      expect(logger.info).toHaveBeenCalledWith(
+        { refundId: REFUND_ID, orderId: ORDER.orderId, actorId: SUPER_USER_ID },
+        'Refund given back by hand',
+      );
+      expect(JSON.stringify(logger.info.mock.calls)).not.toContain('UTR');
     });
   });
 

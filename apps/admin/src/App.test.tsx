@@ -375,7 +375,11 @@ describe('roles', () => {
   });
 
   it('shows a Super User the Admins and the audit log', async () => {
-    fakeApi({ [REFRESH]: session(), [ME]: () => json(200, RAVI) });
+    fakeApi({
+      [REFRESH]: session(),
+      [ME]: () => json(200, RAVI),
+      'GET /v1/staff/admins': () => json(200, { admins: [] }),
+    });
     openConsole('/admins');
 
     expect(

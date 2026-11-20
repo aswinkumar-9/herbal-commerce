@@ -8,22 +8,27 @@ import { Button } from '../components/Button';
 import { STAGGER, transition } from '../motion';
 import { usePageTitle } from '../page-title';
 import { momentName } from '../stock/stock-display';
+import { GiveBackButton, GivenBack, useGiveBack } from './GiveBack';
+import type { MarkGivenBack } from './GiveBack';
 import { REFUND_REASON_NAMES } from './order-display';
 import type { ListedRefund } from './orders-api';
 import { useRefundPages } from './orders-queries';
 import { RefundTag } from './OrderTags';
 
-const FAILED = { status: 'FAILED' } as const;
+// Those failed and not given back by hand yet (ADR 0038).
+const FAILED = { status: 'FAILED', givenBack: false } as const;
 const EVERY = {};
 
 // The refunds, for Super Users only (ADR 0028, ADR 0037): money going back
 // to customers through Razorpay. Those Razorpay could not give back come
-// first, for a Super User to give back by hand. Each leads to its order.
-// Both lists look again every minute.
+// first, for a Super User to give back by hand and mark as given back,
+// saying how (ADR 0038). Each leads to its order. Both lists look again
+// every minute.
 export function RefundsPage() {
   usePageTitle('Refunds');
   const failed = useRefundPages(FAILED);
   const failedList = failed.data?.pages.flatMap((page) => page.refunds) ?? [];
+  const giveBack = useGiveBack();
 
   return (
     <section className="max-w-4xl">
@@ -58,14 +63,19 @@ export function RefundsPage() {
           <p className="mt-1 text-sm">
             Razorpay could not give this money back. Give each back by hand in
             the Razorpay dashboard, from the payment named on it, and let the
-            customer know.
+            customer know. Then mark it as given back, saying how.
           </p>
-          <RefundList label="Failed refunds" refunds={failedList} />
+          <RefundList
+            label="Failed refunds"
+            refunds={failedList}
+            onMark={giveBack.mark}
+          />
           <ShowMore pages={failed} label="Show more failed refunds" />
         </section>
       ) : null}
 
       <EveryRefund />
+      {giveBack.dialog}
     </section>
   );
 }
@@ -109,9 +119,11 @@ function EveryRefund() {
 function RefundList({
   label,
   refunds,
+  onMark,
 }: {
   label: string;
   refunds: ListedRefund[];
+  onMark?: MarkGivenBack | undefined;
 }) {
   return (
     <ul
@@ -129,7 +141,7 @@ function RefundList({
           }}
           className="px-4 py-3"
         >
-          <RefundRow refund={refund} />
+          <RefundRow refund={refund} onMark={onMark} />
         </motion.li>
       ))}
     </ul>
@@ -137,16 +149,24 @@ function RefundList({
 }
 
 // One refund: how much, where it stands and since when, why it was made,
-// Razorpay's IDs to find it in the dashboard, and a link to its order. The
-// row is not one big link, so the IDs can be selected and copied.
-function RefundRow({ refund }: { refund: ListedRefund }) {
+// Razorpay's IDs to find it in the dashboard, how a failed one was given
+// back by hand, and a link to its order. The row is not one big link, so
+// the IDs can be selected and copied. In the failed card, a button marks it
+// as given back.
+function RefundRow({
+  refund,
+  onMark,
+}: {
+  refund: ListedRefund;
+  onMark: MarkGivenBack | undefined;
+}) {
   return (
     <>
       <p className="flex flex-wrap items-center gap-x-3 gap-y-1">
         <span className="font-semibold tabular-nums">
           {rupees(refund.amountRupees)}
         </span>
-        <RefundTag status={refund.status} />
+        <RefundTag refund={refund} />
         <span className="text-sm text-ink-muted">
           {momentName(refund.updatedAt)}
         </span>
@@ -164,14 +184,24 @@ function RefundRow({ refund }: { refund: ListedRefund }) {
           </>
         ) : null}
       </dl>
-      <Link
-        to={`/orders/${refund.orderId}`}
-        state={{ from: 'refunds' }}
-        className="mt-2 inline-flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:underline"
-      >
-        Order <span className="font-mono">{refund.orderReference}</span>
-        <ChevronRight aria-hidden="true" className="size-4" />
-      </Link>
+      <GivenBack refund={refund} />
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2">
+        <Link
+          to={`/orders/${refund.orderId}`}
+          state={{ from: 'refunds' }}
+          className="inline-flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:underline"
+        >
+          Order <span className="font-mono">{refund.orderReference}</span>
+          <ChevronRight aria-hidden="true" className="size-4" />
+        </Link>
+        {onMark ? (
+          <GiveBackButton
+            refund={refund}
+            orderReference={refund.orderReference}
+            onMark={onMark}
+          />
+        ) : null}
+      </div>
     </>
   );
 }

@@ -256,12 +256,28 @@ async function main() {
   // Accepting an invitation is public, but only a real link works. (A real
   // invitation is tried by hand: only a signed-in Super User can send one.)
   const madeUpInvite = await call('POST', '/v1/staff/auth/accept-invite', {
-    json: { token: 'x'.repeat(43), password: 'smoke-staff-password-1' },
+    json: { token: 'x'.repeat(43), password: 'smoke-staff-password-1', code: '123456' },
   });
   check(
     'accept-invite refuses a made-up link with 400',
     madeUpInvite.status === 400 &&
       madeUpInvite.body?.message === 'Invalid or expired invitation link',
+  );
+  // Opening a made-up link, or setting up an authenticator app again with
+  // one, gets nothing either (ADR 0038).
+  const madeUpKey = await call('POST', '/v1/staff/auth/setup-link', {
+    json: { token: 'x'.repeat(43) },
+  });
+  const madeUpReset = await call('POST', '/v1/staff/auth/reset-authenticator', {
+    json: { token: 'x'.repeat(43), password: 'smoke-staff-password-1', code: '123456' },
+  });
+  check(
+    'setup-link and reset-authenticator refuse a made-up link with 400, and show no key',
+    madeUpKey.status === 400 &&
+      madeUpKey.body?.message === 'Invalid or expired invitation link' &&
+      !('key' in (madeUpKey.body ?? {})) &&
+      madeUpReset.status === 400 &&
+      madeUpReset.body?.message === 'Invalid or expired link',
   );
 
   // Refused and left alone: the next check still refreshes with this token.
@@ -1376,6 +1392,7 @@ async function main() {
     ['POST', `/v1/staff/orders/${anyId}/delivered`],
     ['POST', `/v1/staff/orders/${anyId}/cancel`],
     ['GET', '/v1/staff/refunds'],
+    ['POST', `/v1/staff/refunds/${anyId}/given-back`, { note: 'Smoke note' }],
   ];
   // The customer's token still works on their own orders, so each 401 below
   // is a staff route refusing it.
@@ -1387,7 +1404,7 @@ async function main() {
     staffOrderAnswers.push(withoutToken.status, asCustomer.status);
   }
   check(
-    'without a token, or with a customer access token, no one sees orders or refunds as staff, or packs, ships, delivers or cancels an order (401)',
+    'without a token, or with a customer access token, no one sees orders or refunds as staff, packs, ships, delivers or cancels an order, or marks a refund given back by hand (401)',
     ownOrders.status === 200 &&
       staffOrderAnswers.every((status) => status === 401),
   );

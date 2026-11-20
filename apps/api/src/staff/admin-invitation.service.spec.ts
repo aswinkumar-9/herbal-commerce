@@ -1,16 +1,18 @@
-import { ConfigService } from '@nestjs/config';
 import { PinoLogger } from 'nestjs-pino';
 import { AuditService } from '../audit/audit.service';
 import { PasswordService } from '../auth/password.service';
 import { RateLimitService } from '../rate-limit/rate-limit.service';
 import { hashToken } from '../auth/token.util';
-import type { Env } from '../config/env';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   AdminInvitationService,
   INVITATION_TTL_MS,
+  NO_KEY_YET,
+  WRONG_CODE,
 } from './admin-invitation.service';
+import type { SetupLinksService } from './setup-links.service';
+import type { StaffMfaService } from './staff-mfa.service';
 
 type UserCreateArgs = {
   data: {
@@ -30,17 +32,21 @@ const context = {
 };
 const created = { id: 'admin-1', ...input };
 
-// An invitation as stored: valid for another hour, not used yet.
-function storedInvitation(changes: object = {}) {
+// An invitation that may still be used, as SetupLinksService.usable() finds
+// it, with the key shown when the link was opened.
+function usableLink(changes: object = {}) {
   return {
     id: 'invitation-1',
     userId: 'admin-1',
+    purpose: 'INVITE',
     expiresAt: new Date(Date.now() + 60 * 60 * 1000),
-    usedAt: null,
-    user: { role: 'ADMIN', status: 'ACTIVE' },
+    email: 'dev.admin1@example.com',
+    fullName: 'Dev Admin',
+    secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',
     ...changes,
   };
 }
+const REFUSED = { status: 400, message: 'Invalid or expired invitation link' };
 
 function setup() {
   const tx = {
@@ -60,15 +66,23 @@ function setup() {
   };
   const prisma = {
     user: { findUnique: jest.fn().mockResolvedValue(null) },
-    staffInvitation: {
-      findUnique: jest.fn().mockResolvedValue(storedInvitation()),
-    },
     $transaction: jest.fn((run: (client: typeof tx) => unknown) => run(tx)),
   };
   const passwords = { hash: jest.fn().mockResolvedValue('$argon2id$unusable') };
   const audit = { record: jest.fn().mockResolvedValue(undefined) };
   const mail = { sendAdminInvitation: jest.fn().mockResolvedValue(undefined) };
-  const config = { get: () => 'http://localhost:3001' };
+  const links = {
+    url: jest.fn(
+      (purpose: string, token: string) =>
+        `http://localhost:5173/${purpose === 'INVITE' ? 'accept-invite' : 'reset-authenticator'}?token=${encodeURIComponent(token)}`,
+    ),
+    usable: jest.fn().mockResolvedValue(usableLink()),
+    refused: jest.fn(() => Object.assign(new Error(REFUSED.message), REFUSED)),
+  };
+  const mfa = {
+    check: jest.fn().mockReturnValue(59_000_000),
+    seal: jest.fn((secret: string, boundTo: string) => `sealed:${boundTo}:${secret}`),
+  };
   const limits = { consume: jest.fn().mockResolvedValue(undefined) };
   const logger = { info: jest.fn(), warn: jest.fn() };
   const service = new AdminInvitationService(
@@ -76,11 +90,23 @@ function setup() {
     passwords as unknown as PasswordService,
     audit as unknown as AuditService,
     mail as unknown as MailService,
-    config as unknown as ConfigService<Env, true>,
+    links as unknown as SetupLinksService,
+    mfa as unknown as StaffMfaService,
     limits as unknown as RateLimitService,
     logger as unknown as PinoLogger,
   );
-  return { service, prisma, tx, passwords, audit, mail, limits, logger };
+  return {
+    service,
+    prisma,
+    tx,
+    passwords,
+    audit,
+    mail,
+    links,
+    mfa,
+    limits,
+    logger,
+  };
 }
 
 // The token in the emailed link.
@@ -116,7 +142,7 @@ describe('AdminInvitationService.invite', () => {
       'dev.admin1@example.com',
       'Dev Admin',
       expect.stringMatching(
-        /^http:\/\/localhost:3001\/staff\/accept-invite\?token=/,
+        /^http:\/\/localhost:5173\/accept-invite\?token=/,
       ),
     );
     const token = emailedToken(mail);
@@ -214,31 +240,37 @@ describe('AdminInvitationService.accept', () => {
   const acceptInput = {
     token: 'the-token-from-the-invitation-link-123456789',
     password: 'the-admin-chose-this',
+    code: '287082',
   };
   // A public route: nobody is signed in, so there is no actorId.
   const publicContext = { ip: '198.51.100.4', requestId: 'request-2' };
-  const INVALID_LINK = {
-    status: 400,
-    message: 'Invalid or expired invitation link',
-  };
 
-  it('sets the chosen password, verifies the email and ends every session', async () => {
-    const { service, prisma, tx, passwords, logger } = setup();
+  it('sets the chosen password and the authenticator key together, verifies the email and ends every session', async () => {
+    const { service, links, tx, passwords, mfa, logger } = setup();
     passwords.hash.mockResolvedValue('$argon2id$chosen');
 
     await expect(service.accept(acceptInput, publicContext)).resolves.toEqual({
-      message: expect.stringContaining('Your password has been set.'),
+      message: 'Your password and authenticator app are set. Sign in with them.',
     });
 
-    expect(prisma.staffInvitation.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { tokenHash: hashToken(acceptInput.token) },
-      }),
+    expect(links.usable).toHaveBeenCalledWith(acceptInput.token, 'INVITE');
+    expect(mfa.check).toHaveBeenCalledWith(
+      'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',
+      '287082',
+      expect.any(Number),
     );
     expect(passwords.hash).toHaveBeenCalledWith('the-admin-chose-this');
     expect(tx.user.update).toHaveBeenCalledWith({
       where: { id: 'admin-1' },
-      data: { passwordHash: '$argon2id$chosen', emailVerifiedAt: expect.any(Date) },
+      data: {
+        passwordHash: '$argon2id$chosen',
+        emailVerifiedAt: expect.any(Date),
+        // Sealed for the account, not for the link any more.
+        mfaSecret: 'sealed:admin-1:JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',
+        mfaEnabledAt: expect.any(Date),
+        // The code just typed does not also sign in.
+        mfaLastUsedStep: 59_000_000,
+      },
     });
     expect(tx.session.updateMany).toHaveBeenCalledWith({
       where: { userId: 'admin-1', revokedAt: null },
@@ -246,11 +278,11 @@ describe('AdminInvitationService.accept', () => {
     });
     expect(logger.info).toHaveBeenCalledWith(
       { userId: 'admin-1' },
-      'Admin invitation accepted: password set',
+      'Admin invitation accepted: password and authenticator set',
     );
   });
 
-  it('uses the link up in one atomic step, and ends any other invitation', async () => {
+  it('uses the link up in one atomic step, and ends any other link', async () => {
     const { service, tx } = setup();
 
     await service.accept(acceptInput, publicContext);
@@ -268,93 +300,91 @@ describe('AdminInvitationService.accept', () => {
     });
   });
 
-  it('writes the audit entry with the Admin as the actor, in the same transaction', async () => {
+  it('writes both audit entries with the Admin as the actor, in the same transaction', async () => {
     const { service, tx, audit } = setup();
 
     await service.accept(acceptInput, publicContext);
 
-    expect(audit.record).toHaveBeenCalledWith(tx, {
+    const base = {
       actorId: 'admin-1',
       ip: '198.51.100.4',
       requestId: 'request-2',
-      action: 'admin.invite_accepted',
       targetType: 'user',
       targetId: 'admin-1',
+    };
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...base,
+      action: 'admin.invite_accepted',
+    });
+    expect(audit.record).toHaveBeenCalledWith(tx, {
+      ...base,
+      action: 'staff.mfa_set_up',
+      after: { mfaEnabled: true },
     });
   });
 
-  it('refuses an unknown, used or expired link with one answer, before any password work', async () => {
-    const past = new Date(Date.now() - 1000);
-    const cases = [
-      [null, 'unknown_token'],
-      [storedInvitation({ usedAt: past }), 'already_used'],
-      [storedInvitation({ expiresAt: past }), 'expired'],
-    ] as const;
-    for (const [stored, reason] of cases) {
-      const { service, prisma, passwords, logger } = setup();
-      prisma.staffInvitation.findUnique.mockResolvedValue(stored);
+  it('refuses a link that cannot be used, before any password work', async () => {
+    const { service, links, passwords, prisma } = setup();
+    links.usable.mockRejectedValue(
+      Object.assign(new Error(REFUSED.message), REFUSED),
+    );
 
-      await expect(
-        service.accept(acceptInput, publicContext),
-      ).rejects.toMatchObject(INVALID_LINK);
-      expect(passwords.hash).not.toHaveBeenCalled();
-      expect(prisma.$transaction).not.toHaveBeenCalled();
-      expect(logger.info).toHaveBeenCalledWith(
-        expect.objectContaining({ reason }),
-        'Admin invitation refused',
-      );
-    }
+    await expect(
+      service.accept(acceptInput, publicContext),
+    ).rejects.toMatchObject(REFUSED);
+    expect(passwords.hash).not.toHaveBeenCalled();
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
-  it('refuses a disabled Admin, and any account that is not an Admin', async () => {
-    for (const user of [
-      { role: 'ADMIN', status: 'DISABLED' },
-      { role: 'SUPER_USER', status: 'ACTIVE' },
-      { role: 'CUSTOMER', status: 'ACTIVE' },
-    ]) {
-      const { service, prisma, passwords, logger } = setup();
-      prisma.staffInvitation.findUnique.mockResolvedValue(
-        storedInvitation({ user }),
-      );
+  it('refuses at the code a link whose key was never shown, or a code the key did not make, before any password work', async () => {
+    for (const [changes, wrong, message] of [
+      [{ secret: null }, false, NO_KEY_YET],
+      [{}, true, WRONG_CODE],
+    ] as const) {
+      const { service, links, mfa, passwords, prisma } = setup();
+      links.usable.mockResolvedValue(usableLink(changes));
+      if (wrong) {
+        mfa.check.mockReturnValue(null);
+      }
 
       await expect(
         service.accept(acceptInput, publicContext),
-      ).rejects.toMatchObject(INVALID_LINK);
+      ).rejects.toMatchObject({
+        status: 400,
+        response: {
+          message: 'Validation failed',
+          errors: [{ field: 'code', message }],
+        },
+      });
       expect(passwords.hash).not.toHaveBeenCalled();
-      expect(logger.info).toHaveBeenCalledWith(
-        { userId: 'admin-1', reason: 'not_allowed' },
-        'Admin invitation refused',
-      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
     }
   });
 
   it('refuses the second of two requests with the same link, and changes nothing', async () => {
-    const { service, tx, audit, logger } = setup();
+    const { service, tx, audit, links } = setup();
     tx.staffInvitation.updateMany.mockResolvedValue({ count: 0 });
 
     await expect(
       service.accept(acceptInput, publicContext),
-    ).rejects.toMatchObject(INVALID_LINK);
+    ).rejects.toMatchObject(REFUSED);
     expect(tx.user.update).not.toHaveBeenCalled();
     expect(tx.session.updateMany).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();
-    expect(logger.info).toHaveBeenCalledWith(
-      { userId: 'admin-1', reason: 'lost_race' },
-      'Admin invitation refused',
-    );
+    expect(links.refused).toHaveBeenCalledWith('INVITE', 'lost_race', 'admin-1');
   });
 
-  it('never logs the password or the token', async () => {
-    const { service, prisma, logger } = setup();
+  it('never logs the password, the code, the key or the token', async () => {
+    const { service, logger } = setup();
 
     await service.accept(acceptInput, publicContext);
-    prisma.staffInvitation.findUnique.mockResolvedValue(null);
-    await service.accept(acceptInput, publicContext).catch(() => undefined);
 
     const logged = JSON.stringify(logger.info.mock.calls);
     expect(logged).toContain('admin-1');
     expect(logged).not.toContain(acceptInput.token);
     expect(logged).not.toContain(acceptInput.password);
+    expect(logged).not.toContain(acceptInput.code);
+    expect(logged).not.toContain('JBSWY3DPEHPK3PXP');
   });
 });
 
@@ -412,7 +442,7 @@ describe('AdminInvitationService.resend', () => {
       input.email,
       input.fullName,
       expect.stringMatching(
-        /^http:\/\/localhost:3001\/staff\/accept-invite\?token=[\w-]{43}$/,
+        /^http:\/\/localhost:5173\/accept-invite\?token=[\w-]{43}$/,
       ),
     );
   });

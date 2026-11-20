@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 3B-6)
 - Date: 2026-11-01
+- Updated: 2026-11-20 (part 12G: the audit log page in the console, a filter by kind of change, and the name of what each entry is about, see ADR 0038)
 
 ## Context
 

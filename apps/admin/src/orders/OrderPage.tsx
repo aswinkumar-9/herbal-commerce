@@ -8,6 +8,7 @@ import {
   SearchX,
   Truck,
   CircleCheck,
+  History,
 } from 'lucide-react';
 import { useState } from 'react';
 import type { ReactNode } from 'react';
@@ -22,6 +23,7 @@ import { useToasts } from '../components/toast-context';
 import { useListSearch } from '../list-search';
 import { usePageTitle } from '../page-title';
 import { momentName } from '../stock/stock-display';
+import { GiveBackButton, GivenBack, useGiveBack } from './GiveBack';
 import { FAILED_REFUND_HELP, REFUND_REASON_NAMES } from './order-display';
 import {
   CancelDialog,
@@ -139,6 +141,17 @@ function OrderDetails({ order }: { order: Order }) {
               Order <span className="font-mono">{order.reference}</span>
             </h1>
             <StatusTag status={order.status} />
+            {superUser ? (
+              // What staff did to it, in the audit log.
+              <Link
+                to={`/audit-log?target=${order.id}`}
+                state={{ label: `order ${order.reference}` }}
+                className={`${buttonClass('ghost', 'sm')} ml-auto`}
+              >
+                <History aria-hidden="true" className="size-4" />
+                History
+              </Link>
+            ) : null}
           </div>
           <p className="mt-1 text-ink-muted">
             Placed {momentName(order.createdAt)}
@@ -156,7 +169,7 @@ function OrderDetails({ order }: { order: Order }) {
         </div>
 
         {order.payment !== undefined ? (
-          <PaymentCard payment={order.payment} />
+          <PaymentCard payment={order.payment} reference={order.reference} />
         ) : null}
       </div>
 
@@ -471,8 +484,16 @@ function Steps({ order }: { order: Order }) {
   );
 }
 
-// Super Users only: the payment with Razorpay's IDs, and every refund.
-function PaymentCard({ payment }: { payment: Payment | null }) {
+// Super Users only: the payment with Razorpay's IDs, and every refund. A
+// failed one is marked here as given back by hand, once it is (ADR 0038).
+function PaymentCard({
+  payment,
+  reference,
+}: {
+  payment: Payment | null;
+  reference: string;
+}) {
+  const giveBack = useGiveBack();
   return (
     <Card title="Payment" className="mt-6">
       {payment === null ? (
@@ -518,7 +539,7 @@ function PaymentCard({ payment }: { payment: Payment | null }) {
                       <span className="font-medium tabular-nums">
                         {rupees(refund.amountRupees)}
                       </span>
-                      <RefundTag status={refund.status} />
+                      <RefundTag refund={refund} />
                       <span className="text-ink-muted">
                         {momentName(refund.updatedAt)}
                       </span>
@@ -531,11 +552,21 @@ function PaymentCard({ payment }: { payment: Payment | null }) {
                         {refund.razorpayRefundId}
                       </p>
                     ) : null}
-                    {refund.status === 'FAILED' ? (
-                      <p className="mt-2 font-medium text-danger">
-                        {FAILED_REFUND_HELP}
-                      </p>
+                    {refund.status === 'FAILED' && !refund.givenBackAt ? (
+                      <>
+                        <p className="mt-2 font-medium text-danger">
+                          {FAILED_REFUND_HELP}
+                        </p>
+                        <div className="mt-2">
+                          <GiveBackButton
+                            refund={refund}
+                            orderReference={reference}
+                            onMark={giveBack.mark}
+                          />
+                        </div>
+                      </>
                     ) : null}
+                    <GivenBack refund={refund} />
                   </li>
                 ))}
               </ul>
@@ -543,6 +574,7 @@ function PaymentCard({ payment }: { payment: Payment | null }) {
           ) : null}
         </>
       )}
+      {giveBack.dialog}
     </Card>
   );
 }
