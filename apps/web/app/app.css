@@ -37,3 +37,15 @@ html {
 @utility animate-settle {
   animation: settle 700ms var(--ease-settle) both;
 }
+
+/* A product's photo, chosen from its thumbnails, fades in (300 ms, the
+   shop's time for a colour or an opacity). */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@utility animate-fade-in {
+  animation: fade-in 300ms var(--ease-settle) both;
+}

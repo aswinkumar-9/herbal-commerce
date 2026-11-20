@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loader as categoryLoader } from './category.tsx';
+import { loader as productLoader } from './product.tsx';
 import { loader as shopLoader } from './shop.tsx';
 
 // The shop's and a category's loaders, with a stand-in for the API.
@@ -244,5 +245,115 @@ describe('a category’s loader', () => {
   it('is "not found" when the API knows no such category', async () => {
     apiAnswers({});
     expect(await thrownStatus(categoryAt('old-category'))).toBe(404);
+  });
+});
+
+describe('a product’s loader', () => {
+  const image = (key: string, at = MEDIA) => ({
+    url: `${at}/${key}-large.webp`,
+    thumbnailUrl: `${at}/${key}-small.webp`,
+    altText: key,
+    width: 1200,
+    height: 1600,
+  });
+  const PRODUCT = {
+    name: 'Ashwagandha Capsules',
+    slug: 'ashwagandha-capsules',
+    summary: 'For calm and strength',
+    description: null,
+    ingredients: 'Ashwagandha root extract 500 mg',
+    usage: null,
+    type: 'AYURVEDIC_MEDICINE',
+    licenceNumber: '25D/123/2015',
+    manufacturerName: 'Herbal Works Pvt Ltd',
+    manufacturerAddress: '12, Industrial Area, Mysuru 570016',
+    countryOfOrigin: 'India',
+    category: { name: 'Wellness', slug: 'wellness' },
+    variants: [
+      {
+        sku: 'ASH-60',
+        quantity: 60,
+        unit: 'CAPSULES',
+        mrpRupees: 500,
+        priceRupees: 400,
+        inStock: true,
+      },
+    ],
+    images: [image('front'), image('back')],
+  };
+  const productAt = (slug: string, query = '') =>
+    productLoader({
+      request: new Request(`http://localhost:3001/products/${slug}${query}`),
+      params: { slug },
+      context: undefined,
+    } as unknown as Parameters<typeof productLoader>[0]);
+
+  it('asks the API for the product, and shows the first photo first', async () => {
+    apiAnswers({
+      '/v1/products/ashwagandha-capsules': () => answer(200, PRODUCT),
+    });
+    const page = await productAt('ashwagandha-capsules');
+    expect(asked()).toEqual([
+      { pathname: '/v1/products/ashwagandha-capsules', query: {} },
+    ]);
+    expect(page.product).toEqual(PRODUCT);
+    expect(page.photo).toBe(0);
+    expect(page.origin).toBe('http://localhost:3001');
+  });
+
+  it('shows the photo the address names, when there is one', async () => {
+    apiAnswers({
+      '/v1/products/ashwagandha-capsules': () => answer(200, PRODUCT),
+    });
+    expect((await productAt('ashwagandha-capsules', '?photo=2')).photo).toBe(1);
+    for (const wrong of ['3', '0', '-1', 'x', '1.5', '999']) {
+      expect(
+        (await productAt('ashwagandha-capsules', `?photo=${wrong}`)).photo,
+        wrong,
+      ).toBe(0);
+    }
+  });
+
+  it('leaves out a photo whose files are not both at the media address', async () => {
+    apiAnswers({
+      '/v1/products/ashwagandha-capsules': () =>
+        answer(200, {
+          ...PRODUCT,
+          images: [
+            image('front'),
+            image('elsewhere', 'https://evil.example.com'),
+            {
+              ...image('half'),
+              thumbnailUrl: 'https://evil.example.com/x.webp',
+            },
+            { ...image('climbs'), url: `${MEDIA}/../../x-large.webp` },
+          ],
+        }),
+    });
+    const { product } = await productAt('ashwagandha-capsules');
+    expect(product.images.map((each) => each.altText)).toEqual(['front']);
+  });
+
+  it('is "not found" for an address no product could have, without asking the API', async () => {
+    for (const slug of ['Tulsi', 'tulsi drops', '..', 'a'.repeat(61)]) {
+      expect(await thrownStatus(productAt(slug)), slug).toBe(404);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('is "not found" when the API has no such product on show', async () => {
+    apiAnswers({});
+    expect(await thrownStatus(productAt('old-product'))).toBe(404);
+  });
+
+  it('says the shop is taking a break when the answer is not as expected', async () => {
+    apiAnswers({
+      '/v1/products/ashwagandha-capsules': () =>
+        answer(200, {
+          ...PRODUCT,
+          variants: [{ ...PRODUCT.variants[0], unit: 'BOTTLES' }],
+        }),
+    });
+    expect(await thrownStatus(productAt('ashwagandha-capsules'))).toBe(503);
   });
 });

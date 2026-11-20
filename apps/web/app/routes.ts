@@ -7,5 +7,6 @@ export default [
   index('routes/home.tsx'),
   route('shop', 'routes/shop.tsx'),
   route('categories/:slug', 'routes/category.tsx'),
+  route('products/:slug', 'routes/product.tsx'),
   route('*', 'routes/not-found.tsx'),
 ] satisfies RouteConfig;

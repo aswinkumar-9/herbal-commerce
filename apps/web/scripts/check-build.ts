@@ -1,8 +1,8 @@
 // Checks the built website before it can be served (part of `pnpm
 // web:build`, ADR 0039). It starts the built website on a spare port, with
 // a stand-in for the API, and reads its pages as a browser would: the home
-// page, the shop and a search, a category, "not found" (404) and an
-// unknown category, and the home page again while the API is busy, which
+// page, the shop and a search, a category, a product, "not found" (404)
+// and an unknown category and product, and the home page again while the API is busy, which
 // then says the shop is taking a break (503). Each must carry its own
 // policy with a fresh nonce, every inline script that nonce, and no inline
 // style at all. No source map may be published, and no font or picture may
@@ -34,6 +34,37 @@ const answers: Record<string, unknown> = {
     total: 1,
     page: 1,
     nextPage: null,
+  },
+  '/v1/products/tulsi-drops': {
+    ...TULSI,
+    description: null,
+    ingredients: 'Tulsi leaf extract',
+    usage: null,
+    type: 'AYURVEDIC_MEDICINE',
+    licenceNumber: '25D/123/2015',
+    manufacturerName: 'Herbal Works',
+    manufacturerAddress: 'Mysuru',
+    countryOfOrigin: 'India',
+    category: { name: WELLNESS.name, slug: WELLNESS.slug },
+    variants: [
+      {
+        sku: 'TUL-30',
+        quantity: 30,
+        unit: 'ML',
+        mrpRupees: 349,
+        priceRupees: 299,
+        inStock: true,
+      },
+    ],
+    images: [
+      {
+        url: 'http://127.0.0.1:3000/media/products/k-large.webp',
+        thumbnailUrl: TULSI.imageUrl,
+        altText: 'Tulsi Drops',
+        width: 1200,
+        height: 1200,
+      },
+    ],
   },
   '/v1/categories/wellness/products': {
     category: WELLNESS,
@@ -188,8 +219,10 @@ try {
   await checkPage('/shop', 200);
   await checkPage('/shop?q=tulsi&sort=price-asc', 200);
   await checkPage('/categories/wellness', 200);
+  await checkPage('/products/tulsi-drops', 200);
   await checkPage('/this-page-does-not-exist', 404);
   await checkPage('/categories/no-such-category', 404);
+  await checkPage('/products/no-such-product', 404);
   busy = true;
   await checkPage('/', 503);
 } finally {

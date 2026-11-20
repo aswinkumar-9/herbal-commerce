@@ -29,6 +29,12 @@ export const PRODUCT_TYPES = {
 export type ProductTypeKey = keyof typeof PRODUCT_TYPES;
 export const TYPE_KEYS = Object.keys(PRODUCT_TYPES) as ProductTypeKey[];
 
+// The address's name for one of the API's types.
+export const typeKeyOf = (
+  type: (typeof PRODUCT_TYPES)[ProductTypeKey],
+): ProductTypeKey =>
+  TYPE_KEYS.find((key) => PRODUCT_TYPES[key] === type) ?? 'cosmetic';
+
 export const SORTS = ['relevance', 'price-asc', 'price-desc', 'name'] as const;
 export type Sort = (typeof SORTS)[number];
 

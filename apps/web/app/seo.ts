@@ -4,7 +4,8 @@
 // need. Only the page's real words and pictures, never made-up facts.
 // A page that is one of many views of another (a search, a filter, a later
 // page of a list) asks search engines not to list it, and names no
-// canonical address of its own.
+// canonical address of its own. A product's page says it is one, with its
+// lowest price on sale, for previews that show it.
 import type { MetaDescriptor } from 'react-router';
 import { text } from './text/en.ts';
 
@@ -15,6 +16,7 @@ export function pageMeta({
   path,
   image,
   noindex = false,
+  price,
 }: {
   title: string;
   description: string;
@@ -22,6 +24,8 @@ export function pageMeta({
   path: string;
   image?: { src: string; alt: string; width?: number; height?: number };
   noindex?: boolean;
+  // In whole rupees; given for a product's page only.
+  price?: number | null | undefined;
 }): MetaDescriptor[] {
   const url = new URL(path, origin).href;
   return [
@@ -30,7 +34,10 @@ export function pageMeta({
     noindex
       ? { name: 'robots', content: 'noindex, follow' }
       : { tagName: 'link', rel: 'canonical', href: url },
-    { property: 'og:type', content: 'website' },
+    {
+      property: 'og:type',
+      content: price === undefined ? 'website' : 'product',
+    },
     { property: 'og:site_name', content: text.shop.name },
     { property: 'og:locale', content: 'en_IN' },
     { property: 'og:title', content: title },
@@ -49,5 +56,11 @@ export function pageMeta({
           { name: 'twitter:card', content: 'summary_large_image' },
         ]
       : [{ name: 'twitter:card', content: 'summary' }]),
+    ...(price === undefined || price === null
+      ? []
+      : [
+          { property: 'product:price:amount', content: String(price) },
+          { property: 'product:price:currency', content: 'INR' },
+        ]),
   ];
 }

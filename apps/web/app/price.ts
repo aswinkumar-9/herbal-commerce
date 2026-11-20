@@ -3,3 +3,6 @@
 const digits = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });
 
 export const rupees = (amount: number): string => `₹${digits.format(amount)}`;
+
+// A count, grouped the same way: 1,000 g.
+export const count = (amount: number): string => digits.format(amount);

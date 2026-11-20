@@ -223,6 +223,48 @@ export const text = {
       count === 1 ? '1 more product shown' : `${count} more products shown`,
     start: 'Back to the start',
   },
+  // A product's own page (part 14A). Buying comes with the cart (14C).
+  productPage: {
+    // When staff gave the product no summary: no claim, only facts.
+    description: (name: string) =>
+      `${name} at Herbal Commerce. Prices include GST, and delivery is free from ₹499.`,
+    photos: 'Photos',
+    showPhoto: (at: number, of: number) => `Show photo ${at} of ${of}`,
+    packs: {
+      heading: 'Pack sizes',
+      mrp: (price: string) => `MRP ${price}`,
+      save: (amount: string) => `You save ${amount}`,
+      inStock: 'In stock',
+      outOfStock: 'Out of stock',
+      none: 'Not on sale yet. Please come back soon.',
+      terms:
+        'Prices include GST. Delivery is free on orders of ₹499 or more, and ₹49 below that.',
+    },
+    // A pack's net quantity, as its label gives it.
+    units: {
+      G: (n: string) => `${n} g`,
+      KG: (n: string) => `${n} kg`,
+      ML: (n: string) => `${n} ml`,
+      L: (n: string) => `${n} L`,
+      CAPSULES: (n: string) => (n === '1' ? '1 capsule' : `${n} capsules`),
+      TABLETS: (n: string) => (n === '1' ? '1 tablet' : `${n} tablets`),
+      PIECES: (n: string) => (n === '1' ? '1 piece' : `${n} pieces`),
+    },
+    about: 'About it',
+    ingredients: 'Ingredients',
+    usage: 'How to use it',
+    label: {
+      heading: 'Licence and maker',
+      licence: {
+        AYURVEDIC_MEDICINE: 'AYUSH licence',
+        FOOD_OR_SUPPLEMENT: 'FSSAI licence',
+        COSMETIC: 'Cosmetics licence',
+      },
+      maker: 'Made by',
+      address: 'Maker’s address',
+      origin: 'Country of origin',
+    },
+  },
   notFound: {
     title: 'Page not found',
     heading: 'We couldn’t find that page',

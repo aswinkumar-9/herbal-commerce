@@ -1,4 +1,3 @@
-import { CaretRight } from '@phosphor-icons/react';
 import { useEffect, useRef, useState } from 'react';
 import type { MouseEvent } from 'react';
 import { Link, data, useFetcher } from 'react-router';
@@ -7,6 +6,7 @@ import { listCategoryProducts } from '../catalog.server.ts';
 import type { ProductCard } from '../catalog.server.ts';
 import { getConfig } from '../config.server.ts';
 import { EmptyState } from '../components/EmptyState.tsx';
+import { Trail } from '../components/Trail.tsx';
 import {
   ProductGrid,
   ProductGridSkeleton,
@@ -60,25 +60,7 @@ export default function CategoryPage({ loaderData }: Route.ComponentProps) {
   const { category, products, nextAfter, after } = loaderData;
   return (
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 pt-24 pb-24">
-      <nav aria-label={words.trail} className="mt-12">
-        <ol className="body-6 flex flex-wrap items-center gap-2 text-ink-muted">
-          <li>
-            <Link to="/" className="hover:text-primary hover:underline">
-              {text.nav.home}
-            </Link>
-          </li>
-          <li className="flex items-center gap-2">
-            <CaretRight aria-hidden="true" className="size-3" />
-            <Link to="/shop" className="hover:text-primary hover:underline">
-              {text.nav.shop}
-            </Link>
-          </li>
-          <li aria-current="page" className="flex items-center gap-2 text-ink">
-            <CaretRight aria-hidden="true" className="size-3 text-ink-muted" />
-            {category.name}
-          </li>
-        </ol>
-      </nav>
+      <Trail here={category.name} />
       <header className="flex flex-col gap-4">
         <h1 className="heading-3 text-balance text-ink md:heading-2">
           {category.name}
