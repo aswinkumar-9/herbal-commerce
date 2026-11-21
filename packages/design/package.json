@@ -11,7 +11,8 @@
     ".": "./src/index.ts",
     "./console.css": "./css/console.css",
     "./shop.css": "./css/shop.css",
-    "./theme-init": "./src/theme-init.ts"
+    "./theme-init": "./src/theme-init.ts",
+    "./text-marks": "./src/text-marks.ts"
   },
   "scripts": {
     "build": "node scripts/build.ts",

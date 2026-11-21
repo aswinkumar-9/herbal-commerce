@@ -8,6 +8,7 @@ import { StaffVariantsController } from '../catalog/staff-variants.controller';
 import { StaffStockController } from '../inventory/staff-stock.controller';
 import { StaffOrdersController } from '../orders/staff-orders.controller';
 import { StaffRefundsController } from '../payments/staff-refunds.controller';
+import { StaffPoliciesController } from '../policies/staff-policies.controller';
 import { StaffAdminsController } from './staff-admins.controller';
 import { StaffAuditLogController } from './staff-audit-log.controller';
 import { StaffAuthController } from './staff-auth.controller';
@@ -29,6 +30,7 @@ describe('staff routes', () => {
       StaffStockController,
       StaffOrdersController,
       StaffRefundsController,
+      StaffPoliciesController,
     ]) {
       expect([controller.name, reflector.get(STAFF_ONLY, controller)]).toEqual([
         controller.name,
@@ -38,12 +40,13 @@ describe('staff routes', () => {
   });
 
   // New in Part 3B-4; the audit log joined in Part 3B-6, and refunds, which
-  // are money, in Part 9.
-  it('manage Admins, show the audit log and list refunds for Super Users only, as whole controllers', () => {
+  // are money, in Part 9, and the website's policy pages in Part 14B.
+  it('manage Admins, show the audit log, list refunds and write the policy pages for Super Users only, as whole controllers', () => {
     for (const controller of [
       StaffAdminsController,
       StaffAuditLogController,
       StaffRefundsController,
+      StaffPoliciesController,
     ]) {
       expect([
         controller.name,

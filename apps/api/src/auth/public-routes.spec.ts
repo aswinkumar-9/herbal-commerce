@@ -12,6 +12,8 @@ import { StaffVariantsController } from '../catalog/staff-variants.controller';
 import { OrdersController } from '../orders/orders.controller';
 import { StaffOrdersController } from '../orders/staff-orders.controller';
 import { StaffRefundsController } from '../payments/staff-refunds.controller';
+import { PoliciesController } from '../policies/policies.controller';
+import { StaffPoliciesController } from '../policies/staff-policies.controller';
 import { RazorpayWebhooksController } from '../orders/razorpay-webhooks.controller';
 import { StaffAdminsController } from '../staff/staff-admins.controller';
 import { StaffAuditLogController } from '../staff/staff-audit-log.controller';
@@ -34,7 +36,7 @@ function publicHandlers(controller: { prototype: object }): string[] {
 }
 
 describe('public routes', () => {
-  it('are exactly the sign-up, sign-in, password reset, invitation, health, shop and Razorpay webhook endpoints', () => {
+  it('are exactly the sign-up, sign-in, password reset, invitation, health, shop, policy page and Razorpay webhook endpoints', () => {
     expect(publicHandlers(AuthController)).toEqual([
       'register',
       'verifyEmail',
@@ -80,5 +82,9 @@ describe('public routes', () => {
     ]);
     // Part 11: customers search the shop before they sign in too.
     expect(publicHandlers(ProductsController)).toEqual(['search', 'detail']);
+    // Part 14B: anyone reads the published policy pages; only Super Users
+    // write them.
+    expect(publicHandlers(PoliciesController)).toEqual(['published']);
+    expect(publicHandlers(StaffPoliciesController)).toEqual([]);
   });
 });
