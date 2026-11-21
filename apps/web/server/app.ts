@@ -1,7 +1,8 @@
 // The website server (ADR 0039): Express, in front of React Router, which
 // makes each page. It sends the security headers with every answer, tells
-// the page code the customer's IP, serves the built files, and answers a
-// failure with a plain message, never a stack trace.
+// the page code the customer's IP, serves the built files, refuses forms
+// sent from other sites (ADR 0041), and answers a failure with a plain
+// message, never a stack trace.
 import { join } from 'node:path';
 import { createRequestHandler } from '@react-router/express';
 import express from 'express';
@@ -71,6 +72,7 @@ export function createWebsite({
       }),
     );
   }
+  app.use(formsFromThisSite(config));
   app.use(
     createRequestHandler({
       build,
@@ -79,6 +81,34 @@ export function createWebsite({
   );
   app.use(lastResort);
   return app;
+}
+
+// A form may only be sent from the website's own pages (ADR 0041): a
+// request that changes something (anything but GET and HEAD) from a browser
+// must come from the website's own address. Its cookie is SameSite=Lax too,
+// so another site can't send it; this refuses such a request outright.
+// Without Origin and Sec-Fetch-Site, the sender is no browser, and has no
+// customer's cookie to borrow.
+export function formsFromThisSite(config: WebConfig): RequestHandler {
+  return (request, response, next) => {
+    if (request.method === 'GET' || request.method === 'HEAD') {
+      next();
+      return;
+    }
+    const origin = request.get('origin');
+    const site = request.get('sec-fetch-site');
+    const fromHere = origin
+      ? origin === config.origin
+      : site === undefined || site === 'same-origin';
+    if (fromHere) {
+      next();
+      return;
+    }
+    response
+      .status(403)
+      .type('text/plain')
+      .send('This form can only be sent from the shop’s own pages.');
+  };
 }
 
 export function securityHeaders(config: WebConfig): RequestHandler {

@@ -10,12 +10,22 @@ import {
 import themeInit from 'virtual:herbal-theme-init';
 import type { Route } from './+types/root';
 import styles from './app.css?url';
+import { sessionMiddleware, sessionOf } from './session.server.ts';
 import { SiteFrame } from './components/SiteFrame.tsx';
 import {
   FailedPage,
   NotFoundPage,
   UnavailablePage,
 } from './components/StatusPages.tsx';
+
+// Before every page and data request: the customer's sign-in (ADR 0041).
+export const middleware: Route.MiddlewareFunction[] = [sessionMiddleware];
+
+// What every page needs to know: whether a customer is signed in, for the
+// menu. Nothing else of the session ever reaches the browser.
+export function loader({ context }: Route.LoaderArgs) {
+  return { signedIn: sessionOf(context).current !== null };
+}
 
 export const links: Route.LinksFunction = () => [
   { rel: 'stylesheet', href: styles },

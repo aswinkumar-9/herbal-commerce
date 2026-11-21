@@ -9,12 +9,17 @@ export function renderPage({
   url = path,
   Component,
   loader,
+  action,
   ErrorBoundary,
 }: {
   path?: string;
   url?: string;
   Component: ComponentType<never>;
   loader?: (args: {
+    request: Request;
+    params: Record<string, string | undefined>;
+  }) => unknown;
+  action?: (args: {
     request: Request;
     params: Record<string, string | undefined>;
   }) => unknown;
@@ -25,6 +30,7 @@ export function renderPage({
       path,
       Component: Component as ComponentType,
       ...(loader ? { loader } : {}),
+      ...(action ? { action } : {}),
       ...(ErrorBoundary
         ? { ErrorBoundary: ErrorBoundary as ComponentType }
         : {}),

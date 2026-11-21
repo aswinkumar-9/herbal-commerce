@@ -66,7 +66,11 @@ export function baseHeaders({
   return {
     'X-Content-Type-Options': 'nosniff',
     'X-Frame-Options': 'DENY',
-    'Referrer-Policy': 'no-referrer',
+    // No other site learns which page a customer came from. Within the
+    // website, a form keeps its real Origin: under no-referrer, a browser
+    // sends a form without the page's script with Origin "null", which
+    // the form check rightly refuses (ADR 0041).
+    'Referrer-Policy': 'same-origin',
     'Permissions-Policy':
       'camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), bluetooth=(), hid=(), browsing-topics=()',
     'Cross-Origin-Opener-Policy': 'same-origin',

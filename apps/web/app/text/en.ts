@@ -13,6 +13,8 @@ export const text = {
     menu: 'Menu',
     home: 'Home',
     shop: 'Shop',
+    signIn: 'Sign in',
+    account: 'Account',
   },
   theme: {
     label: 'Theme',
@@ -223,6 +225,45 @@ export const text = {
     shown: (count: number) =>
       count === 1 ? '1 more product shown' : `${count} more products shown`,
     start: 'Back to the start',
+  },
+  // Signing in (part 14B, ADR 0041). One answer for a wrong email or
+  // password, as the API gives (ADR 0007).
+  signIn: {
+    title: 'Sign in',
+    description: 'Sign in to your Herbal Commerce account.',
+    intro: 'Welcome back. Sign in to see your account.',
+    forPage: 'Sign in to see that page.',
+    email: 'Email address',
+    password: 'Password',
+    showPassword: 'Show password',
+    submit: 'Sign in',
+    submitting: 'Signing in',
+    problems: {
+      emailMissing: 'Enter your email address.',
+      emailWrong: 'Enter an email address like name@example.com.',
+      passwordMissing: 'Enter your password.',
+      passwordLong: 'A password has at most 128 characters.',
+      wrong:
+        'The email address or the password is not right. Please check them and try again.',
+      unconfirmed:
+        'Signed up recently? Confirm your email address first, with the link we sent you.',
+      closed: 'This account is closed. To ask about it, see Contact us.',
+      tooMany: (wait: string) =>
+        `Too many tries. Please wait ${wait} and try again.`,
+      resting:
+        'We could not sign you in just now. Please try again in a minute.',
+    },
+    minutes: (count: number) => (count === 1 ? '1 minute' : `${count} minutes`),
+    seconds: (count: number) => (count === 1 ? '1 second' : `${count} seconds`),
+  },
+  // The customer's own page (part 14B). More comes with the account's
+  // details and addresses.
+  account: {
+    title: 'Your account',
+    description: 'Your Herbal Commerce account.',
+    signedInAs: 'Signed in as',
+    signOut: 'Sign out',
+    signingOut: 'Signing out',
   },
   // The policy pages (part 14B, ADR 0040). Their words are the Super
   // User's, from the console; these are only the names and the frame.

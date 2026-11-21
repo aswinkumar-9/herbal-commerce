@@ -386,7 +386,15 @@ The website shows the shop to anyone, without signing in (ADR 0039). Its pages a
 
 **As it runs in production:** `pnpm web:build`, then `pnpm web:start`. Only the built website has its full security policy: in development, Vite needs inline code.
 
-**Settings** (environment variables, all optional on a laptop): `WEB_PORT` (3001), `WEB_HOST` (localhost), `WEB_ORIGIN` (the website's own address, for link previews), `WEB_API_URL` (the API), `WEB_MEDIA_BASE_URL` (the API's `MEDIA_BASE_URL`: photos from anywhere else are left out), `WEB_TRUST_PROXY` (proxies allowed to report the customer's IP) and `WEB_INDEXING` (`on` only for the live shop: until then every page asks search engines not to list it). The server refuses to start on a bad one. See ADR 0039.
+The built website needs a key for customers' sign-in cookies (ADR 0041), at least 32 random characters, kept secret. Set it in the terminal before `pnpm web:start`; this makes one without showing it:
+
+```powershell
+$env:WEB_SESSION_SECRET = node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))"
+```
+
+A new key signs every customer out. `pnpm web:dev` needs none: it makes its own, and sign-ins end when it stops.
+
+**Settings** (environment variables, all optional on a laptop): `WEB_PORT` (3001), `WEB_HOST` (localhost), `WEB_ORIGIN` (the website's own address, for link previews), `WEB_API_URL` (the API), `WEB_MEDIA_BASE_URL` (the API's `MEDIA_BASE_URL`: photos from anywhere else are left out), `WEB_TRUST_PROXY` (proxies allowed to report the customer's IP), `WEB_INDEXING` (`on` only for the live shop: until then every page asks search engines not to list it) and `WEB_SESSION_SECRET` (the sign-in cookies' key: needed by the built website). The server refuses to start on a bad one. See ADR 0039.
 
 **The owner's pictures:** the originals stay outside the repository. After a new one, `pnpm --filter web art "<their folder>"` writes the WebP copies and the link preview picture into `apps/web/app/art/`.
 

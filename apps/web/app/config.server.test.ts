@@ -2,6 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import { loadConfig } from './config.server.ts';
 
+const SECRET = 'a-secret-only-these-tests-know-0123456789';
+
 describe('the website’s settings', () => {
   it('suit a laptop with none given', () => {
     expect(loadConfig({})).toEqual({
@@ -13,7 +15,10 @@ describe('the website’s settings', () => {
       mediaBaseUrl: 'http://127.0.0.1:3000/media',
       trustProxy: [],
       indexing: false,
+      sessionSecret: expect.stringMatching(/^[\w-]{43}$/) as string,
     });
+    // Made once for the server's life, so a reload signs no one out.
+    expect(loadConfig({}).sessionSecret).toBe(loadConfig({}).sessionSecret);
   });
 
   it('take each one given, without a final "/"', () => {
@@ -27,6 +32,7 @@ describe('the website’s settings', () => {
         WEB_MEDIA_BASE_URL: 'https://cdn.example.com/media/',
         WEB_TRUST_PROXY: 'loopback, 10.0.0.0/8',
         WEB_INDEXING: 'on',
+        WEB_SESSION_SECRET: SECRET,
       }),
     ).toEqual({
       production: true,
@@ -37,6 +43,7 @@ describe('the website’s settings', () => {
       mediaBaseUrl: 'https://cdn.example.com/media',
       trustProxy: ['loopback', '10.0.0.0/8'],
       indexing: true,
+      sessionSecret: SECRET,
     });
   });
 
@@ -69,6 +76,25 @@ describe('the website’s settings', () => {
     ).toThrow(
       /WEB_ORIGIN: must use https in production\n- WEB_MEDIA_BASE_URL: must use https in production/,
     );
-    expect(loadConfig({ NODE_ENV: 'production' }).production).toBe(true);
+    expect(
+      loadConfig({ NODE_ENV: 'production', WEB_SESSION_SECRET: SECRET })
+        .production,
+    ).toBe(true);
+  });
+
+  it('want a long session key, and one given in production, without ever saying it', () => {
+    expect(() => loadConfig({ NODE_ENV: 'production' })).toThrow(
+      'WEB_SESSION_SECRET: must be set in production',
+    );
+    let message = '';
+    try {
+      loadConfig({ WEB_SESSION_SECRET: 'short-and-secret' });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain(
+      'WEB_SESSION_SECRET must have at least 32 characters',
+    );
+    expect(message).not.toContain('short-and-secret');
   });
 });

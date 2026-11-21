@@ -87,7 +87,7 @@ describe('the website server', () => {
       const response = await fetch(`${base}${path}`);
       expect(response.headers.get('x-content-type-options')).toBe('nosniff');
       expect(response.headers.get('x-frame-options')).toBe('DENY');
-      expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+      expect(response.headers.get('referrer-policy')).toBe('same-origin');
       expect(response.headers.get('cross-origin-opener-policy')).toBe(
         'same-origin',
       );
@@ -150,6 +150,44 @@ describe('the website server', () => {
     expect(
       (await fetch(`${base}/favicon.svg`)).headers.has('x-robots-tag'),
     ).toBe(false);
+  });
+
+  it('refuses a form sent from another site, before any page sees it (ADR 0041)', async () => {
+    await start({ WEB_ORIGIN: 'http://localhost:3001' });
+    const send = (method: string, headers: Record<string, string>) =>
+      fetch(`${base}/sign-in`, {
+        method,
+        headers,
+        body: method === 'GET' ? undefined : 'x',
+      });
+
+    for (const [method, headers, status] of [
+      ['POST', { origin: 'http://localhost:3001' }, 200],
+      ['POST', { origin: 'https://evil.example' }, 403],
+      ['POST', { origin: 'null' }, 403],
+      ['POST', { origin: 'http://localhost:3001.evil.example' }, 403],
+      ['DELETE', { origin: 'https://evil.example' }, 403],
+      // No Origin: a browser says where the form came from another way.
+      ['POST', { 'sec-fetch-site': 'cross-site' }, 403],
+      ['POST', { 'sec-fetch-site': 'same-site' }, 403],
+      ['POST', { 'sec-fetch-site': 'same-origin' }, 200],
+      // Neither: no browser, so no customer's cookie to borrow.
+      ['POST', {}, 200],
+      // Reading a page is never refused.
+      ['GET', { origin: 'https://evil.example' }, 200],
+    ] as const) {
+      const response = await send(method, headers);
+      expect([method, JSON.stringify(headers), response.status]).toEqual([
+        method,
+        JSON.stringify(headers),
+        status,
+      ]);
+      if (status === 403) {
+        expect(await response.text()).toBe(
+          'This form can only be sent from the shop’s own pages.',
+        );
+      }
+    }
   });
 
   it('answers a failure with a plain message, never its details', async () => {

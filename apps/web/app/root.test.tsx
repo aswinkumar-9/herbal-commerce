@@ -1,13 +1,42 @@
 import { screen, waitFor } from '@testing-library/react';
-import { data } from 'react-router';
+import { RouterContextProvider, data } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { renderPage } from './test/render.tsx';
-import { ErrorBoundary } from './root.tsx';
+import { ErrorBoundary, loader as rootLoader } from './root.tsx';
+import { SessionHandle, sessionContext } from './session.server.ts';
 import NotFound, { loader as notFoundLoader } from './routes/not-found.tsx';
 
 const failingWith = (status: number) => () => {
   throw data(null, { status });
 };
+
+describe('what every page knows', () => {
+  it('is only whether a customer is signed in, never their session', () => {
+    const asked = (signedIn: boolean) => {
+      const context = new RouterContextProvider();
+      context.set(
+        sessionContext,
+        new SessionHandle(
+          signedIn
+            ? {
+                accessToken: 'access.jwt.one',
+                refreshToken: 'refresh-token-one-0123456789',
+                accessEndsAt: Date.now() + 60_000,
+                endsAt: Date.now() + 86_400_000,
+              }
+            : null,
+        ),
+      );
+      return rootLoader({
+        context,
+        request: new Request('http://localhost:3001/'),
+        params: {},
+      } as never);
+    };
+    expect(asked(true)).toEqual({ signedIn: true });
+    expect(asked(false)).toEqual({ signedIn: false });
+  });
+});
 
 describe('a page that can’t be made', () => {
   it('is "not found" for an address the shop doesn’t have, inside the site’s frame', async () => {

@@ -9,7 +9,7 @@
 //   expected: the page says the shop is taking a short break (503). The
 //   reason goes to the server's log, never to the page.
 import { data } from 'react-router';
-import type { z } from 'zod';
+import { z } from 'zod';
 import { getConfig } from './config.server.ts';
 import { CLIENT_IP_HEADER } from './security-headers.ts';
 
@@ -99,9 +99,133 @@ async function ask<T>(
   return parsed.data;
 }
 
+// What the API said to a form or a signed-in page (part 14B): an answer, or
+// its refusal for the page to explain beside the form. Never thrown. Status
+// 0: the API could not be reached, was too slow, or answered unexpectedly.
+export type ApiAnswer<T> =
+  | { ok: true; data: T }
+  | {
+      ok: false;
+      status: number;
+      code: string | undefined;
+      message: string | undefined;
+      // The API's word for each field it refused, first message only.
+      fields: Record<string, string>;
+      // From Retry-After, in seconds, when the API says how long to wait.
+      retryAfter: number | undefined;
+    };
+
+const refusalSchema = z.object({
+  message: z.union([z.string(), z.array(z.string())]).optional(),
+  code: z.string().optional(),
+  errors: z
+    .array(z.object({ field: z.string(), message: z.string() }))
+    .optional(),
+});
+
+const failed = (status: number): ApiAnswer<never> => ({
+  ok: false,
+  status,
+  code: undefined,
+  message: undefined,
+  fields: {},
+  retryAfter: undefined,
+});
+
+// Sends a form's words, or asks on a signed-in customer's behalf. The log
+// names the method and path only: never a password, a token or an address.
+export async function apiSend<T>(
+  request: Request,
+  {
+    method,
+    path,
+    body,
+    accessToken,
+  }: {
+    method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
+    path: string;
+    body?: unknown;
+    accessToken?: string | undefined;
+  },
+  schema: z.ZodType<T>,
+): Promise<ApiAnswer<T>> {
+  const url = new URL(`${getConfig().apiUrl}/v1/${path}`);
+  const headers = new Headers({ accept: 'application/json' });
+  if (body !== undefined) {
+    headers.set('content-type', 'application/json');
+  }
+  if (accessToken) {
+    headers.set('authorization', `Bearer ${accessToken}`);
+  }
+  const ip = request.headers.get(CLIENT_IP_HEADER);
+  if (ip) {
+    headers.set('x-forwarded-for', ip);
+  }
+  const what = `${method} ${url.pathname}`;
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers,
+      body: body === undefined ? undefined : JSON.stringify(body),
+      redirect: 'error',
+      signal: AbortSignal.any([
+        request.signal,
+        AbortSignal.timeout(API_TIMEOUT_MS),
+      ]),
+    });
+  } catch (error) {
+    if (request.signal.aborted) {
+      throw error;
+    }
+    console.error(`The API did not answer ${what}:`, error);
+    return failed(0);
+  }
+
+  if (response.ok) {
+    const answer: unknown =
+      response.status === 204
+        ? undefined
+        : await response.json().catch(() => undefined);
+    const parsed = schema.safeParse(answer);
+    if (!parsed.success) {
+      console.error(`The API's answer to ${what} is not as expected`);
+      return failed(0);
+    }
+    return { ok: true, data: parsed.data };
+  }
+
+  if (response.status >= 500) {
+    console.error(`The API answered ${what} with ${response.status}`);
+  }
+  const refusal = refusalSchema.safeParse(
+    await response.json().catch(() => undefined),
+  );
+  const said = refusal.success ? refusal.data : {};
+  const fields: Record<string, string> = {};
+  for (const { field, message } of said.errors ?? []) {
+    if (!Object.hasOwn(fields, field)) {
+      Object.defineProperty(fields, field, {
+        value: message,
+        enumerable: true,
+      });
+    }
+  }
+  const wait = response.headers.get('retry-after');
+  return {
+    ok: false,
+    status: response.status,
+    code: said.code,
+    message: Array.isArray(said.message) ? said.message[0] : said.message,
+    fields,
+    retryAfter: wait && /^\d{1,5}$/.test(wait) ? Number(wait) : undefined,
+  };
+}
+
 // "Try again later", with how long to wait: the API's own figure when it
 // gave a plain one, else a minute.
-function unavailable(retryAfter?: string | null) {
+export function unavailable(retryAfter?: string | null) {
   const wait = retryAfter && /^\d{1,4}$/.test(retryAfter) ? retryAfter : '60';
   return data(null, { status: 503, headers: { 'Retry-After': wait } });
 }

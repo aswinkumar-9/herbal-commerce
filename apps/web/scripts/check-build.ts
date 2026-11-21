@@ -2,12 +2,14 @@
 // web:build`, ADR 0039). It starts the built website on a spare port, with
 // a stand-in for the API, and reads its pages as a browser would: the home
 // page, the shop and a search, a category, a product, a policy page and
-// one not published yet, "not found" (404) and an unknown category and
-// product, and the home page again while the API is busy, which
-// then says the shop is taking a break (503). Each must carry its own
+// one not published yet, the sign-in page, "not found" (404) and an unknown
+// category and product, and the home page again while the API is busy,
+// which then says the shop is taking a break (503). Each must carry its own
 // policy with a fresh nonce, every inline script that nonce, and no inline
 // style at all. No source map may be published, and no font or picture may
-// hide in a data: address.
+// hide in a data: address. It also signs in through the built website, as
+// a browser would (ADR 0041).
+import { randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
@@ -16,6 +18,8 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { ServerBuild } from 'react-router';
 
 process.env.NODE_ENV = 'production';
+// A built website needs a key for its sign-in cookies: a fresh one here.
+process.env['WEB_SESSION_SECRET'] = randomBytes(32).toString('base64url');
 
 // The stand-in for the API: one category with one product, or busy when
 // asked to be.
@@ -72,6 +76,15 @@ const answers: Record<string, unknown> = {
     products: [TULSI],
     nextAfter: null,
   },
+  // A customer signing in (any email and password will do), and who they
+  // are.
+  '/v1/auth/login': {
+    accessToken: 'stand.in.access-token',
+    tokenType: 'Bearer',
+    expiresIn: 900,
+    refreshToken: 'stand-in-refresh-token-0123456789',
+  },
+  '/v1/me': { fullName: 'Asha Verma', email: 'asha@example.com' },
   // Only the privacy policy is published; the rest answer 404.
   '/v1/policies/privacy': {
     page: 'privacy',
@@ -125,6 +138,16 @@ console.error = (...args: unknown[]) => {
   logged.push(args);
 };
 
+// The website answers at its own address, WEB_ORIGIN, as it will when it
+// is live: forms are taken only from there (ADR 0041).
+const port = await new Promise<number>((resolve) => {
+  const probe = createServer().listen(0, '127.0.0.1', () => {
+    const at = probe.address();
+    probe.close(() => resolve(typeof at === 'object' && at ? at.port : 0));
+  });
+});
+process.env['WEB_ORIGIN'] = `http://127.0.0.1:${port}`;
+
 const { loadConfig } = await import('../app/config.server.ts');
 const { createWebsite } = await import('../server/app.ts');
 const build = (await import(
@@ -136,10 +159,9 @@ const website = createWebsite({
   clientDir: join(web, 'build', 'client'),
 });
 const server = await new Promise<Server>((resolve) => {
-  const listening = website.listen(0, '127.0.0.1', () => resolve(listening));
+  const listening = website.listen(port, '127.0.0.1', () => resolve(listening));
 });
-const address = server.address();
-const base = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
+const base = process.env['WEB_ORIGIN'];
 
 const nonces = new Set<string>();
 async function checkPage(path: string, status: number): Promise<void> {
@@ -222,6 +244,69 @@ async function checkPage(path: string, status: number): Promise<void> {
   }
 }
 
+// Signing in through the built website (ADR 0041): the account sends a
+// visitor to sign in; a form from another site is refused; the form signs
+// in and seals the tokens in an HttpOnly cookie; the account page then
+// opens with it, is kept by no cache, and shows no token.
+async function checkSigningIn(): Promise<void> {
+  const where = 'signing in:';
+  const away = await fetch(`${base}/account`, { redirect: 'manual' });
+  if (
+    away.status !== 302 ||
+    away.headers.get('location') !== '/sign-in?next=%2Faccount'
+  ) {
+    problems.push(`${where} /account let a visitor in (${away.status})`);
+  }
+  const form = {
+    method: 'POST',
+    redirect: 'manual' as const,
+    body: new URLSearchParams({
+      email: 'asha@example.com',
+      password: 'a long password',
+    }),
+  };
+  const elsewhere = await fetch(`${base}/sign-in`, {
+    ...form,
+    headers: { origin: 'https://evil.example' },
+  });
+  if (elsewhere.status !== 403) {
+    problems.push(`${where} a form from another site got ${elsewhere.status}`);
+  }
+  const signedIn = await fetch(`${base}/sign-in`, {
+    ...form,
+    headers: { origin: base },
+  });
+  const cookie = signedIn.headers.get('set-cookie') ?? '';
+  const sealed =
+    /^herbal_session=v1\.[\w-]+\.[\w-]+; Path=\/; Max-Age=2592000; HttpOnly; SameSite=Lax$/;
+  if (
+    signedIn.status !== 302 ||
+    signedIn.headers.get('location') !== '/account' ||
+    !sealed.test(cookie) ||
+    cookie.includes('stand.in.access-token')
+  ) {
+    problems.push(
+      `${where} the form did not seal a session (${signedIn.status})`,
+    );
+    return;
+  }
+  const account = await fetch(`${base}/account`, {
+    headers: { cookie: cookie.split(';')[0] ?? '' },
+  });
+  const html = await account.text();
+  if (
+    account.status !== 200 ||
+    !html.includes('Asha Verma') ||
+    html.includes('stand.in.access-token') ||
+    html.includes('stand-in-refresh-token') ||
+    account.headers.get('cache-control') !== 'private, no-store'
+  ) {
+    problems.push(
+      `${where} the account page did not open as it should (${account.status})`,
+    );
+  }
+}
+
 try {
   await checkPage('/', 200);
   await checkPage('/shop', 200);
@@ -230,6 +315,8 @@ try {
   await checkPage('/products/tulsi-drops', 200);
   await checkPage('/privacy', 200);
   await checkPage('/terms', 200);
+  await checkPage('/sign-in', 200);
+  await checkSigningIn();
   await checkPage('/this-page-does-not-exist', 404);
   await checkPage('/categories/no-such-category', 404);
   await checkPage('/products/no-such-product', 404);

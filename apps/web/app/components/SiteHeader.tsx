@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Link, NavLink } from 'react-router';
+import { Link, NavLink, useRouteLoaderData } from 'react-router';
 import { SHOP_MOTION } from '@herbal/design';
 import { text } from '../text/en.ts';
 import { ThemeSwitch } from './ThemeSwitch.tsx';
@@ -10,6 +10,18 @@ export const SITE_LINKS = [
   { to: '/', label: text.nav.home },
   { to: '/shop', label: text.nav.shop },
 ] as const;
+
+// Then the customer's own place: their account once signed in, else the
+// way to sign in. The root's loader says which (root.tsx).
+function useSiteLinks(): readonly { to: string; label: string }[] {
+  const root = useRouteLoaderData<{ signedIn: boolean }>('root');
+  return [
+    ...SITE_LINKS,
+    root?.signedIn
+      ? { to: '/account', label: text.nav.account }
+      : { to: '/sign-in', label: text.nav.signIn },
+  ];
+}
 
 const WIDE = '(min-width: 64rem)';
 const reducedMotion = (): boolean =>
@@ -27,6 +39,7 @@ export function SiteHeader({
   menuOpen: boolean;
   onMenuChange: (open: boolean) => void;
 }) {
+  const links = useSiteLinks();
   const toggle = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   // Closing, it stays in the page while it fades, then hides.
@@ -112,7 +125,7 @@ export function SiteHeader({
             {text.shop.name}
           </Link>
           <ul className="hidden items-center lg:flex">
-            {SITE_LINKS.map((link) => (
+            {links.map((link) => (
               <li key={link.to}>
                 {/* The page you are on sits on a solid chip, in gold. */}
                 <NavLink
@@ -155,7 +168,7 @@ export function SiteHeader({
       >
         <nav aria-label={text.nav.phoneLabel}>
           <ul className="flex flex-col gap-2">
-            {SITE_LINKS.map((link) => (
+            {links.map((link) => (
               <li
                 key={link.to}
                 data-menu-item

@@ -1,5 +1,6 @@
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { createRoutesStub } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { mediaListeners, mediaMatches } from '../test/setup.ts';
 import { renderPage } from '../test/render.tsx';
@@ -16,6 +17,46 @@ function Page() {
 
 const toggle = () => screen.getByRole('button', { name: 'Menu' });
 const panel = () => document.getElementById('menu') as HTMLElement;
+
+// A page under the root, whose loader says whether someone is signed in.
+function openAs(signedIn: boolean) {
+  const Stub = createRoutesStub([
+    {
+      id: 'root',
+      path: '/',
+      loader: () => ({ signedIn }),
+      Component: Page,
+    },
+  ]);
+  render(<Stub initialEntries={['/']} />);
+}
+
+describe('the customer’s place in the menu', () => {
+  it('is the way to sign in for a visitor', async () => {
+    openAs(false);
+    const bar = await screen.findByRole('navigation', { name: 'Main' });
+    expect(within(bar).getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+      'href',
+      '/sign-in',
+    );
+    expect(within(bar).queryByRole('link', { name: 'Account' })).toBeNull();
+  });
+
+  it('is the account for a signed-in customer, in the bar and the phone menu', async () => {
+    openAs(true);
+    const bar = await screen.findByRole('navigation', { name: 'Main' });
+    expect(within(bar).getByRole('link', { name: 'Account' })).toHaveAttribute(
+      'href',
+      '/account',
+    );
+    expect(
+      screen.getAllByRole('link', { name: 'Account', hidden: true }),
+    ).toHaveLength(2);
+    expect(
+      screen.queryByRole('link', { name: 'Sign in', hidden: true }),
+    ).toBeNull();
+  });
+});
 
 describe('every page’s frame', () => {
   it('starts with a link to skip to the page, then the menu bar, the page and its foot', () => {
