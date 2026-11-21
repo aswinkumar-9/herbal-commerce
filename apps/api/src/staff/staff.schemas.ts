@@ -87,7 +87,10 @@ export const auditLogQuerySchema = z.object({
   actorId: z.uuid().optional(),
   targetId: z.string().min(1).max(100).optional(),
   kind: z
-    .enum(AUDIT_KINDS, 'Use accounts, sign_ins, orders, catalog or stock')
+    .enum(
+      AUDIT_KINDS,
+      'Use accounts, sign_ins, orders, catalog, stock or policies',
+    )
     .optional(),
 });
 export type AuditLogQueryInput = z.infer<typeof auditLogQuerySchema>;

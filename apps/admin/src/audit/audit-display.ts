@@ -1,6 +1,7 @@
 import { rupees } from '../catalog/products/pack-size-form';
 import { STATUS_NAMES } from '../orders/order-display';
 import type { OrderStatus } from '../orders/orders-api';
+import { POLICY_TITLES, isPolicyPage } from '../policies/policy-pages';
 import {
   REASON_NAMES,
   dayName,
@@ -21,6 +22,7 @@ export const KIND_NAMES: Record<AuditKind, string> = {
   orders: 'Orders and refunds',
   catalog: 'Catalog',
   stock: 'Stock',
+  policies: 'Policy pages',
 };
 
 // The thing an entry is about, and its page.
@@ -136,6 +138,14 @@ function catalogWords(
   return belongsTo
     ? [`${done} ${noun}`, name, `of ${belongsTo}`]
     : [`${done} ${noun}`, name];
+}
+
+// The policy page an entry is about, by its name (ADR 0040).
+function policyPage(entry: AuditEntry): Thing {
+  const page = entry.targetId ?? undefined;
+  return isPolicyPage(page)
+    ? { text: POLICY_TITLES[page], to: `/policies/${page}` }
+    : { text: 'a policy page', to: null };
 }
 
 // One sentence for an entry. An action the console does not know yet is
@@ -297,6 +307,20 @@ export function tell(entry: AuditEntry): Told {
         ],
       };
     }
+    case 'policy.draft_saved':
+      return { who, words: ['saved a draft of', policyPage(entry)] };
+    case 'policy.draft_discarded':
+      return { who, words: ['discarded the draft of', policyPage(entry)] };
+    case 'policy.published': {
+      const version = count(entry.after, 'version');
+      return {
+        who,
+        words: [
+          version === null ? 'published' : `published version ${version} of`,
+          policyPage(entry),
+        ],
+      };
+    }
     default:
       return { who, words: [`did “${entry.action}”`] };
   }
@@ -376,6 +400,9 @@ const FIELD_NAMES: Record<string, string> = {
   authenticatorLinkExpiresAt: 'Link works until',
   variants: 'Pack sizes',
   images: 'Images',
+  revision: 'Revision',
+  version: 'Version',
+  characters: 'Characters',
 };
 
 const MOMENT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;

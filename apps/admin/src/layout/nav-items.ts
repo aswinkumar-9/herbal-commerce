@@ -1,5 +1,6 @@
 import {
   Boxes,
+  FileText,
   LayoutDashboard,
   Package,
   ScrollText,
@@ -63,6 +64,14 @@ export const NAV_ITEMS: NavItem[] = [
     icon: ScrollText,
     role: 'SUPER_USER',
     summary: 'Who did what, and when.',
+  },
+  {
+    to: '/policies',
+    label: 'Policy pages',
+    icon: FileText,
+    role: 'SUPER_USER',
+    summary:
+      'Privacy, terms, refunds, delivery and contact, as customers read them.',
   },
 ];
 

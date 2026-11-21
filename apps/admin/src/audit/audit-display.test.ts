@@ -282,6 +282,53 @@ describe('the audit log in sentences', () => {
     );
   });
 
+  it('tells a change to a policy page, linking to it (ADR 0040)', () => {
+    const policy = {
+      targetType: 'policy_page',
+      targetId: 'privacy',
+      subject: null,
+      actorId: RAVI_PERSON.id,
+      actor: RAVI_PERSON,
+    };
+    expect(said({ ...policy, action: 'policy.draft_saved' })).toBe(
+      'Ravi Kumar saved a draft of Privacy policy',
+    );
+    expect(said({ ...policy, action: 'policy.draft_discarded' })).toBe(
+      'Ravi Kumar discarded the draft of Privacy policy',
+    );
+    expect(
+      said({
+        ...policy,
+        targetId: 'contact',
+        action: 'policy.published',
+        after: { revision: 5, version: 3, characters: 1200 },
+      }),
+    ).toBe('Ravi Kumar published version 3 of Contact us');
+    expect(linkOf({ ...policy, action: 'policy.published' })?.to).toBe(
+      '/policies/privacy',
+    );
+    // A page the console does not know: named plainly, with no link.
+    const unknown = { ...policy, targetId: 'cookies' };
+    expect(said({ ...unknown, action: 'policy.draft_saved' })).toBe(
+      'Ravi Kumar saved a draft of a policy page',
+    );
+    expect(linkOf({ ...unknown, action: 'policy.draft_saved' })?.to).toBeNull();
+    expect(
+      changedFields(
+        entryOf({
+          ...policy,
+          action: 'policy.published',
+          before: { revision: 4, version: 2 },
+          after: { revision: 5, version: 3, characters: 1200 },
+        }),
+      ).map((field) => [field.label, field.before, field.after]),
+    ).toEqual([
+      ['Revision', '4', '5'],
+      ['Version', '2', '3'],
+      ['Characters', null, '1,200'],
+    ]);
+  });
+
   it('still shows an action it does not know, by its name', () => {
     expect(said({ action: 'report.exported' })).toBe(
       'Asha Verma did “report.exported”',

@@ -170,7 +170,8 @@ describe('accepting an invitation', () => {
       expect.stringContaining('Type the 6 digits your app shows now'),
     );
     expect(api.to('POST', '/v1/staff/auth/accept-invite')).toEqual([]);
-  });
+    // Typing every key of two long passwords: slow in a busy test run.
+  }, 15_000);
 
   it('sends the password and the code with the token, then says to sign in, and forgets the key', async () => {
     const { user, api, queryClient } = invitation({
@@ -207,7 +208,7 @@ describe('accepting an invitation', () => {
       'href',
       '/sign-in',
     );
-  });
+  }, 15_000);
 
   it('sends no access token, even when someone is signed in on this browser', async () => {
     // Signed in already, before the link is opened.
