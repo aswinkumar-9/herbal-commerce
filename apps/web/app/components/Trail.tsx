@@ -3,17 +3,20 @@ import { Link } from 'react-router';
 import { text } from '../text/en.ts';
 
 // Where the page sits in the shop, and the way back (the website's rule
-// B10): home, the shop, any steps between, then this page, not a link.
+// B10): home, the shop, any steps between, then this page, not a link. A
+// page outside the shop, such as a policy page, leaves the shop out.
 export function Trail({
   steps = [],
   here,
+  inShop = true,
 }: {
   steps?: readonly { label: string; to: string }[];
   here: string;
+  inShop?: boolean;
 }) {
   const links = [
     { label: text.nav.home, to: '/' },
-    { label: text.nav.shop, to: '/shop' },
+    ...(inShop ? [{ label: text.nav.shop, to: '/shop' }] : []),
     ...steps,
   ];
   return (

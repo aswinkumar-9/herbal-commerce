@@ -3,7 +3,8 @@
 // against what the page expects before it is used.
 // - On behalf of a customer: their IP goes along, for the API's rate limits
 //   (it counts only from a proxy its TRUST_PROXY names).
-// - Not found (404): the page is "not found" too.
+// - Not found (404): the page is "not found" too, unless the page asks with
+//   apiFind, for an answer that may rightly be missing.
 // - Busy, resting, unreachable or slow, or an answer that isn't as
 //   expected: the page says the shop is taking a short break (503). The
 //   reason goes to the server's log, never to the page.
@@ -24,6 +25,32 @@ export async function apiGet<T>(
   schema: z.ZodType<T>,
   query?: URLSearchParams,
 ): Promise<T> {
+  const found = await ask(request, path, schema, query);
+  if (found === MISSING) {
+    throw data(null, { status: 404 });
+  }
+  return found;
+}
+
+// For an answer that may rightly be missing, such as a policy page not
+// published yet: null, where apiGet would make the page "not found".
+export async function apiFind<T>(
+  request: Request,
+  path: string,
+  schema: z.ZodType<T>,
+): Promise<T | null> {
+  const found = await ask(request, path, schema);
+  return found === MISSING ? null : found;
+}
+
+const MISSING = Symbol('missing');
+
+async function ask<T>(
+  request: Request,
+  path: string,
+  schema: z.ZodType<T>,
+  query?: URLSearchParams,
+): Promise<T | typeof MISSING> {
   const url = new URL(`${getConfig().apiUrl}/v1/${path}`);
   if (query) {
     url.search = query.toString();
@@ -56,7 +83,7 @@ export async function apiGet<T>(
 
   if (response.status === 404) {
     await response.body?.cancel();
-    throw data(null, { status: 404 });
+    return MISSING;
   }
   if (!response.ok) {
     await response.body?.cancel();

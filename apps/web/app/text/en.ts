@@ -24,6 +24,7 @@ export const text = {
     label: 'About the shop',
     prices: 'Prices include GST.',
     delivery: 'We deliver across India.',
+    policies: 'The shop’s policies',
   },
   // The home page (part 14A): calm and premium, by the owner's choice, and
   // only what is true of the shop (2026-11-20): its own fields and makers,
@@ -222,6 +223,40 @@ export const text = {
     shown: (count: number) =>
       count === 1 ? '1 more product shown' : `${count} more products shown`,
     start: 'Back to the start',
+  },
+  // The policy pages (part 14B, ADR 0040). Their words are the Super
+  // User's, from the console; these are only the names and the frame.
+  policies: {
+    pages: {
+      privacy: {
+        title: 'Privacy policy',
+        description:
+          'The privacy policy of Herbal Commerce: what personal details we keep, why, and for how long.',
+      },
+      terms: {
+        title: 'Terms and conditions',
+        description:
+          'The terms for ordering from Herbal Commerce and for using its website.',
+      },
+      refunds: {
+        title: 'Refunds and cancellations',
+        description:
+          'When an order from Herbal Commerce can be cancelled or returned, and how the money comes back.',
+      },
+      shipping: {
+        title: 'Shipping and delivery',
+        description:
+          'Where Herbal Commerce delivers, what delivery costs, and how long it takes.',
+      },
+      contact: {
+        title: 'Contact us',
+        description: 'How to reach Herbal Commerce.',
+      },
+    },
+    updated: 'Last updated',
+    // Not published yet: said plainly, with a way on.
+    pending: 'We are still writing this page.',
+    pendingHint: 'Please come back soon.',
   },
   // A product's own page (part 14A). Buying comes with the cart (14C).
   productPage: {

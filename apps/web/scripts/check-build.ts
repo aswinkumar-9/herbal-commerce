@@ -1,8 +1,9 @@
 // Checks the built website before it can be served (part of `pnpm
 // web:build`, ADR 0039). It starts the built website on a spare port, with
 // a stand-in for the API, and reads its pages as a browser would: the home
-// page, the shop and a search, a category, a product, "not found" (404)
-// and an unknown category and product, and the home page again while the API is busy, which
+// page, the shop and a search, a category, a product, a policy page and
+// one not published yet, "not found" (404) and an unknown category and
+// product, and the home page again while the API is busy, which
 // then says the shop is taking a break (503). Each must carry its own
 // policy with a fresh nonce, every inline script that nonce, and no inline
 // style at all. No source map may be published, and no font or picture may
@@ -70,6 +71,13 @@ const answers: Record<string, unknown> = {
     category: WELLNESS,
     products: [TULSI],
     nextAfter: null,
+  },
+  // Only the privacy policy is published; the rest answer 404.
+  '/v1/policies/privacy': {
+    page: 'privacy',
+    version: 1,
+    body: '## Who we are\n\nA shop.\n\n- One\n- Two',
+    publishedAt: '2026-11-21T10:05:00.000Z',
   },
 };
 const api = createServer((request, response) => {
@@ -220,6 +228,8 @@ try {
   await checkPage('/shop?q=tulsi&sort=price-asc', 200);
   await checkPage('/categories/wellness', 200);
   await checkPage('/products/tulsi-drops', 200);
+  await checkPage('/privacy', 200);
+  await checkPage('/terms', 200);
   await checkPage('/this-page-does-not-exist', 404);
   await checkPage('/categories/no-such-category', 404);
   await checkPage('/products/no-such-product', 404);

@@ -8,5 +8,8 @@ export default [
   route('shop', 'routes/shop.tsx'),
   route('categories/:slug', 'routes/category.tsx'),
   route('products/:slug', 'routes/product.tsx'),
+  // The policy pages (ADR 0040): /privacy, /terms, /refunds, /shipping and
+  // /contact. Any other single word is "not found", from the loader.
+  route(':page', 'routes/policy.tsx'),
   route('*', 'routes/not-found.tsx'),
 ] satisfies RouteConfig;

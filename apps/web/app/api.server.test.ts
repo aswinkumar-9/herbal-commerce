@@ -2,7 +2,7 @@
 import { isRouteErrorResponse } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
-import { API_TIMEOUT_MS, apiGet, segment } from './api.server.ts';
+import { API_TIMEOUT_MS, apiFind, apiGet, segment } from './api.server.ts';
 import { CLIENT_IP_HEADER } from './security-headers.ts';
 
 const schema = z.object({
@@ -156,6 +156,38 @@ describe('asking the API for a page', () => {
     expect(String(vi.mocked(console.error).mock.calls)).not.toContain(
       'private',
     );
+  });
+});
+
+describe('asking for an answer that may rightly be missing', () => {
+  it('gives nothing when the API doesn’t have it, rather than "not found"', async () => {
+    fetchMock.mockResolvedValue(answer(404, { message: 'Not published yet' }));
+    await expect(
+      apiFind(pageRequest(), 'policies/terms', schema),
+    ).resolves.toBeNull();
+  });
+
+  it('gives the answer once checked, like apiGet', async () => {
+    fetchMock.mockResolvedValue(answer(200, GOOD));
+    await expect(
+      apiFind(pageRequest(), 'policies/terms', schema),
+    ).resolves.toEqual(GOOD);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      'http://127.0.0.1:3000/v1/policies/terms',
+    );
+  });
+
+  it('still says the shop is taking a break when the API is busy or odd', async () => {
+    fetchMock.mockResolvedValueOnce(answer(503, { message: 'x' }));
+    expect(
+      (await thrown(apiFind(pageRequest(), 'policies/terms', schema))).init
+        ?.status,
+    ).toBe(503);
+    fetchMock.mockResolvedValueOnce(answer(200, { something: 'else' }));
+    expect(
+      (await thrown(apiFind(pageRequest(), 'policies/terms', schema))).init
+        ?.status,
+    ).toBe(503);
   });
 });
 

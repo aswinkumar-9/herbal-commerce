@@ -34,6 +34,31 @@ describe('every page’s frame', () => {
     );
   });
 
+  it('leads from its foot to the shop’s five policies, marking the one open', () => {
+    renderPage({ path: '/:page', url: '/terms', Component: Page });
+    const policies = within(screen.getByRole('contentinfo')).getByRole(
+      'navigation',
+      { name: 'The shop’s policies' },
+    );
+    const links = within(policies).getAllByRole('link');
+    expect(
+      links.map((link) => [link.textContent, link.getAttribute('href')]),
+    ).toEqual([
+      ['Privacy policy', '/privacy'],
+      ['Terms and conditions', '/terms'],
+      ['Refunds and cancellations', '/refunds'],
+      ['Shipping and delivery', '/shipping'],
+      ['Contact us', '/contact'],
+    ]);
+    expect(links.map((link) => link.getAttribute('aria-current'))).toEqual([
+      null,
+      'page',
+      null,
+      null,
+      null,
+    ]);
+  });
+
   it('shows which page you are on, in the bar and the phone menu', () => {
     renderPage({ Component: Page });
     for (const home of screen.getAllByRole('link', {
