@@ -19,11 +19,13 @@ import {
   publishSchema,
   saveDraftSchema,
   versionParamSchema,
+  versionsQuerySchema,
 } from './policies.schemas';
 import type {
   DiscardQuery,
   PublishInput,
   SaveDraftInput,
+  VersionsQuery,
 } from './policies.schemas';
 import { PoliciesService } from './policies.service';
 
@@ -78,10 +80,13 @@ export class StaffPoliciesController {
     return this.policies.publish(page, body, context);
   }
 
-  // Every version customers have been shown, newest first.
+  // The versions customers have been shown, newest first, a page at a time.
   @Get(':page/versions')
-  versions(@Param('page') page: string) {
-    return this.policies.versions(page);
+  versions(
+    @Param('page') page: string,
+    @Query(new ZodValidationPipe(versionsQuerySchema)) query: VersionsQuery,
+  ) {
+    return this.policies.versions(page, query);
   }
 
   // One version, with its text.

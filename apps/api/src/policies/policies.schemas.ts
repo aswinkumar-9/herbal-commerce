@@ -52,6 +52,17 @@ export const discardQuerySchema = z.object({
 });
 export type DiscardQuery = z.infer<typeof discardQuerySchema>;
 
+// A page of a policy page's versions (part 14B): the newest first, the
+// older ones on asking, as every list staff page through. Query values
+// arrive as text, so the numbers are converted. Unknown parameters are
+// dropped.
+export const versionsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+  // The last version shown: the page goes on with the ones below it.
+  before: z.coerce.number().int().min(1).max(999_999_999).optional(),
+});
+export type VersionsQuery = z.infer<typeof versionsQuerySchema>;
+
 // A version's number in an address: 1, 2, 3 …
 export const versionParamSchema = z
   .string()

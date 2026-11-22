@@ -30,7 +30,7 @@ function openPolicy(answers: Answers = {}, page = 'privacy') {
     staff: RAVI,
     answers: {
       [POLICY('privacy')]: answer(detailOf()),
-      [VERSIONS('privacy')]: answer({ versions: [V2, V1] }),
+      [VERSIONS('privacy')]: answer({ versions: [V2, V1], nextBefore: null }),
       [POLICIES]: summariesOf({}),
       ...answers,
     },
@@ -107,7 +107,7 @@ describe('a policy page in the console', () => {
     openPolicy(
       {
         [POLICY('contact')]: answer(NEVER_WRITTEN('contact')),
-        [VERSIONS('contact')]: answer({ versions: [] }),
+        [VERSIONS('contact')]: answer({ versions: [], nextBefore: null }),
       },
       'contact',
     );
@@ -185,8 +185,8 @@ describe('a policy page in the console', () => {
     const { user, api } = openPolicy({
       [PUBLISH('privacy')]: answer(published),
       [VERSIONS('privacy')]: [
-        answer({ versions: [V2, V1] }),
-        answer({ versions: [v3, V2, V1] }),
+        answer({ versions: [V2, V1], nextBefore: null }),
+        answer({ versions: [v3, V2, V1], nextBefore: null }),
       ],
     });
 
@@ -519,6 +519,63 @@ describe('a policy page in the console', () => {
     ).toBeInTheDocument();
     expect(dialog()).toHaveTextContent(
       'Published 20 Nov 2026 at 10:00 by Meera Rao.',
+    );
+  });
+
+  it('shows the newest versions first, and the older ones on asking', async () => {
+    const version = (number: number) => ({ ...V1, version: number });
+    const { user } = openPolicy({
+      [VERSIONS('privacy')]: answer({
+        versions: [version(4), version(3)],
+        nextBefore: 3,
+      }),
+      [VERSIONS('privacy', '?before=3')]: answer({
+        versions: [version(2), version(1)],
+        nextBefore: null,
+      }),
+    });
+
+    const list = await screen.findByRole('list', { name: 'Versions' });
+    expect(within(list).getAllByRole('listitem')).toHaveLength(2);
+    expect(within(list).getAllByRole('listitem')[0]).toHaveTextContent(
+      'Version 4 · on the website',
+    );
+
+    await user.click(button('Show older versions'));
+
+    await waitFor(() =>
+      expect(within(list).getAllByRole('listitem')).toHaveLength(4),
+    );
+    expect(within(list).getAllByRole('listitem')[3]).toHaveTextContent(
+      'Version 1',
+    );
+    // Only the newest is on the website; the last page has no more after it.
+    expect(within(list).getAllByText(/on the website/)).toHaveLength(1);
+    expect(
+      screen.queryByRole('button', { name: 'Show older versions' }),
+    ).toBeNull();
+  });
+
+  it('says so when the older versions could not be loaded, and tries again', async () => {
+    const { user } = openPolicy({
+      [VERSIONS('privacy')]: answer({ versions: [V2], nextBefore: 2 }),
+      [VERSIONS('privacy', '?before=2')]: [
+        () => json(503, { message: 'Busy' }),
+        answer({ versions: [V1], nextBefore: null }),
+      ],
+    });
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Show older versions' }),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Older versions could not be loaded.',
+    );
+    await user.click(button('Show older versions'));
+    const list = screen.getByRole('list', { name: 'Versions' });
+    await waitFor(() =>
+      expect(within(list).getAllByRole('listitem')).toHaveLength(2),
     );
   });
 

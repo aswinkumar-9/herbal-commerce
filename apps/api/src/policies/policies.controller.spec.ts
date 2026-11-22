@@ -71,10 +71,13 @@ describe('StaffPoliciesController', () => {
   it('lists the versions, and gives one', async () => {
     const { staff, policies } = setup();
 
-    await staff.versions('refunds');
+    await staff.versions('refunds', { limit: 20, before: 5 });
     await staff.version('refunds', 2);
 
-    expect(policies.versions).toHaveBeenCalledWith('refunds');
+    expect(policies.versions).toHaveBeenCalledWith('refunds', {
+      limit: 20,
+      before: 5,
+    });
     expect(policies.version).toHaveBeenCalledWith('refunds', 2);
   });
 });

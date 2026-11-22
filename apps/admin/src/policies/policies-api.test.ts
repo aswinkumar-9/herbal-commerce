@@ -119,7 +119,7 @@ describe('the policy pages API', () => {
   it('lists the versions and reads one with its text', async () => {
     setAccessToken('t1');
     fakeApi({
-      [VERSIONS('privacy')]: answer({ versions: [V2, V1] }),
+      [VERSIONS('privacy')]: answer({ versions: [V2, V1], nextBefore: null }),
       [VERSION('privacy', 1)]: answer({
         ...V1,
         page: 'privacy',
@@ -127,11 +127,29 @@ describe('the policy pages API', () => {
       }),
     });
 
-    await expect(listVersions('privacy')).resolves.toEqual([V2, V1]);
+    await expect(listVersions('privacy')).resolves.toEqual({
+      versions: [V2, V1],
+      nextBefore: null,
+    });
     await expect(getVersion('privacy', 1)).resolves.toEqual({
       ...V1,
       page: 'privacy',
       body: 'First',
+    });
+  });
+
+  it('asks for the versions older than the last one shown', async () => {
+    setAccessToken('t1');
+    fakeApi({
+      [VERSIONS('privacy', '?before=2')]: answer({
+        versions: [V1],
+        nextBefore: null,
+      }),
+    });
+
+    await expect(listVersions('privacy', 2)).resolves.toEqual({
+      versions: [V1],
+      nextBefore: null,
     });
   });
 });

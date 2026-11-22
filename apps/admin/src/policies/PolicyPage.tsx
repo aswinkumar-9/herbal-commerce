@@ -456,9 +456,11 @@ function PolicyEditor({
   );
 }
 
-// Every version customers have been shown, newest first, each readable.
+// Every version customers have been shown, newest first, each readable:
+// the newest 20, and older ones on asking.
 function Versions({ page }: { page: PolicyPageName }) {
-  const versions = usePolicyVersions(page);
+  const pages = usePolicyVersions(page);
+  const versions = pages.data?.pages.flatMap((one) => one.versions);
   const [reading, setReading] = useState<number | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -470,16 +472,16 @@ function Versions({ page }: { page: PolicyPageName }) {
       <p className="mt-1 text-sm text-ink-muted">
         Every text customers have been shown, kept as it was.
       </p>
-      {versions.isPending ? (
+      {pages.isPending ? (
         <ListLoading label="Loading the versions…" />
-      ) : versions.isError && !versions.data ? (
+      ) : !versions ? (
         <LoadFailed
           title="The versions could not be loaded"
-          message={problemMessage(versions.error)}
-          retrying={versions.isFetching}
-          onRetry={() => void versions.refetch()}
+          message={problemMessage(pages.error)}
+          retrying={pages.isFetching}
+          onRetry={() => void pages.refetch()}
         />
-      ) : versions.data.length === 0 ? (
+      ) : versions.length === 0 ? (
         <p className="mt-4 text-sm">
           None yet: the first appears here once you publish.
         </p>
@@ -488,7 +490,7 @@ function Versions({ page }: { page: PolicyPageName }) {
           aria-label="Versions"
           className="mt-4 divide-y divide-line overflow-hidden rounded-card border border-line bg-surface shadow-clay inset-shadow-clay"
         >
-          {versions.data.map((version, index) => (
+          {versions.map((version, index) => (
             <li
               key={version.version}
               className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-sm"
@@ -517,6 +519,7 @@ function Versions({ page }: { page: PolicyPageName }) {
           ))}
         </ul>
       )}
+      <ShowOlderVersions pages={pages} />
       {reading !== null ? (
         <VersionDialog
           page={page}
@@ -526,6 +529,34 @@ function Versions({ page }: { page: PolicyPageName }) {
         />
       ) : null}
     </section>
+  );
+}
+
+// The next, older versions, while there are any. A failure says so beside
+// the button, and the button tries again.
+function ShowOlderVersions({
+  pages,
+}: {
+  pages: ReturnType<typeof usePolicyVersions>;
+}) {
+  if (!pages.hasNextPage) {
+    return null;
+  }
+  return (
+    <div className="mt-4 flex flex-col items-center gap-2">
+      {pages.isFetchNextPageError ? (
+        <p role="alert" className="text-sm text-danger">
+          Older versions could not be loaded. {problemMessage(pages.error)}
+        </p>
+      ) : null}
+      <Button
+        onClick={() => void pages.fetchNextPage()}
+        busy={pages.isFetchingNextPage}
+        busyLabel="Loading…"
+      >
+        Show older versions
+      </Button>
+    </div>
   );
 }
 

@@ -14,8 +14,8 @@ export const DISCARD = (page: string, revision: number) =>
   `DELETE /v1/staff/policies/${page}/draft?revision=${revision}`;
 export const PUBLISH = (page: string) =>
   `POST /v1/staff/policies/${page}/publish`;
-export const VERSIONS = (page: string) =>
-  `GET /v1/staff/policies/${page}/versions`;
+export const VERSIONS = (page: string, search = '') =>
+  `GET /v1/staff/policies/${page}/versions${search}`;
 export const VERSION = (page: string, version: number) =>
   `GET /v1/staff/policies/${page}/versions/${version}`;
 

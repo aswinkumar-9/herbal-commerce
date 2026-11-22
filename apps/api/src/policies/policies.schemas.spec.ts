@@ -4,6 +4,7 @@ import {
   publishSchema,
   saveDraftSchema,
   versionParamSchema,
+  versionsQuerySchema,
 } from './policies.schemas';
 import { POLICY_PAGES, policyKindOf, policyPageOf } from './policy-pages';
 
@@ -154,6 +155,32 @@ describe('discardQuerySchema', () => {
     expect(discardQuerySchema.safeParse({ revision: ['1', '2'] }).success).toBe(
       false,
     );
+  });
+});
+
+describe('versionsQuerySchema', () => {
+  it('gives 20 versions a page unless asked, from the newest', () => {
+    expect(versionsQuerySchema.parse({})).toEqual({ limit: 20 });
+    expect(versionsQuerySchema.parse({ limit: '5', before: '12' })).toEqual({
+      limit: 5,
+      before: 12,
+    });
+  });
+
+  it('refuses a page of more than 100, and a version that is not one', () => {
+    for (const query of [
+      { limit: '0' },
+      { limit: '101' },
+      { limit: 'all' },
+      { before: '0' },
+      { before: '2.5' },
+      { before: 'x' },
+    ]) {
+      expect([query, versionsQuerySchema.safeParse(query).success]).toEqual([
+        query,
+        false,
+      ]);
+    }
   });
 });
 

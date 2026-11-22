@@ -14,6 +14,7 @@ import type {
   DiscardQuery,
   PublishInput,
   SaveDraftInput,
+  VersionsQuery,
 } from './policies.schemas';
 import { POLICY_PAGES, policyKindOf, policyPageOf } from './policy-pages';
 import type { PolicyPageName } from './policy-pages';
@@ -150,15 +151,26 @@ export class PoliciesService {
     };
   }
 
-  // Every version customers have been shown, newest first.
-  async versions(page: string): Promise<{ versions: PolicyVersionSummary[] }> {
+  // The versions customers have been shown, newest first, one page at a
+  // time: pass the last one shown as `before` for the older ones.
+  async versions(
+    page: string,
+    { limit, before }: VersionsQuery,
+  ): Promise<{ versions: PolicyVersionSummary[]; nextBefore: number | null }> {
     const kind = this.kindOf(page);
-    const versions = await this.prisma.policyVersion.findMany({
-      where: { kind },
+    const rows = await this.prisma.policyVersion.findMany({
+      where: { kind, ...(before ? { version: { lt: before } } : {}) },
       orderBy: { version: 'desc' },
+      // One more than asked for, to know whether an older page exists.
+      take: limit + 1,
       select: VERSION_SUMMARY,
     });
-    return { versions };
+    const versions = rows.slice(0, limit);
+    return {
+      versions,
+      nextBefore:
+        rows.length > limit ? (versions.at(-1)?.version ?? null) : null,
+    };
   }
 
   // One version, with its text: what customers were shown from that day.

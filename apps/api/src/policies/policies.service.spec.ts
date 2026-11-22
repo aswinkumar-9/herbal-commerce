@@ -206,16 +206,49 @@ describe('PoliciesService.detail', () => {
 });
 
 describe('PoliciesService.versions and version', () => {
-  it('lists every version, newest first, without the texts', async () => {
+  it('lists the versions, newest first, without the texts', async () => {
     const { service, prisma } = setup();
     const versions = [{ version: 2, publishedAt, publishedBy: SUPER }];
     prisma.policyVersion.findMany.mockResolvedValue(versions);
 
-    await expect(service.versions('shipping')).resolves.toEqual({ versions });
+    await expect(service.versions('shipping', { limit: 20 })).resolves.toEqual({
+      versions,
+      nextBefore: null,
+    });
     const query = firstCall(prisma.policyVersion.findMany);
     expect(query.where).toEqual({ kind: 'SHIPPING' });
     expect(query.orderBy).toEqual({ version: 'desc' });
     expect(Object.keys(query.select as object)).not.toContain('body');
+  });
+
+  it('gives them a page at a time, the older ones below the last shown', async () => {
+    const { service, prisma } = setup();
+    const version = (number: number) => ({
+      version: number,
+      publishedAt,
+      publishedBy: SUPER,
+    });
+    // One more than asked for: an older page exists.
+    prisma.policyVersion.findMany.mockResolvedValueOnce([
+      version(9),
+      version(8),
+      version(7),
+    ]);
+
+    await expect(service.versions('shipping', { limit: 2 })).resolves.toEqual({
+      versions: [version(9), version(8)],
+      nextBefore: 8,
+    });
+    expect(firstCall(prisma.policyVersion.findMany).take).toBe(3);
+
+    prisma.policyVersion.findMany.mockResolvedValueOnce([version(7)]);
+    await expect(
+      service.versions('shipping', { limit: 2, before: 8 }),
+    ).resolves.toEqual({ versions: [version(7)], nextBefore: null });
+    expect(prisma.policyVersion.findMany.mock.calls[1][0].where).toEqual({
+      kind: 'SHIPPING',
+      version: { lt: 8 },
+    });
   });
 
   it('gives one version with its text', async () => {
@@ -238,9 +271,9 @@ describe('PoliciesService.versions and version', () => {
     await expect(service.version('privacy', 9)).rejects.toBeInstanceOf(
       NotFoundException,
     );
-    await expect(service.versions('nope')).rejects.toBeInstanceOf(
-      NotFoundException,
-    );
+    await expect(
+      service.versions('nope', { limit: 20 }),
+    ).rejects.toBeInstanceOf(NotFoundException);
   });
 });
 

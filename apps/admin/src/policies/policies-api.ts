@@ -44,7 +44,12 @@ const detailSchema = z.object({
 });
 export type PolicyPageDetail = z.infer<typeof detailSchema>;
 
-const versionsSchema = z.object({ versions: z.array(versionSummarySchema) });
+// A page of versions, the newest first; nextBefore asks for the older ones.
+const versionsSchema = z.object({
+  versions: z.array(versionSummarySchema),
+  nextBefore: z.number().int().positive().nullable(),
+});
+export type PolicyVersionsPage = z.infer<typeof versionsSchema>;
 const versionSchema = versionSummarySchema.extend({
   page: pageName,
   body: z.string(),
@@ -101,15 +106,18 @@ export function publishPolicy(
   });
 }
 
-export async function listVersions(
+// The newest versions, or with `before` the ones older than it, a page at
+// a time.
+export function listVersions(
   page: PolicyPageName,
+  before?: number,
   signal?: AbortSignal,
-): Promise<PolicyVersionSummary[]> {
-  const { versions } = await apiRequest(`${POLICIES}/${page}/versions`, {
+): Promise<PolicyVersionsPage> {
+  const older = before === undefined ? '' : `?before=${before}`;
+  return apiRequest(`${POLICIES}/${page}/versions${older}`, {
     schema: versionsSchema,
     signal,
   });
-  return versions;
 }
 
 export function getVersion(

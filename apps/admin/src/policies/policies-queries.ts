@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import type { QueryClient } from '@tanstack/react-query';
 import {
   getPolicyPage,
@@ -34,10 +34,14 @@ export function usePolicyPage(page: PolicyPageName) {
   });
 }
 
+// The versions a page at a time, the newest first: each page's nextBefore
+// asks for the next, older one.
 export function usePolicyVersions(page: PolicyPageName) {
-  return useQuery({
+  return useInfiniteQuery({
     queryKey: policyKeys.versions(page),
-    queryFn: ({ signal }) => listVersions(page, signal),
+    queryFn: ({ pageParam, signal }) => listVersions(page, pageParam, signal),
+    initialPageParam: undefined as number | undefined,
+    getNextPageParam: (last) => last.nextBefore ?? undefined,
   });
 }
 
