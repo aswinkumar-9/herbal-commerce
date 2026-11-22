@@ -6,6 +6,7 @@ import {
   ProductSearchService,
   SEARCH_CANDIDATES,
 } from './product-search.service';
+import { SearchCache } from './search-cache';
 
 const BASE = 'http://127.0.0.1:3000/media';
 const KEY = 'b1c2d3e4-5f60-4a7b-8c9d-0e1f2a3b4c5d';
@@ -45,12 +46,14 @@ function setup(rows: object[], inStock: string[] = []) {
   };
   const stock = { inStock: jest.fn().mockResolvedValue(new Set(inStock)) };
   const media = { url: jest.fn((name: string) => `${BASE}/${name}`) };
+  const kept = new SearchCache();
   const service = new ProductSearchService(
     prisma as unknown as PrismaService,
     stock as unknown as StockService,
     media as unknown as MediaStorage,
+    kept,
   );
-  return { service, prisma, stock };
+  return { service, prisma, stock, kept };
 }
 
 const search = (query: object) => productSearchQuerySchema.parse(query);
@@ -340,5 +343,108 @@ describe('ProductSearchService.search', () => {
       'slug',
       'summary',
     ]);
+  });
+});
+
+describe('ProductSearchService.search, keeping what it read', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  const SHOP = [
+    row('amla-juice', [149]),
+    row('brahmi-oil', [349]),
+    row('chyawanprash', [399]),
+  ];
+
+  it('reads the catalog once for every page, sort and price filter of the same search, and asks the inventory every time', async () => {
+    const { service, prisma, stock } = setup(SHOP, ['amla-juice-pack-0']);
+
+    await service.search(search({ limit: 2 }));
+    await service.search(search({ limit: 2, page: 2 }));
+    await service.search(search({ sort: 'price-desc' }));
+    const cheap = await service.search(search({ maxPriceRupees: 200 }));
+
+    expect(prisma.product.findMany).toHaveBeenCalledTimes(1);
+    expect(stock.inStock).toHaveBeenCalledTimes(4);
+    expect(slugs(cheap)).toEqual(['amla-juice']);
+  });
+
+  it('shows stock as it is now: a product sold out a moment ago moves down at once', async () => {
+    const { service, prisma, stock } = setup(SHOP, ['amla-juice-pack-0']);
+    expect(slugs(await service.search(search({}))).at(0)).toBe('amla-juice');
+
+    stock.inStock.mockResolvedValue(new Set(['chyawanprash-pack-0']));
+    const now = await service.search(search({}));
+
+    expect(slugs(now)).toEqual(['chyawanprash', 'amla-juice', 'brahmi-oil']);
+    expect(now.products.at(0)).toEqual(card('chyawanprash', 399, true));
+    expect(prisma.product.findMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads again for other words, another category or another type', async () => {
+    const { service, prisma } = setup(SHOP);
+    prisma.$queryRaw.mockResolvedValue([{ id: 'id-amla-juice', score: 0.9 }]);
+
+    await service.search(search({ q: 'amla' }));
+    await service.search(search({ q: 'amla', page: 2 }));
+    await service.search(search({ q: 'brahmi' }));
+    await service.search(search({ category: 'juices' }));
+    await service.search(search({ type: 'AYURVEDIC_MEDICINE' }));
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.product.findMany).toHaveBeenCalledTimes(4);
+  });
+
+  it('reads afresh once staff change the catalog, or after a minute', async () => {
+    jest.useFakeTimers({ doNotFake: ['nextTick', 'setImmediate'] });
+    const { service, prisma, kept } = setup(SHOP);
+
+    await service.search(search({}));
+    kept.forget();
+    await service.search(search({}));
+    expect(prisma.product.findMany).toHaveBeenCalledTimes(2);
+
+    jest.setSystemTime(Date.now() + 59_000);
+    await service.search(search({}));
+    expect(prisma.product.findMany).toHaveBeenCalledTimes(2);
+    jest.setSystemTime(Date.now() + 2_000);
+    await service.search(search({}));
+    expect(prisma.product.findMany).toHaveBeenCalledTimes(3);
+  });
+
+  it('shares one read among searches at the same moment, and never keeps one that failed', async () => {
+    const { service, prisma } = setup(SHOP);
+    prisma.product.findMany.mockRejectedValueOnce(new Error('database away'));
+
+    const [first, second] = await Promise.allSettled([
+      service.search(search({})),
+      service.search(search({ page: 2 })),
+    ]);
+    expect(first.status).toBe('rejected');
+    expect(second.status).toBe('rejected');
+    expect(prisma.product.findMany).toHaveBeenCalledTimes(1);
+
+    await expect(service.search(search({}))).resolves.toMatchObject({
+      total: 3,
+    });
+    expect(prisma.product.findMany).toHaveBeenCalledTimes(2);
+  });
+
+  it('never keeps a read begun before staff changed the catalog', async () => {
+    const { service, prisma, kept } = setup(SHOP);
+    let finish!: (rows: object[]) => void;
+    prisma.product.findMany.mockImplementationOnce(
+      () => new Promise((resolve) => (finish = resolve)),
+    );
+
+    const before = service.search(search({}));
+    await new Promise(setImmediate);
+    kept.forget();
+    finish(SHOP);
+    await before;
+    await service.search(search({}));
+
+    expect(prisma.product.findMany).toHaveBeenCalledTimes(2);
   });
 });

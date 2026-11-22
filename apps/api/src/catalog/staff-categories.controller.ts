@@ -10,12 +10,14 @@ import {
   Patch,
   Post,
   Put,
+  UseInterceptors,
 } from '@nestjs/common';
 import type { AuditContext } from '../audit/audit-context';
 import { CurrentAuditContext } from '../audit/audit-context.decorator';
 import { StaffOnly } from '../auth/staff-only.decorator';
 import { SuperUserOnly } from '../auth/super-user-only.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { CatalogChanged } from './catalog-changed.interceptor';
 import {
   categoryOrderSchema,
   categorySchema,
@@ -32,6 +34,7 @@ import { CategoriesService } from './categories.service';
 // create, change, activate and deactivate them; only Super Users may delete
 // them. Every change is written to the audit log.
 @StaffOnly()
+@UseInterceptors(CatalogChanged)
 @Controller('staff/categories')
 export class StaffCategoriesController {
   constructor(private readonly categories: CategoriesService) {}

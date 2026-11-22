@@ -11,12 +11,14 @@ import {
   Post,
   Put,
   Query,
+  UseInterceptors,
 } from '@nestjs/common';
 import type { AuditContext } from '../audit/audit-context';
 import { CurrentAuditContext } from '../audit/audit-context.decorator';
 import { StaffOnly } from '../auth/staff-only.decorator';
 import { SuperUserOnly } from '../auth/super-user-only.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { CatalogChanged } from './catalog-changed.interceptor';
 import {
   productListQuerySchema,
   productOrderSchema,
@@ -35,6 +37,7 @@ import { ProductsService } from './products.service';
 // activate and deactivate them; only Super Users may delete them. Every
 // change is written to the audit log.
 @StaffOnly()
+@UseInterceptors(CatalogChanged)
 @Controller('staff/products')
 export class StaffProductsController {
   constructor(private readonly products: ProductsService) {}

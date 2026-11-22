@@ -11,12 +11,14 @@ import {
   Patch,
   Post,
   Put,
+  UseInterceptors,
 } from '@nestjs/common';
 import type { AuditContext } from '../audit/audit-context';
 import { CurrentAuditContext } from '../audit/audit-context.decorator';
 import { StaffOnly } from '../auth/staff-only.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { RateLimit } from '../rate-limit/rate-limit.decorator';
+import { CatalogChanged } from './catalog-changed.interceptor';
 import { uploadedImage } from './image-upload';
 import { imageOrderSchema, imageUpdateSchema } from './images.schemas';
 import type { ImageOrderInput, ImageUpdateInput } from './images.schemas';
@@ -27,6 +29,7 @@ import { ImagesService } from './images.service';
 // an image is not for Super Users only. Every change is written to the
 // audit log.
 @StaffOnly()
+@UseInterceptors(CatalogChanged)
 @Controller('staff')
 export class StaffImagesController {
   constructor(private readonly images: ImagesService) {}
