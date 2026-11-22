@@ -7,7 +7,6 @@ import {
   Search,
 } from 'lucide-react';
 import { motion } from 'motion/react';
-import { useState } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { problemMessage } from '../api/problems';
 import { EmptyList, ListLoading, LoadFailed } from '../catalog/list-states';
@@ -95,9 +94,7 @@ export function StockPage() {
     );
   }
 
-  const [searchText, setSearchText] = useState(params.get('q') ?? '');
   const clearFilters = () => {
-    setSearchText('');
     setParams(new URLSearchParams(), { replace: true });
   };
 
@@ -114,8 +111,6 @@ export function StockPage() {
       <div className="mt-6 grid items-end gap-4 sm:grid-cols-[1fr_auto]">
         <SearchBox
           label="Search by product or SKU"
-          text={searchText}
-          onText={setSearchText}
           onSearch={(text) => setFilter('q', tidyWords(text) || undefined)}
           current={params.get('q') ?? ''}
         />

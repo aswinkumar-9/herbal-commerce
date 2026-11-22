@@ -14,7 +14,7 @@ import {
   motion,
   useDragControls,
 } from 'motion/react';
-import { useEffect, useId, useMemo, useState } from 'react';
+import { memo, useEffect, useId, useMemo, useState } from 'react';
 import type { DragEvent, KeyboardEvent } from 'react';
 import { problemMessage } from '../../api/problems';
 import { Button, buttonClass } from '../../components/Button';
@@ -82,7 +82,13 @@ function useNoStrayDrops() {
 // The photos of a product, the main one first (ADR 0023, 0033). Staff add
 // several at once, chosen or dropped; each is sent on its own, with its
 // progress, and can be cancelled or tried again. Admins delete them too.
-export function ImagesSection({ product }: { product: Product }) {
+// Drawn again only when the product changes, not at each key typed in the
+// form above it (part 14B).
+export const ImagesSection = memo(function ImagesSection({
+  product,
+}: {
+  product: Product;
+}) {
   const titleId = useId();
   const images = useImages(product.id);
   const queryClient = useQueryClient();
@@ -261,7 +267,7 @@ export function ImagesSection({ product }: { product: Product }) {
       />
     </motion.section>
   );
-}
+});
 
 interface RowProps {
   row: ImageRow;

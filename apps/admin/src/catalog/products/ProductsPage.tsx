@@ -7,7 +7,6 @@ import {
   motion,
   useDragControls,
 } from 'motion/react';
-import { useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { Link, useSearchParams } from 'react-router';
 import { problemMessage } from '../../api/problems';
@@ -83,9 +82,7 @@ export function ProductsPage() {
     );
   }
 
-  const [searchText, setSearchText] = useState(params.get('q') ?? '');
   const searchClear = () => {
-    setSearchText('');
     setParams(new URLSearchParams(), { replace: true });
   };
 
@@ -114,8 +111,6 @@ export function ProductsPage() {
       <div className="mt-6 grid gap-4 sm:grid-cols-[1fr_12rem_10rem]">
         <SearchBox
           label="Search by name"
-          text={searchText}
-          onText={setSearchText}
           onSearch={(text) => setFilter('q', tidyWords(text) || undefined)}
           current={params.get('q') ?? ''}
         />

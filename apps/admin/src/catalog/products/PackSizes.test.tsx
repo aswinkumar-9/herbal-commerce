@@ -28,6 +28,7 @@ import {
   batchesOf,
   linesOf,
 } from '../../test/stock-fixtures';
+import { PackSizesSection } from './PackSizesSection';
 
 const ALL = [ML_100, ML_200, ML_500];
 const POST = `POST /v1/staff/products/${SHAMPOO.id}/variants`;
@@ -81,6 +82,15 @@ function row(name: string) {
   }
   return found;
 }
+
+describe('the pack sizes section beside the product form', () => {
+  it('is drawn again only when the product changes, not at each key typed in the form', () => {
+    // Measured before: both sections drawn again at every key typed.
+    expect((PackSizesSection as { $$typeof?: symbol }).$$typeof).toBe(
+      Symbol.for('react.memo'),
+    );
+  });
+});
 
 describe("a product's pack sizes", () => {
   it('lists them in the order customers see them, with their SKUs and prices', async () => {

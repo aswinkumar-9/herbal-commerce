@@ -14,7 +14,7 @@ import {
   motion,
   useDragControls,
 } from 'motion/react';
-import { useId, useMemo, useState } from 'react';
+import { memo, useId, useMemo, useState } from 'react';
 import type { KeyboardEvent, ReactNode } from 'react';
 import { Link } from 'react-router';
 import { problemMessage } from '../../api/problems';
@@ -53,7 +53,9 @@ function unnamed(row: PackRow): Variant {
 // The sizes customers can buy, with their prices, in the order the shop
 // shows them (ADR 0022, 0033). Each change is saved on its own, apart from
 // the product's details. Only Super Users delete them.
-export function PackSizesSection({
+// Drawn again only when the product or the right to delete changes, not at
+// each key typed in the form above it (part 14B).
+export const PackSizesSection = memo(function PackSizesSection({
   product,
   canDelete,
 }: {
@@ -257,7 +259,7 @@ export function PackSizesSection({
       ) : null}
     </motion.section>
   );
-}
+});
 
 // A pack size's stock in one line: out, low or in stock, what may be sold,
 // whether a batch stops selling soon, and the way to its batches (ADR
