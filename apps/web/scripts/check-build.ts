@@ -41,6 +41,7 @@ const TULSI = {
   fromPriceRupees: 299,
   imageUrl: 'http://127.0.0.1:3000/media/products/k-small.webp',
 };
+const ADDRESS_ID = '0b6f3c1e-8f3a-4c55-9a51-3c2b1d7e9f10';
 const answers: Record<string, unknown> = {
   '/v1/categories': { categories: [WELLNESS] },
   '/v1/products': {
@@ -94,6 +95,20 @@ const answers: Record<string, unknown> = {
     refreshToken: 'stand-in-refresh-token-0123456789',
   },
   '/v1/me': { fullName: 'Asha Verma', email: 'asha@example.com' },
+  // Their one delivery address.
+  '/v1/me/addresses': [
+    {
+      id: ADDRESS_ID,
+      fullName: 'Asha Verma',
+      phone: '9845012345',
+      line1: '12 MG Road',
+      line2: null,
+      city: 'Bengaluru',
+      state: 'Karnataka',
+      pincode: '560001',
+      isDefault: true,
+    },
+  ],
   '/v1/auth/register': { message: 'If this email address can be used…' },
   // Only the privacy policy is published; the rest answer 404.
   '/v1/policies/privacy': {
@@ -374,6 +389,7 @@ async function checkSigningIn(): Promise<void> {
   if (
     account.status !== 200 ||
     !html.includes('Asha Verma') ||
+    !html.includes('12 MG Road') ||
     html.includes('stand.in.access-token') ||
     html.includes('stand-in-refresh-token') ||
     account.headers.get('cache-control') !== 'private, no-store'
@@ -381,6 +397,36 @@ async function checkSigningIn(): Promise<void> {
     problems.push(
       `${where} the account page did not open as it should (${account.status})`,
     );
+  }
+  // The account's own pages: a visitor signs in first and comes back; the
+  // customer's open, kept by no cache, without a token.
+  for (const path of [
+    '/account/password',
+    '/account/addresses/new',
+    `/account/addresses/${ADDRESS_ID}`,
+  ]) {
+    const visitor = await fetch(`${base}${path}`, { redirect: 'manual' });
+    if (
+      visitor.status !== 302 ||
+      visitor.headers.get('location') !==
+        `/sign-in?next=${encodeURIComponent(path)}`
+    ) {
+      problems.push(`${where} ${path} let a visitor in (${visitor.status})`);
+    }
+    const page = await fetch(`${base}${path}`, {
+      headers: { cookie: cookie.split(';')[0] ?? '' },
+    });
+    const pageHtml = await page.text();
+    if (
+      page.status !== 200 ||
+      page.headers.get('cache-control') !== 'private, no-store' ||
+      pageHtml.includes('stand.in.access-token') ||
+      pageHtml.includes('stand-in-refresh-token')
+    ) {
+      problems.push(
+        `${where} ${path} did not open as it should (${page.status}, ${page.headers.get('cache-control')})`,
+      );
+    }
   }
 }
 

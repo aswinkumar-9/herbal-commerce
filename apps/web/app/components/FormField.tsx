@@ -49,6 +49,48 @@ export function TextField({
   );
 }
 
+// A choice from a list (a state, say), in a box like the others. The first
+// choice is none, so nothing is chosen for the customer.
+export function SelectField({
+  name,
+  label,
+  problem,
+  options,
+  none,
+  ...select
+}: Omit<ComponentProps<'select'>, 'id' | 'name' | 'className' | 'children'> & {
+  name: string;
+  label: string;
+  problem?: string | undefined;
+  options: readonly string[];
+  none: string;
+}) {
+  const problemId = `${name}-problem`;
+  return (
+    <div className="flex flex-col gap-2">
+      <label htmlFor={name} className="caption-1 text-ink-muted">
+        {label}
+      </label>
+      <select
+        id={name}
+        name={name}
+        aria-invalid={problem ? true : undefined}
+        aria-describedby={problem ? problemId : undefined}
+        className={FIELD}
+        {...select}
+      >
+        <option value="">{none}</option>
+        {options.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+      <Problem id={problemId} message={problem} />
+    </div>
+  );
+}
+
 // False while the server makes the page, true once its script runs.
 const never = () => () => undefined;
 const useRunning = (): boolean =>

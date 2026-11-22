@@ -354,28 +354,62 @@ describe('the account page', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it('asks the API who is signed in, with the session’s token', async () => {
-    fetchMock.mockResolvedValue(
-      answer(200, {
-        id: 'u1',
-        email: 'asha@example.com',
-        fullName: 'Asha Verma',
-        role: 'CUSTOMER',
-        emailVerifiedAt: '2026-11-01T10:00:00.000Z',
-        createdAt: '2026-11-01T09:00:00.000Z',
-      }),
+  it('asks the API who is signed in and for their addresses, with the session’s token', async () => {
+    const address = {
+      id: '0b6f3c1e-8f3a-4c55-9a51-3c2b1d7e9f10',
+      fullName: 'Asha Verma',
+      phone: '9845012345',
+      line1: '12 MG Road',
+      line2: null,
+      city: 'Bengaluru',
+      state: 'Karnataka',
+      pincode: '560001',
+      isDefault: true,
+    };
+    fetchMock.mockImplementation(async (url) =>
+      String(url).endsWith('/v1/me/addresses')
+        ? answer(200, [
+            {
+              ...address,
+              createdAt: '2026-11-02T09:00:00.000Z',
+              updatedAt: '2026-11-02T09:00:00.000Z',
+            },
+          ])
+        : answer(200, {
+            id: 'u1',
+            email: 'asha@example.com',
+            fullName: 'Asha Verma',
+            role: 'CUSTOMER',
+            emailVerifiedAt: '2026-11-01T10:00:00.000Z',
+            createdAt: '2026-11-01T09:00:00.000Z',
+          }),
     );
     const result = await openAccount(SIGNED_IN).run();
 
-    expect(sent()).toMatchObject({
-      url: 'http://127.0.0.1:3000/v1/me',
-      method: 'GET',
-      authorization: 'Bearer access.jwt.one',
-    });
+    expect(
+      [sent(0), sent(1)].map(({ url, method, authorization }) => ({
+        url,
+        method,
+        authorization,
+      })),
+    ).toEqual([
+      {
+        url: 'http://127.0.0.1:3000/v1/me',
+        method: 'GET',
+        authorization: 'Bearer access.jwt.one',
+      },
+      {
+        url: 'http://127.0.0.1:3000/v1/me/addresses',
+        method: 'GET',
+        authorization: 'Bearer access.jwt.one',
+      },
+    ]);
     // Only what the page shows.
     expect(result.data).toEqual({
       fullName: 'Asha Verma',
       email: 'asha@example.com',
+      addresses: [address],
+      saved: null,
       origin: 'http://localhost:3001',
     });
   });

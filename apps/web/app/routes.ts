@@ -17,6 +17,9 @@ export default [
   route('forgot-password', 'routes/forgot-password.tsx'),
   route('reset-password', 'routes/reset-password.tsx'),
   route('account', 'routes/account.tsx'),
+  route('account/password', 'routes/account-password.tsx'),
+  route('account/addresses/new', 'routes/address-new.tsx'),
+  route('account/addresses/:id', 'routes/address-edit.tsx'),
   // The policy pages (ADR 0040): /privacy, /terms, /refunds, /shipping and
   // /contact. Any other single word is "not found", from the loader.
   route(':page', 'routes/policy.tsx'),

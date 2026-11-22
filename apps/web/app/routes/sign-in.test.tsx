@@ -3,7 +3,6 @@ import userEvent from '@testing-library/user-event';
 import type { MetaDescriptor } from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { renderPage } from '../test/render.tsx';
-import AccountPage from './account.tsx';
 import SignInPage, { meta } from './sign-in.tsx';
 import type { SignInProblems } from './sign-in.tsx';
 
@@ -11,16 +10,18 @@ const ORIGIN = 'http://localhost:3001';
 
 function openSignIn({
   next = null,
+  ended = null,
   refuse,
 }: {
   next?: string | null;
+  ended?: 'password' | 'everywhere' | null;
   refuse?: { email: string; problems: SignInProblems };
 } = {}) {
   const sentForms: FormData[] = [];
   renderPage({
     path: '/sign-in',
     Component: SignInPage as never,
-    loader: () => ({ next, origin: ORIGIN }),
+    loader: () => ({ next, ended, origin: ORIGIN }),
     action: async ({ request }) => {
       sentForms.push(await request.formData());
       return refuse ?? null;
@@ -141,28 +142,24 @@ describe('the sign-in page', () => {
   });
 });
 
-describe('the account page', () => {
-  it('says who is signed in, and signs out by a form, never a link', async () => {
-    renderPage({
-      path: '/account',
-      Component: AccountPage as never,
-      loader: () => ({
-        fullName: 'Asha Verma',
-        email: 'asha@example.com',
-        origin: ORIGIN,
-      }),
-    });
+describe('the sign-in page after signing out on purpose', () => {
+  it('says the password is changed and every device signed out', async () => {
+    openSignIn({ ended: 'password' });
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'Your password is changed, and you are signed out on every device. Sign in with the new password.',
+    );
+  });
 
-    expect(
-      await screen.findByRole('heading', { name: 'Your account', level: 1 }),
-    ).toBeInTheDocument();
-    const who = screen.getByRole('region', { name: 'Signed in as' });
-    expect(who).toHaveTextContent('Asha Verma');
-    expect(who).toHaveTextContent('asha@example.com');
-    const button = within(who).getByRole('button', { name: 'Sign out' });
-    const form = button.closest('form') as HTMLFormElement;
-    expect(form.getAttribute('action')).toBe('/sign-out');
-    expect(form.method).toBe('post');
-    expect(screen.queryByRole('link', { name: 'Sign out' })).toBeNull();
+  it('says every device is signed out', async () => {
+    openSignIn({ ended: 'everywhere' });
+    expect(await screen.findByRole('status')).toHaveTextContent(
+      'You are signed out on every device.',
+    );
+  });
+
+  it('says nothing of the kind otherwise', async () => {
+    openSignIn();
+    await screen.findByRole('heading', { name: 'Sign in' });
+    expect(screen.queryByRole('status')).toBeNull();
   });
 });

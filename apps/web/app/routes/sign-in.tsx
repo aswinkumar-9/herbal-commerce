@@ -24,14 +24,23 @@ const words = text.signIn;
 const FIELDS = ['email', 'password'] as const;
 const SECRETS = ['password'] as const;
 
+type Ended = keyof typeof words.ended;
+const isEnded = (value: string | null): value is Ended =>
+  value !== null && Object.hasOwn(words.ended, value);
+
 export function loader({ request, context }: Route.LoaderArgs) {
-  const asked = new URL(request.url).searchParams.get('next');
+  const search = new URL(request.url).searchParams;
+  const asked = search.get('next');
   // Signed in already: on to where they were going.
   if (sessionOf(context).current) {
     throw redirect(safeNext(asked));
   }
+  // Signed out on purpose, from the account: a new password, or every
+  // device at once.
+  const ended = search.get('ended');
   return {
     next: asked === null ? null : safeNext(asked),
+    ended: isEnded(ended) ? ended : null,
     origin: getConfig().origin,
   };
 }
@@ -130,6 +139,11 @@ export default function SignIn({
       title={words.title}
       intro={loaderData.next ? words.forPage : words.intro}
     >
+      {loaderData.ended && !actionData ? (
+        <output className="body-4 block rounded-3xl bg-primary-soft p-6 text-ink">
+          {words.ended[loaderData.ended]}
+        </output>
+      ) : null}
       {problems.form ? (
         <FormAlert alertRef={alert}>
           <p className="body-4 text-ink">{problems.form}</p>

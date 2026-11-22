@@ -254,6 +254,12 @@ export const text = {
     description: 'Sign in to your Herbal Commerce account.',
     intro: 'Welcome back. Sign in to see your account.',
     forPage: 'Sign in to see that page.',
+    // After a session ended on purpose, said above the form.
+    ended: {
+      password:
+        'Your password is changed, and you are signed out on every device. Sign in with the new password.',
+      everywhere: 'You are signed out on every device.',
+    },
     password: 'Password',
     submit: 'Sign in',
     submitting: 'Signing in',
@@ -382,9 +388,124 @@ export const text = {
   account: {
     title: 'Your account',
     description: 'Your Herbal Commerce account.',
-    signedInAs: 'Signed in as',
-    signOut: 'Sign out',
-    signingOut: 'Signing out',
+    details: {
+      title: 'Your details',
+      name: 'Your name',
+      email: 'Email address',
+      save: 'Save name',
+      saving: 'Saving',
+    },
+    addresses: {
+      title: 'Delivery addresses',
+      intro: 'Keep up to 10. The default one comes first.',
+      none: 'No delivery addresses saved yet.',
+      isDefault: 'Default',
+      phone: (phone: string) => `Phone ${phone}`,
+      edit: 'Edit',
+      makeDefault: 'Make default',
+      // Read out, as there may be several alike.
+      editFor: (who: string) => `Edit the address for ${who}`,
+      makeDefaultFor: (who: string) => `Make default, the address for ${who}`,
+      add: 'Add an address',
+      full: 'You have 10 addresses, the most we keep. Remove one to add another.',
+    },
+    password: {
+      title: 'Password',
+      intro: 'Changing it signs you out on every device, this one too.',
+      change: 'Change password',
+    },
+    signingOut: {
+      title: 'Signing out',
+      intro:
+        'Sign out everywhere if you used a shared computer or lost a phone.',
+      signOut: 'Sign out',
+      signingOut: 'Signing out',
+      everywhere: 'Sign out everywhere',
+    },
+    // What was just done, said at the top of the page.
+    saved: {
+      name: 'Your name is saved.',
+      default: 'Your default address is changed.',
+      added: 'The address is added.',
+      address: 'The address is saved.',
+      removed: 'The address is removed.',
+    },
+    problems: {
+      name: 'We could not save your name just now. Please try again in a minute.',
+      default:
+        'We could not change your default address just now. Please try again in a minute.',
+      gone: 'That address is no longer saved.',
+      everywhere:
+        'We could not sign you out everywhere just now. Please try again in a minute.',
+    },
+  },
+  // Adding or changing a delivery address (part 14B), by the API's rules.
+  address: {
+    newTitle: 'Add an address',
+    editTitle: 'Edit address',
+    description: 'A delivery address in your Herbal Commerce account.',
+    intro: 'Where we deliver, anywhere in India.',
+    fullName: 'Full name',
+    phone: 'Mobile number',
+    phoneHint: '10 digits, for the courier.',
+    line1: 'House number and street',
+    line2: 'Area or landmark (optional)',
+    city: 'City or town',
+    state: 'State or union territory',
+    chooseState: 'Choose one',
+    pincode: 'PIN code',
+    makeDefault: 'Make this my default address',
+    firstIsDefault: 'Your first address is your default.',
+    isDefault: 'This is your default address.',
+    add: 'Add address',
+    adding: 'Adding',
+    save: 'Save address',
+    saving: 'Saving',
+    back: 'Back to your account',
+    full: 'You have 10 addresses, the most we keep. Remove one to add another.',
+    remove: {
+      ask: 'Remove this address',
+      title: 'Remove this address?',
+      body: (name: string, line1: string) =>
+        `The address for ${name}, ${line1}, will be removed.`,
+      nextDefault: 'Your newest other address becomes the default.',
+      confirm: 'Remove address',
+      removing: 'Removing',
+      keep: 'Keep it',
+    },
+    problems: {
+      fullNameMissing: 'Enter the name of the person receiving it.',
+      phoneWrong: 'Enter a 10 digit Indian mobile number.',
+      line1Missing: 'Enter the house number and street.',
+      cityMissing: 'Enter the city or town.',
+      stateMissing: 'Choose a state or union territory.',
+      pincodeWrong: 'Enter a 6 digit PIN code.',
+      tooLong: (most: number) => `This has at most ${most} characters.`,
+      resting:
+        'We could not save the address just now. Please try again in a minute.',
+      removing:
+        'We could not remove the address just now. Please try again in a minute.',
+    },
+  },
+  // Changing the password while signed in (part 14B). The API then ends
+  // every session, this one too.
+  changePassword: {
+    title: 'Change your password',
+    description: 'Change the password of your Herbal Commerce account.',
+    intro:
+      'Changing it signs you out on every device, this one too. Then sign in with the new password.',
+    current: 'Current password',
+    new: 'New password',
+    submit: 'Change password',
+    submitting: 'Changing',
+    back: 'Back to your account',
+    problems: {
+      currentMissing: 'Enter your current password.',
+      currentWrong: 'The current password is not right.',
+      same: 'Choose a password different from the current one.',
+      resting:
+        'We could not change your password just now. Please try again in a minute.',
+    },
   },
   // The policy pages (part 14B, ADR 0040). Their words are the Super
   // User's, from the console; these are only the names and the frame.

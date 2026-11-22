@@ -13,3 +13,7 @@ export const PILL =
 
 export const OUTLINE_PILL =
   'button-md inline-flex items-center justify-center gap-2 rounded-full border border-line-strong px-6 py-3 text-ink transition hover:bg-surface-muted active:scale-98';
+
+// For what can't be undone, such as removing an address, once asked.
+export const DANGER_PILL =
+  'button-md inline-flex items-center justify-center gap-2 rounded-full bg-danger px-6 py-3 text-on-danger transition hover:bg-danger-strong active:scale-98';
