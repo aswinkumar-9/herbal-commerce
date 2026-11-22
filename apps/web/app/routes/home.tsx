@@ -71,7 +71,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           <img
             src={roots1254}
             srcSet={`${roots640} 640w, ${roots1254} 1254w`}
-            sizes="(min-width: 48rem) 28rem, 100vw"
+            sizes="(min-width: 48rem) 28rem, calc(100vw - 3rem)"
             width={1254}
             height={1254}
             alt=""

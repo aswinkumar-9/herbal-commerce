@@ -172,7 +172,11 @@ function Products({
       className="flex flex-col items-center gap-8"
     >
       <div className="w-full">
-        <ProductGrid products={products} firstOfBatch={starts} />
+        <ProductGrid
+          products={products}
+          firstOfBatch={starts}
+          headingLevel={2}
+        />
       </div>
       {loading ? (
         <div className="w-full">

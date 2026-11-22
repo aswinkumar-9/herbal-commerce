@@ -70,6 +70,20 @@ describe('a product’s card', () => {
       'lazy',
       'lazy',
     ]);
+    // The first row is fetched before anything else that waits.
+    expect(
+      [...photos].map((photo) => photo.getAttribute('fetchpriority')),
+    ).toEqual(['high', 'high', 'high', 'high', null, null]);
+  });
+
+  it('names the product one level under the list’s heading', () => {
+    renderPage({
+      Component: () => <ProductGrid products={[TULSI]} headingLevel={2} />,
+    });
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(
+      'Tulsi Drops',
+    );
+    expect(screen.queryByRole('heading', { level: 3 })).toBeNull();
   });
 
   it('shows a leaf where a photo is missing', () => {
