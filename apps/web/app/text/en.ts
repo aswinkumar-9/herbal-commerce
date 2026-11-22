@@ -226,6 +226,25 @@ export const text = {
       count === 1 ? '1 more product shown' : `${count} more products shown`,
     start: 'Back to the start',
   },
+  // What every account form says about its fields (part 14B). The API
+  // checks them again; these say it beside the field first.
+  forms: {
+    email: 'Email address',
+    showPassword: 'Show password',
+    emailMissing: 'Enter your email address.',
+    emailWrong: 'Enter an email address like name@example.com.',
+    passwordMissing: 'Enter your password.',
+    passwordLong: 'A password has at most 128 characters.',
+    newPasswordMissing: 'Choose a password.',
+    newPasswordShort: 'Choose a password with at least 10 characters.',
+    newPasswordHint: 'At least 10 characters.',
+    nameMissing: 'Enter your name.',
+    nameLong: 'A name has at most 100 characters.',
+    tooMany: (wait: string) =>
+      `Too many tries. Please wait ${wait} and try again.`,
+    minutes: (count: number) => (count === 1 ? '1 minute' : `${count} minutes`),
+    seconds: (count: number) => (count === 1 ? '1 second' : `${count} seconds`),
+  },
   // Signing in (part 14B, ADR 0041). One answer for a wrong email or
   // password, as the API gives (ADR 0007).
   signIn: {
@@ -233,28 +252,128 @@ export const text = {
     description: 'Sign in to your Herbal Commerce account.',
     intro: 'Welcome back. Sign in to see your account.',
     forPage: 'Sign in to see that page.',
-    email: 'Email address',
     password: 'Password',
-    showPassword: 'Show password',
     submit: 'Sign in',
     submitting: 'Signing in',
+    forgot: 'Forgot your password?',
+    newHere: 'New here?',
+    createAccount: 'Create an account',
+    sendAgain: 'Send the link again',
     problems: {
-      emailMissing: 'Enter your email address.',
-      emailWrong: 'Enter an email address like name@example.com.',
-      passwordMissing: 'Enter your password.',
-      passwordLong: 'A password has at most 128 characters.',
       wrong:
         'The email address or the password is not right. Please check them and try again.',
       unconfirmed:
         'Signed up recently? Confirm your email address first, with the link we sent you.',
       closed: 'This account is closed. To ask about it, see Contact us.',
-      tooMany: (wait: string) =>
-        `Too many tries. Please wait ${wait} and try again.`,
       resting:
         'We could not sign you in just now. Please try again in a minute.',
     },
-    minutes: (count: number) => (count === 1 ? '1 minute' : `${count} minutes`),
-    seconds: (count: number) => (count === 1 ? '1 second' : `${count} seconds`),
+  },
+  // Creating an account (part 14B). The answer is the same whether or not
+  // the address has an account already, as the API's is (ADR 0007).
+  signUp: {
+    title: 'Create an account',
+    description: 'Create your Herbal Commerce account.',
+    intro:
+      'It takes a minute. We will send you a link to confirm your email address.',
+    name: 'Your name',
+    password: 'Password',
+    agree: {
+      before: 'By creating an account, you agree to the ',
+      between: ' and the ',
+      after: '.',
+    },
+    submit: 'Create account',
+    submitting: 'Creating your account',
+    haveOne: 'Have an account already?',
+    signIn: 'Sign in',
+    sent: {
+      title: 'Check your inbox',
+      body: (email: string) =>
+        `We have sent a message to ${email}. Open it to finish.`,
+      lasts: 'The link in it lasts 24 hours.',
+      nothing: 'Nothing after a few minutes? Look in your spam folder, or',
+      sendAgain: 'send the link again',
+    },
+    problems: {
+      resting:
+        'We could not create your account just now. Please try again in a minute.',
+    },
+  },
+  // Confirming the email address, from the link in the email (part 14B).
+  // Opening the link only shows a button: a mail scanner that opens every
+  // link can't use it up.
+  verifyEmail: {
+    title: 'Confirm your email address',
+    description: 'Confirm the email address of your Herbal Commerce account.',
+    intro: 'One more step: confirm that this email address is yours.',
+    confirm: 'Confirm my email address',
+    confirming: 'Confirming',
+    confirmed: {
+      title: 'Your email address is confirmed',
+      body: 'Thank you. You can sign in now.',
+      signIn: 'Sign in',
+    },
+    failed:
+      'This link has expired or has been used already. A link lasts 24 hours and works once.',
+    broken:
+      'This link is not complete. Copy the whole link from the email, or ask for a new one below.',
+    resend: {
+      title: 'Send the link again',
+      intro:
+        'Enter the email address you signed up with, and we will send a new link to confirm it.',
+      submit: 'Send the link',
+      submitting: 'Sending',
+      sent: (email: string) =>
+        `If ${email} is waiting to be confirmed, we have sent it a new link. It lasts 24 hours.`,
+    },
+    problems: {
+      resting: 'We could not do that just now. Please try again in a minute.',
+    },
+  },
+  // Forgot password, and choosing a new one from the emailed link (part
+  // 14B). The same answer whether or not the address has an account.
+  forgotPassword: {
+    title: 'Forgot your password?',
+    description: 'Choose a new password for your Herbal Commerce account.',
+    intro:
+      'Enter the email address of your account, and we will send you a link to choose a new password.',
+    submit: 'Send the link',
+    submitting: 'Sending',
+    sent: {
+      title: 'Check your inbox',
+      body: (email: string) =>
+        `If ${email} has an account, we have sent it a link to choose a new password.`,
+      lasts: 'The link lasts 30 minutes and works once.',
+    },
+    back: 'Back to sign in',
+    problems: {
+      resting:
+        'We could not send the link just now. Please try again in a minute.',
+    },
+  },
+  resetPassword: {
+    title: 'Choose a new password',
+    description: 'Choose a new password for your Herbal Commerce account.',
+    intro:
+      'Once it is saved, every device signed in to your account is signed out.',
+    password: 'New password',
+    submit: 'Save the new password',
+    submitting: 'Saving',
+    changed: {
+      title: 'Your password is changed',
+      body: 'Please sign in with your new password.',
+      signIn: 'Sign in',
+    },
+    failed:
+      'This link has expired or has been used already. A link lasts 30 minutes and works once.',
+    broken:
+      'This link is not complete. Copy the whole link from the email, or ask for a new one.',
+    askAgain: 'Ask for a new link',
+    problems: {
+      resting:
+        'We could not change your password just now. Please try again in a minute.',
+    },
   },
   // The customer's own page (part 14B). More comes with the account's
   // details and addresses.

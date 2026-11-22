@@ -1,15 +1,11 @@
 // @vitest-environment node
-import { RouterContextProvider } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SessionHandle, sessionContext } from '../session.server.ts';
+import { waitFor } from '../form-checks.server.ts';
 import type { CustomerSession } from '../session.server.ts';
 import { safeNext } from '../sign-in-next.ts';
+import { answer, contextWith, outcome } from '../test/route-calls.ts';
 import { loader as accountLoader } from './account.tsx';
-import {
-  action as signInAction,
-  loader as signInLoader,
-  waitFor,
-} from './sign-in.tsx';
+import { action as signInAction, loader as signInLoader } from './sign-in.tsx';
 import {
   action as signOutAction,
   loader as signOutLoader,
@@ -29,15 +25,6 @@ const TOKENS = {
 };
 
 const fetchMock = vi.fn<typeof fetch>();
-const answer = (
-  status: number,
-  body?: unknown,
-  headers: Record<string, string> = {},
-) =>
-  new Response(body === undefined ? null : JSON.stringify(body), {
-    status,
-    headers: { 'content-type': 'application/json', ...headers },
-  });
 const sent = (call = 0) => {
   const [url, init] = fetchMock.mock.calls[call] as [URL, RequestInit];
   return {
@@ -56,43 +43,6 @@ afterEach(() => {
   fetchMock.mockReset();
   vi.unstubAllGlobals();
 });
-
-function contextWith(session: CustomerSession | null) {
-  const context = new RouterContextProvider();
-  const handle = new SessionHandle(session);
-  context.set(sessionContext, handle);
-  return { context, handle };
-}
-
-// What a loader or action threw or gave back, as a status and a value.
-async function outcome(run: () => unknown) {
-  try {
-    const value = await run();
-    const given = value as { data?: unknown; init?: ResponseInit | null };
-    return {
-      status: given.init?.status ?? 200,
-      data: given.data ?? value,
-      location: null,
-    };
-  } catch (thrown) {
-    if (thrown instanceof Response) {
-      return {
-        status: thrown.status,
-        data: undefined,
-        location: thrown.headers.get('location'),
-      };
-    }
-    const given = thrown as { init?: ResponseInit | null };
-    if (given.init) {
-      return {
-        status: given.init.status ?? 500,
-        data: undefined,
-        location: null,
-      };
-    }
-    throw thrown;
-  }
-}
 
 const signInWith = (
   fields: Record<string, string>,
@@ -127,6 +77,10 @@ describe('where signing in leads', () => {
       '/a\nb',
       '/sign-in',
       '/sign-out',
+      '/sign-up',
+      '/verify-email?token=someone-elses-token-0123',
+      '/forgot-password',
+      '/reset-password?token=someone-elses-token-0123',
       `/${'a'.repeat(600)}`,
       42,
     ]) {

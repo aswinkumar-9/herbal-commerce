@@ -9,11 +9,23 @@ const FIELD =
 type FieldProps = Omit<ComponentProps<'input'>, 'id' | 'name' | 'className'> & {
   name: string;
   label: string;
+  // A line about what to type, read out with the box.
+  hint?: string | undefined;
   problem?: string | undefined;
 };
 
-export function TextField({ name, label, problem, ...input }: FieldProps) {
+export function TextField({
+  name,
+  label,
+  hint,
+  problem,
+  ...input
+}: FieldProps) {
+  const hintId = `${name}-hint`;
   const problemId = `${name}-problem`;
+  const describedBy =
+    [hint ? hintId : '', problem ? problemId : ''].filter(Boolean).join(' ') ||
+    undefined;
   return (
     <div className="flex flex-col gap-2">
       <label htmlFor={name} className="caption-1 text-ink-muted">
@@ -23,10 +35,15 @@ export function TextField({ name, label, problem, ...input }: FieldProps) {
         id={name}
         name={name}
         aria-invalid={problem ? true : undefined}
-        aria-describedby={problem ? problemId : undefined}
+        aria-describedby={describedBy}
         className={FIELD}
         {...input}
       />
+      {hint ? (
+        <p id={hintId} className="caption-2 px-4 text-ink-muted">
+          {hint}
+        </p>
+      ) : null}
       <Problem id={problemId} message={problem} />
     </div>
   );

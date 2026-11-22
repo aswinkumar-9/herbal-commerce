@@ -2,13 +2,14 @@
 // web:build`, ADR 0039). It starts the built website on a spare port, with
 // a stand-in for the API, and reads its pages as a browser would: the home
 // page, the shop and a search, a category, a product, a policy page and
-// one not published yet, the sign-in page, "not found" (404) and an unknown
-// category and product, and the home page again while the API is busy,
-// which then says the shop is taking a break (503). Each must carry its own
-// policy with a fresh nonce, every inline script that nonce, and no inline
-// style at all. No source map may be published, and no font or picture may
-// hide in a data: address. It also signs in through the built website, as
-// a browser would (ADR 0041).
+// one not published yet, the account's forms and its emailed links, "not
+// found" (404) and an unknown category and product, and the home page
+// again while the API is busy, which then says the shop is taking a break
+// (503). Each must carry its own policy with a fresh nonce, every inline
+// script that nonce, and no inline style at all. No source map may be
+// published, and no font or picture may hide in a data: address. It also
+// signs in and signs up through the built website, as a browser would
+// (ADR 0041).
 import { randomBytes } from 'node:crypto';
 import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { createServer } from 'node:http';
@@ -85,6 +86,7 @@ const answers: Record<string, unknown> = {
     refreshToken: 'stand-in-refresh-token-0123456789',
   },
   '/v1/me': { fullName: 'Asha Verma', email: 'asha@example.com' },
+  '/v1/auth/register': { message: 'If this email address can be used…' },
   // Only the privacy policy is published; the rest answer 404.
   '/v1/policies/privacy': {
     page: 'privacy',
@@ -93,8 +95,12 @@ const answers: Record<string, unknown> = {
     publishedAt: '2026-11-21T10:05:00.000Z',
   },
 };
+// What the website asked the API, by method and path.
+const asked: string[] = [];
 const api = createServer((request, response) => {
-  const body = answers[new URL(request.url ?? '/', 'http://x').pathname];
+  const path = new URL(request.url ?? '/', 'http://x').pathname;
+  asked.push(`${request.method} ${path}`);
+  const body = answers[path];
   response.writeHead(busy ? 503 : body ? 200 : 404, {
     'content-type': 'application/json',
   });
@@ -164,7 +170,12 @@ const server = await new Promise<Server>((resolve) => {
 const base = process.env['WEB_ORIGIN'];
 
 const nonces = new Set<string>();
-async function checkPage(path: string, status: number): Promise<void> {
+async function checkPage(
+  path: string,
+  status: number,
+  // A page whose address holds a link's token is kept by no cache at all.
+  cache = 'private, no-cache',
+): Promise<void> {
   const response = await fetch(`${base}${path}`);
   const html = await response.text();
   const where = `${path}:`;
@@ -233,7 +244,7 @@ async function checkPage(path: string, status: number): Promise<void> {
   for (const [name, value] of [
     ['x-content-type-options', 'nosniff'],
     ['x-frame-options', 'DENY'],
-    ['cache-control', 'private, no-cache'],
+    ['cache-control', cache],
   ]) {
     if (response.headers.get(name ?? '') !== value) {
       problems.push(`${where} ${name} is not ${value}`);
@@ -307,6 +318,42 @@ async function checkSigningIn(): Promise<void> {
   }
 }
 
+// Signing up through the built website: the form asks the API to make the
+// account and says to check the inbox, without the password. Opening an
+// emailed link asks nothing of the API: only its button does, so a mail
+// scanner opening every link can't use it up.
+const TOKEN = 'Zm9yIGEgdGVzdCBvbmx5IG5vdCBhIHJlYWwgdG9rZW4';
+async function checkSigningUp(): Promise<void> {
+  const where = 'signing up:';
+  const response = await fetch(`${base}/sign-up`, {
+    method: 'POST',
+    headers: { origin: base },
+    body: new URLSearchParams({
+      fullName: 'Asha Verma',
+      email: 'asha@example.com',
+      password: 'a long password',
+    }),
+  });
+  const html = await response.text();
+  if (
+    response.status !== 200 ||
+    !html.includes('Check your inbox') ||
+    html.includes('a long password') ||
+    !asked.includes('POST /v1/auth/register')
+  ) {
+    problems.push(`${where} the form did not ask for an account`);
+  }
+  const before = asked.length;
+  await checkPage(`/verify-email?token=${TOKEN}`, 200, 'private, no-store');
+  await checkPage(`/reset-password?token=${TOKEN}`, 200, 'private, no-store');
+  const opened = asked.slice(before).filter((call) => call.includes('/auth/'));
+  if (opened.length > 0) {
+    problems.push(
+      `opening an emailed link asked the API: ${opened.join(', ')}`,
+    );
+  }
+}
+
 try {
   await checkPage('/', 200);
   await checkPage('/shop', 200);
@@ -317,6 +364,10 @@ try {
   await checkPage('/terms', 200);
   await checkPage('/sign-in', 200);
   await checkSigningIn();
+  await checkPage('/sign-up', 200);
+  await checkPage('/forgot-password', 200);
+  await checkPage('/verify-email', 200, 'private, no-store');
+  await checkSigningUp();
   await checkPage('/this-page-does-not-exist', 404);
   await checkPage('/categories/no-such-category', 404);
   await checkPage('/products/no-such-product', 404);

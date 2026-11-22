@@ -1,9 +1,15 @@
-import { useEffect, useRef } from 'react';
-import { Form, data, redirect, useNavigation } from 'react-router';
+import { Form, Link, data, redirect } from 'react-router';
 import { apiSend } from '../api.server.ts';
 import { getConfig } from '../config.server.ts';
 import { PasswordField, TextField } from '../components/FormField.tsx';
-import { GOLD_PILL } from '../components/pills.ts';
+import {
+  FormAlert,
+  FormPage,
+  SendButton,
+  TEXT_LINK,
+  useAfterSending,
+} from '../components/FormPage.tsx';
+import { emailProblem, given, tooMany } from '../form-checks.server.ts';
 import { pageTitle } from '../page-title.ts';
 import { pageMeta } from '../seo.ts';
 import { sessionOf, tokenSchema } from '../session.server.ts';
@@ -15,7 +21,8 @@ import type { Route } from './+types/sign-in';
 // website server signs in with the API and keeps the tokens sealed in the
 // customer's cookie; the page never sees them.
 const words = text.signIn;
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const FIELDS = ['email', 'password'] as const;
+const SECRETS = ['password'] as const;
 
 export function loader({ request, context }: Route.LoaderArgs) {
   const asked = new URL(request.url).searchParams.get('next');
@@ -29,34 +36,29 @@ export function loader({ request, context }: Route.LoaderArgs) {
   };
 }
 
-export interface SignInProblems {
+export type SignInProblems = {
   email?: string;
   password?: string;
   // About the whole form, with a hint when it may help.
   form?: string;
   hint?: string;
-}
+};
 
 export async function action({ request, context }: Route.ActionArgs) {
   const form = await request.formData();
-  const given = (name: string): string => {
-    const value = form.get(name);
-    return typeof value === 'string' ? value : '';
-  };
-  const email = given('email').trim();
-  const password = given('password');
+  const email = given(form, 'email').trim();
+  const password = given(form, 'password');
   const next = safeNext(form.get('next'));
 
   const problems: SignInProblems = {};
-  if (!email) {
-    problems.email = words.problems.emailMissing;
-  } else if (email.length > 254 || !EMAIL.test(email)) {
-    problems.email = words.problems.emailWrong;
+  const emailWrong = emailProblem(email);
+  if (emailWrong) {
+    problems.email = emailWrong;
   }
   if (!password) {
-    problems.password = words.problems.passwordMissing;
+    problems.password = text.forms.passwordMissing;
   } else if (password.length > 128) {
-    problems.password = words.problems.passwordLong;
+    problems.password = text.forms.passwordLong;
   }
   if (problems.email || problems.password) {
     return refuse(email, problems, 400);
@@ -83,16 +85,15 @@ export async function action({ request, context }: Route.ActionArgs) {
     return refuse(email, { form: words.problems.closed }, 403);
   }
   if (answer.status === 429) {
-    const wait = waitFor(answer.retryAfter ?? 60);
-    return refuse(email, { form: words.problems.tooMany(wait) }, 429);
+    return refuse(email, { form: tooMany(answer.retryAfter) }, 429);
   }
   if (answer.status === 400) {
     const refused: SignInProblems = {};
     if (answer.fields['email']) {
-      refused.email = words.problems.emailWrong;
+      refused.email = text.forms.emailWrong;
     }
     if (answer.fields['password']) {
-      refused.password = words.problems.passwordLong;
+      refused.password = text.forms.passwordLong;
     }
     return refuse(email, refused, 400);
   }
@@ -103,12 +104,6 @@ export async function action({ request, context }: Route.ActionArgs) {
 // the page; the email address is, to spare typing it again.
 function refuse(email: string, problems: SignInProblems, status: number) {
   return data({ email, problems }, { status });
-}
-
-export function waitFor(seconds: number): string {
-  return seconds >= 120
-    ? words.minutes(Math.ceil(seconds / 60))
-    : words.seconds(Math.max(1, seconds));
 }
 
 export const meta: Route.MetaFunction = ({ loaderData }) =>
@@ -127,54 +122,26 @@ export default function SignIn({
   loaderData,
   actionData,
 }: Route.ComponentProps) {
-  const navigation = useNavigation();
-  const sending =
-    navigation.state !== 'idle' && navigation.formMethod === 'POST';
   const problems: SignInProblems = actionData?.problems ?? {};
-  const message = useRef<HTMLDivElement>(null);
-
-  // After a refused try, the keyboard goes to what needs fixing.
-  useEffect(() => {
-    if (!actionData) {
-      return;
-    }
-    const { problems: found } = actionData;
-    // The password goes, as it does when the page comes back without its
-    // script: it is never kept on the page after a refused try.
-    const password = document.getElementById('password');
-    if (password instanceof HTMLInputElement) {
-      password.value = '';
-    }
-    if (found.email) {
-      document.getElementById('email')?.focus();
-    } else if (found.password) {
-      document.getElementById('password')?.focus();
-    } else {
-      message.current?.focus();
-    }
-  }, [actionData]);
+  const { alert } = useAfterSending(actionData, FIELDS, SECRETS);
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-8 px-6 pt-32 pb-24">
-      <header className="flex flex-col gap-3">
-        <h1 className="heading-4 text-balance text-ink">{words.title}</h1>
-        <p className="body-3 text-pretty text-ink-muted">
-          {loaderData.next ? words.forPage : words.intro}
-        </p>
-      </header>
-
+    <FormPage
+      title={words.title}
+      intro={loaderData.next ? words.forPage : words.intro}
+    >
       {problems.form ? (
-        <div
-          ref={message}
-          tabIndex={-1}
-          role="alert"
-          className="flex flex-col gap-2 rounded-3xl bg-danger-soft p-6 outline-none"
-        >
+        <FormAlert alertRef={alert}>
           <p className="body-4 text-ink">{problems.form}</p>
           {problems.hint ? (
-            <p className="body-6 text-ink">{problems.hint}</p>
+            <p className="body-6 text-ink">
+              {problems.hint}{' '}
+              <Link to="/verify-email" className={TEXT_LINK}>
+                {words.sendAgain}
+              </Link>
+            </p>
           ) : null}
-        </div>
+        </FormAlert>
       ) : null}
 
       <Form method="post" replace className="flex flex-col gap-6">
@@ -183,7 +150,7 @@ export default function SignIn({
         ) : null}
         <TextField
           name="email"
-          label={words.email}
+          label={text.forms.email}
           type="email"
           autoComplete="email"
           inputMode="email"
@@ -192,29 +159,32 @@ export default function SignIn({
           defaultValue={actionData?.email ?? ''}
           problem={problems.email}
         />
-        <PasswordField
-          name="password"
-          label={words.password}
-          autoComplete="current-password"
-          required
-          maxLength={128}
-          showLabel={words.showPassword}
-          problem={problems.password}
-        />
-        <button
-          type="submit"
-          aria-disabled={sending || undefined}
-          onClick={(event) => {
-            // One sign-in at a time; a second click waits.
-            if (sending) {
-              event.preventDefault();
-            }
-          }}
-          className={`${GOLD_PILL} w-full aria-disabled:opacity-80`}
-        >
-          {sending ? `${words.submitting}…` : words.submit}
-        </button>
+        <div className="flex flex-col gap-2">
+          <PasswordField
+            name="password"
+            label={words.password}
+            autoComplete="current-password"
+            required
+            maxLength={128}
+            showLabel={text.forms.showPassword}
+            problem={problems.password}
+          />
+          <Link
+            to="/forgot-password"
+            className={`${TEXT_LINK} body-6 self-start px-4 py-2`}
+          >
+            {words.forgot}
+          </Link>
+        </div>
+        <SendButton label={words.submit} sendingLabel={words.submitting} />
       </Form>
-    </div>
+
+      <p className="body-6 text-ink-muted">
+        {words.newHere}{' '}
+        <Link to="/sign-up" className={TEXT_LINK}>
+          {words.createAccount}
+        </Link>
+      </p>
+    </FormPage>
   );
 }
