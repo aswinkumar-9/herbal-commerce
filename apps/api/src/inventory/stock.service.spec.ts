@@ -771,15 +771,24 @@ describe('StockService.take, for an order', () => {
       orderBy: { id: 'asc' },
       select: { id: true },
     });
-    const locked = tx.$queryRaw.mock.calls.map((call) => call[1] as string);
-    expect(locked).toEqual(['b-1', 'b-2', 'b-3']);
+    // All locked by one question, however many batches (no query per
+    // batch), the database sorting them by ID before it locks them.
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    const [sql, ids] = tx.$queryRaw.mock.calls[0] as [
+      TemplateStringsArray,
+      string[],
+    ];
+    expect(sql.join('?')).toMatch(
+      /FROM stock_batches WHERE id = ANY\(\?::uuid\[\]\)\s+ORDER BY id FOR UPDATE/,
+    );
+    expect(ids).toEqual(['b-1', 'b-2', 'b-3']);
     // Read again once locked, the first to expire first.
     expect(tx.stockBatch.findMany.mock.calls[1][0]).toEqual({
       where: { id: { in: ['b-1', 'b-2', 'b-3'] } },
       orderBy: [{ expiresOn: 'asc' }, { batchNumber: 'asc' }],
       select: { id: true, variantId: true, quantity: true },
     });
-    expect(tx.$queryRaw.mock.invocationCallOrder[2]).toBeLessThan(
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
       tx.stockBatch.findMany.mock.invocationCallOrder[1],
     );
     expect(tx.stockMovement.createMany).toHaveBeenCalledWith({
@@ -834,6 +843,26 @@ describe('StockService.take, for an order', () => {
     await expect(refusal).rejects.toThrow(NotEnoughStockError);
     await expect(refusal).rejects.toMatchObject({ variantId: OTHER });
     expect(tx.stockMovement.createMany).not.toHaveBeenCalled();
+  });
+
+  it('locks forty batches with one question, as it locks three', async () => {
+    const { service, tx } = setup();
+    const ids = Array.from({ length: 40 }, (_, at) => `b-${10 + at}`);
+    tx.stockBatch.findMany
+      .mockResolvedValueOnce(ids.map((id) => ({ id })))
+      .mockResolvedValueOnce(
+        ids.map((id) => ({ id, variantId: VARIANT, quantity: 1 })),
+      );
+
+    await service.take(
+      tx as never,
+      ORDER,
+      [{ variantId: VARIANT, packs: 40 }],
+      NOW,
+    );
+
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(tx.$queryRaw.mock.calls[0][1]).toEqual(ids);
   });
 
   it('refuses a pack size without any sellable batch', async () => {

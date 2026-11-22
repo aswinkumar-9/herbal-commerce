@@ -473,9 +473,12 @@ export class StockService {
       orderBy: { id: 'asc' },
       select: { id: true },
     });
-    for (const { id } of candidates) {
-      await this.lockBatch(tx, id);
-    }
+    // One question locks them all, however many there are, in the order
+    // of their IDs: the database sorts them before it locks them.
+    await this.lockBatches(
+      tx,
+      candidates.map((batch) => batch.id),
+    );
     // Read again once locked: another order may have taken some meanwhile.
     const batches = await tx.stockBatch.findMany({
       where: { id: { in: candidates.map((batch) => batch.id) } },
@@ -548,6 +551,22 @@ export class StockService {
     const locked = await tx.$queryRaw<{ id: string }[]>`
       SELECT id FROM stock_batches WHERE id = ${id}::uuid FOR UPDATE`;
     return locked.length > 0;
+  }
+
+  // Locks these batches until the transaction ends, in the order of their
+  // IDs, as one question (it was one per batch before; part 14B). A batch
+  // deleted meanwhile is simply not there. The IDs are sent as one array
+  // parameter, never pasted into the SQL.
+  private async lockBatches(
+    tx: Prisma.TransactionClient,
+    ids: string[],
+  ): Promise<void> {
+    if (ids.length === 0) {
+      return;
+    }
+    await tx.$queryRaw`
+      SELECT id FROM stock_batches WHERE id = ANY(${ids}::uuid[])
+       ORDER BY id FOR UPDATE`;
   }
 
   // Locks the batch until the transaction ends, then reads it, or answers
