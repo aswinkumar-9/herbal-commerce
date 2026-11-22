@@ -154,6 +154,12 @@ model AuditLog {
   ip         String?
   requestId  String?
 
+  // For Super Users reading it (ADR 0017): the newest first, page by page,
+  // and the same for one admin, one thing changed, or one kind of action.
+  @@index([createdAt, id])
+  @@index([actorId, createdAt])
+  @@index([targetId, createdAt])
+  @@index([action, createdAt])
   @@map("audit_log")
 }
 
@@ -512,6 +518,8 @@ model Order {
   @@index([status, holdExpiresAt])
   // For staff: the orders in one status, the oldest first.
   @@index([status, createdAt])
+  // For staff: every order, the newest or the oldest first, page by page.
+  @@index([createdAt, id])
   @@map("orders")
 }
 
