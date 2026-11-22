@@ -8,6 +8,8 @@
 // - Busy, resting, unreachable or slow, or an answer that isn't as
 //   expected: the page says the shop is taking a short break (503). The
 //   reason goes to the server's log, never to the page.
+// - Answers every visitor gets alike (the catalog and the policy pages,
+//   asked with no customer's token) are kept for a short while: see below.
 import { data } from 'react-router';
 import { z } from 'zod';
 import { getConfig } from './config.server.ts';
@@ -51,12 +53,108 @@ async function ask<T>(
   schema: z.ZodType<T>,
   query?: URLSearchParams,
 ): Promise<T | typeof MISSING> {
-  const url = new URL(`${getConfig().apiUrl}/v1/${path}`);
+  const config = getConfig();
+  const url = new URL(`${config.apiUrl}/v1/${path}`);
   if (query) {
     url.search = query.toString();
   }
+  const found =
+    config.apiCacheSeconds > 0
+      ? await askShared(request, url, config.apiCacheSeconds)
+      : await askApi(
+          url,
+          request.headers.get(CLIENT_IP_HEADER),
+          request.signal,
+        );
+  if (found === MISSING) {
+    return MISSING;
+  }
+  const parsed = schema.safeParse(found);
+  if (!parsed.success) {
+    kept.delete(url.href);
+    console.error(`The API's answer to GET ${url.pathname} is not as expected`);
+    throw unavailable();
+  }
+  return parsed.data;
+}
+
+// The kept answers (part 14B, after the Lighthouse audit). A built website
+// keeps each for WEB_API_CACHE_SECONDS (60 by default), so the API is asked
+// at most once a minute for each address, however many customers come, and
+// customers asking at the same moment share one question. A failure is
+// never kept. Prices and stock may lag the console by that long; an order
+// always reads them afresh from the API (part 14C). At most KEEP_AT_MOST
+// addresses are kept, the least recently used going first, so searches
+// with ever new words can't fill the memory.
+type Kept = { found: unknown; until: number };
+const kept = new Map<string, Kept>();
+const asking = new Map<string, Promise<unknown>>();
+export const KEEP_AT_MOST = 500;
+
+// For tests: start with nothing kept.
+export function forgetKeptAnswers(): void {
+  kept.clear();
+  asking.clear();
+}
+
+async function askShared(
+  request: Request,
+  url: URL,
+  seconds: number,
+): Promise<unknown> {
+  const key = url.href;
+  const hit = kept.get(key);
+  if (hit && hit.until > Date.now()) {
+    kept.delete(key);
+    kept.set(key, hit);
+    return hit.found;
+  }
+  let shared = asking.get(key);
+  if (!shared) {
+    // Not tied to the first customer's request: others may be waiting on
+    // it, so their leaving must not stop it. The API's own time limit does.
+    shared = askApi(url, request.headers.get(CLIENT_IP_HEADER))
+      .then((found) => {
+        kept.delete(key);
+        kept.set(key, { found, until: Date.now() + seconds * 1000 });
+        for (const oldest of kept.keys()) {
+          if (kept.size <= KEEP_AT_MOST) {
+            break;
+          }
+          kept.delete(oldest);
+        }
+        return found;
+      })
+      .finally(() => asking.delete(key));
+    // Handled even when every customer waiting on it has left already:
+    // each who stays gets the failure their own way.
+    shared.catch(() => undefined);
+    asking.set(key, shared);
+  }
+  return whileWaiting(shared, request.signal);
+}
+
+// What a customer waits for, unless they leave first.
+function whileWaiting<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason);
+  }
+  return new Promise<T>((resolve, reject) => {
+    const leave = (): void => reject(signal.reason);
+    signal.addEventListener('abort', leave, { once: true });
+    promise
+      .then(resolve, reject)
+      .finally(() => signal.removeEventListener('abort', leave));
+  });
+}
+
+// One question to the API: its answer as it came, MISSING for not found.
+async function askApi(
+  url: URL,
+  ip: string | null,
+  signal?: AbortSignal,
+): Promise<unknown> {
   const headers = new Headers({ accept: 'application/json' });
-  const ip = request.headers.get(CLIENT_IP_HEADER);
   if (ip) {
     headers.set('x-forwarded-for', ip);
   }
@@ -68,13 +166,12 @@ async function ask<T>(
     response = await fetch(url, {
       headers,
       redirect: 'error',
-      signal: AbortSignal.any([
-        request.signal,
-        AbortSignal.timeout(API_TIMEOUT_MS),
-      ]),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(API_TIMEOUT_MS)])
+        : AbortSignal.timeout(API_TIMEOUT_MS),
     });
   } catch (error) {
-    if (request.signal.aborted) {
+    if (signal?.aborted) {
       throw error;
     }
     console.error(`The API did not answer ${what}:`, error);
@@ -90,13 +187,7 @@ async function ask<T>(
     console.error(`The API answered ${what} with ${response.status}`);
     throw unavailable(response.headers.get('retry-after'));
   }
-  const body: unknown = await response.json().catch(() => undefined);
-  const parsed = schema.safeParse(body);
-  if (!parsed.success) {
-    console.error(`The API's answer to ${what} is not as expected`);
-    throw unavailable();
-  }
-  return parsed.data;
+  return response.json().catch(() => undefined);
 }
 
 // What the API said to a form or a signed-in page (part 14B): an answer, or

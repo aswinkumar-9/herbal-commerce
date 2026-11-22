@@ -1,4 +1,5 @@
 import { Leaf } from '@phosphor-icons/react';
+import { memo } from 'react';
 import { Link } from 'react-router';
 import type { ProductCard as Card } from '../catalog.server.ts';
 import { rupees } from '../price.ts';
@@ -12,8 +13,9 @@ const FIRST_ROW = 4;
 // The products of a list, as cards. Each card is one link, named by the
 // product alone: its whole surface follows it. The names are headings one
 // level under the list's own: h3 under the shop's h2 for its results, h2
-// straight under a category's h1.
-export function ProductGrid({
+// straight under a category's h1. Drawn again only when its products
+// change, not at each key typed in the shop's search box above it.
+export const ProductGrid = memo(function ProductGrid({
   products,
   firstOfBatch,
   headingLevel = 3,
@@ -39,7 +41,7 @@ export function ProductGrid({
       ))}
     </ul>
   );
-}
+});
 
 export function ProductCard({
   product,
@@ -78,6 +80,7 @@ export function ProductCard({
         <Name className="title-3 text-ink">
           {/* Its box covers the card, so the whole card follows it. */}
           <Link
+            prefetch="intent"
             to={`/products/${product.slug}`}
             className="after:absolute after:inset-0 after:rounded-3xl focus-visible:outline-none"
           >

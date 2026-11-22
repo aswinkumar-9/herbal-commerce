@@ -76,6 +76,13 @@ describe('a product’s card', () => {
     ).toEqual(['high', 'high', 'high', 'high', null, null]);
   });
 
+  it('is drawn again only when its products change, not at each key typed in the shop’s search', () => {
+    // Measured before: 20 cards drawn 5 times more for "tulsi" typed.
+    expect((ProductGrid as { $$typeof?: symbol }).$$typeof).toBe(
+      Symbol.for('react.memo'),
+    );
+  });
+
   it('names the product one level under the list’s heading', () => {
     renderPage({
       Component: () => <ProductGrid products={[TULSI]} headingLevel={2} />,

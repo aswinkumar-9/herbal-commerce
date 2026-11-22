@@ -143,7 +143,7 @@ export default function VerifyEmail({
         intro={words.confirmed.body}
         titleRef={title}
       >
-        <Link to="/sign-in" className={`${GOLD_PILL} w-full`}>
+        <Link prefetch="intent" to="/sign-in" className={`${GOLD_PILL} w-full`}>
           {words.confirmed.signIn}
         </Link>
       </FormPage>

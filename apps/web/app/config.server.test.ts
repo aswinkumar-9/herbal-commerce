@@ -16,6 +16,8 @@ describe('the website’s settings', () => {
       trustProxy: [],
       indexing: false,
       sessionSecret: expect.stringMatching(/^[\w-]{43}$/) as string,
+      // On a laptop, a change made in the console shows at once.
+      apiCacheSeconds: 0,
     });
     // Made once for the server's life, so a reload signs no one out.
     expect(loadConfig({}).sessionSecret).toBe(loadConfig({}).sessionSecret);
@@ -44,7 +46,28 @@ describe('the website’s settings', () => {
       trustProxy: ['loopback', '10.0.0.0/8'],
       indexing: true,
       sessionSecret: SECRET,
+      apiCacheSeconds: 60,
     });
+  });
+
+  it('keep the API’s answers as long as asked, within ten minutes', () => {
+    expect(loadConfig({ WEB_API_CACHE_SECONDS: '15' }).apiCacheSeconds).toBe(
+      15,
+    );
+    expect(
+      loadConfig({
+        NODE_ENV: 'production',
+        WEB_ORIGIN: 'http://localhost:3011',
+        WEB_MEDIA_BASE_URL: 'http://127.0.0.1:3000/media',
+        WEB_SESSION_SECRET: SECRET,
+        WEB_API_CACHE_SECONDS: '0',
+      }).apiCacheSeconds,
+    ).toBe(0);
+    for (const value of ['-1', '601', 'soon']) {
+      expect(() => loadConfig({ WEB_API_CACHE_SECONDS: value })).toThrow(
+        'WEB_API_CACHE_SECONDS',
+      );
+    }
   });
 
   it('refuse an address that could change the security policy it is written into', () => {

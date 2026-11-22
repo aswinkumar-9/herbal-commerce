@@ -22,6 +22,7 @@ export function SiteFooter({ inert }: { inert: boolean }) {
             {POLICY_PAGES.map((page) => (
               <li key={page}>
                 <NavLink
+                  prefetch="intent"
                   to={`/${page}`}
                   className="body-6 inline-block py-0.5 text-ink-muted underline-offset-4 transition-colors duration-300 ease-settle hover:text-primary hover:underline aria-[current=page]:text-ink"
                 >

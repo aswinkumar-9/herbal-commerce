@@ -141,7 +141,7 @@ export default function SignUp({ actionData }: Route.ComponentProps) {
         </div>
         <p className="body-6 text-ink-muted">
           {words.sent.nothing}{' '}
-          <Link to="/verify-email" className={TEXT_LINK}>
+          <Link prefetch="intent" to="/verify-email" className={TEXT_LINK}>
             {words.sent.sendAgain}
           </Link>
           .
@@ -193,11 +193,11 @@ export default function SignUp({ actionData }: Route.ComponentProps) {
         />
         <p className="body-6 text-pretty text-ink-muted">
           {words.agree.before}
-          <Link to="/terms" className={TEXT_LINK}>
+          <Link prefetch="intent" to="/terms" className={TEXT_LINK}>
             {text.policies.pages.terms.title}
           </Link>
           {words.agree.between}
-          <Link to="/privacy" className={TEXT_LINK}>
+          <Link prefetch="intent" to="/privacy" className={TEXT_LINK}>
             {text.policies.pages.privacy.title}
           </Link>
           {words.agree.after}
@@ -207,7 +207,7 @@ export default function SignUp({ actionData }: Route.ComponentProps) {
 
       <p className="body-6 text-ink-muted">
         {words.haveOne}{' '}
-        <Link to="/sign-in" className={TEXT_LINK}>
+        <Link prefetch="intent" to="/sign-in" className={TEXT_LINK}>
           {words.signIn}
         </Link>
       </p>

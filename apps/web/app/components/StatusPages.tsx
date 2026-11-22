@@ -12,7 +12,7 @@ export function NotFoundPage() {
         heading={text.notFound.heading}
         body={text.notFound.body}
         action={
-          <Link to="/" className={GOLD_PILL}>
+          <Link prefetch="intent" to="/" className={GOLD_PILL}>
             {text.notFound.home}
           </Link>
         }

@@ -1,5 +1,7 @@
 // Makes the website's copies of the owner's pictures (part 14A): each as
-// WebP in two widths, for phones and for wide screens, and one JPEG for
+// WebP in two or three widths, for phones and for wide screens (the middle
+// one so a sharp phone or a laptop isn't sent more than it shows; after the
+// Lighthouse audit, 2026-11-22), and one JPEG for
 // link previews (WhatsApp and others want JPEG, 1200 × 630). Their details
 // (camera, tool, location) are left out. The originals stay outside the
 // repository; run this again when they change:
@@ -43,12 +45,12 @@ const PICTURES = [
   {
     file: 'Golden-Hour Saffron Tea Retreat.png',
     name: 'fields',
-    widths: [960, 1672],
+    widths: [960, 1280, 1672],
   },
   {
     file: 'Mystical Tree of Life in Golden Light.png',
     name: 'roots',
-    widths: [640, 1254],
+    widths: [640, 960, 1254],
   },
 ] as const;
 
@@ -61,9 +63,12 @@ for (const picture of PICTURES) {
   for (const wanted of picture.widths) {
     const size = Math.min(wanted, width);
     const file = join(out, `${picture.name}-${size}.webp`);
+    // Quality 68 with the photo preset: side by side at full size it looks
+    // the same as 78, at 5 to 15% fewer bytes. The pictures are painted
+    // texture through and through, so going lower saves little more.
     await sharp(input)
       .resize({ width: size, withoutEnlargement: true })
-      .webp({ quality: 78, effort: 6 })
+      .webp({ quality: 68, effort: 6, preset: 'photo', smartSubsample: true })
       .toFile(file);
     console.log(
       `${picture.name}-${size}.webp  ${kb(file)}  (${width}×${height})`,

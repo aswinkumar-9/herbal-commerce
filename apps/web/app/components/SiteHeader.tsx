@@ -121,7 +121,11 @@ export function SiteHeader({
           aria-label={text.nav.label}
           className="glass flex items-center gap-2 rounded-full py-2 pr-2 pl-4 inset-shadow-glass"
         >
-          <Link to="/" className="title-4 rounded-full px-2 py-2 text-ink">
+          <Link
+            prefetch="intent"
+            to="/"
+            className="title-4 rounded-full px-2 py-2 text-ink"
+          >
             {text.shop.name}
           </Link>
           <ul className="hidden items-center lg:flex">
@@ -129,6 +133,7 @@ export function SiteHeader({
               <li key={link.to}>
                 {/* The page you are on sits on a solid chip, in gold. */}
                 <NavLink
+                  prefetch="intent"
                   to={link.to}
                   className="body-5 block rounded-full px-3 py-2 text-ink transition-colors hover:bg-primary-soft hover:text-primary aria-[current=page]:bg-primary-soft aria-[current=page]:text-primary"
                 >
@@ -175,6 +180,7 @@ export function SiteHeader({
                 className="translate-y-6 opacity-0 transition duration-500 group-data-open:translate-y-0 group-data-open:opacity-100"
               >
                 <NavLink
+                  prefetch="intent"
                   to={link.to}
                   onClick={() => onMenuChange(false)}
                   className="heading-5 block rounded-2xl py-2 text-ink aria-[current=page]:text-primary"

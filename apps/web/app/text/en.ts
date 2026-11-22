@@ -7,6 +7,8 @@ export const text = {
     name: 'Herbal Commerce',
   },
   skipLink: 'Skip to content',
+  // Read out while the next page is on its way.
+  pageLoading: 'Loading the page',
   nav: {
     label: 'Main',
     phoneLabel: 'Main, on a phone',

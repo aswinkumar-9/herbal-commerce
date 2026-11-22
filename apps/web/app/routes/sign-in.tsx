@@ -136,7 +136,7 @@ export default function SignIn({
           {problems.hint ? (
             <p className="body-6 text-ink">
               {problems.hint}{' '}
-              <Link to="/verify-email" className={TEXT_LINK}>
+              <Link prefetch="intent" to="/verify-email" className={TEXT_LINK}>
                 {words.sendAgain}
               </Link>
             </p>
@@ -170,6 +170,7 @@ export default function SignIn({
             problem={problems.password}
           />
           <Link
+            prefetch="intent"
             to="/forgot-password"
             className={`${TEXT_LINK} body-6 self-start px-4 py-2`}
           >
@@ -181,7 +182,7 @@ export default function SignIn({
 
       <p className="body-6 text-ink-muted">
         {words.newHere}{' '}
-        <Link to="/sign-up" className={TEXT_LINK}>
+        <Link prefetch="intent" to="/sign-up" className={TEXT_LINK}>
           {words.createAccount}
         </Link>
       </p>

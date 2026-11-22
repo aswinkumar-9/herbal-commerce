@@ -73,7 +73,7 @@ export default function PolicyPage({ loaderData }: Route.ComponentProps) {
           <PolicyText text={policy.body} />
         ) : (
           <EmptyState title={words.pending} hint={words.pendingHint}>
-            <Link to="/shop" className={PILL}>
+            <Link prefetch="intent" to="/shop" className={PILL}>
               {text.shopPage.seeAll}
             </Link>
           </EmptyState>

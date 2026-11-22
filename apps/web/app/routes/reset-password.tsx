@@ -119,7 +119,7 @@ export default function ResetPassword({
         intro={words.changed.body}
         titleRef={title}
       >
-        <Link to="/sign-in" className={`${GOLD_PILL} w-full`}>
+        <Link prefetch="intent" to="/sign-in" className={`${GOLD_PILL} w-full`}>
           {words.changed.signIn}
         </Link>
       </FormPage>
@@ -134,7 +134,11 @@ export default function ResetPassword({
         <FormAlert alertRef={alert}>
           <p className="body-4 text-ink">{problems.form ?? words.broken}</p>
         </FormAlert>
-        <Link to="/forgot-password" className={`${GOLD_PILL} w-full`}>
+        <Link
+          prefetch="intent"
+          to="/forgot-password"
+          className={`${GOLD_PILL} w-full`}
+        >
           {words.askAgain}
         </Link>
       </FormPage>

@@ -38,6 +38,34 @@ html {
   animation: settle 700ms var(--ease-settle) both;
 }
 
+/* The next page on its way (part 14B): a thin bar across the very top,
+   shown only once the wait is noticeable (after 300 ms), a light passing
+   left to right on the shop's curve. Transform and opacity only, and no
+   style attribute. When less motion is asked for, the bar simply shows,
+   still, across the whole width (SiteFrame). */
+@keyframes page-loading-show {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes page-loading-pass {
+  from {
+    translate: -100% 0;
+  }
+  to {
+    translate: 250% 0;
+  }
+}
+
+@utility animate-page-loading-show {
+  animation: page-loading-show 300ms var(--ease-settle) 300ms both;
+}
+
+@utility animate-page-loading-pass {
+  animation: page-loading-pass 1200ms var(--ease-settle) infinite;
+}
+
 /* A product's photo, chosen from its thumbnails, fades in (300 ms, the
    shop's time for a colour or an opacity). */
 @keyframes fade-in {

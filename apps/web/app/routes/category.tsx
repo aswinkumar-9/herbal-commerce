@@ -79,7 +79,11 @@ export default function CategoryPage({ loaderData }: Route.ComponentProps) {
         next={nextAfter}
       />
       {after ? (
-        <Link to={`/categories/${category.slug}`} className={OUTLINE_PILL}>
+        <Link
+          prefetch="intent"
+          to={`/categories/${category.slug}`}
+          className={OUTLINE_PILL}
+        >
           {words.start}
         </Link>
       ) : null}
@@ -137,7 +141,7 @@ function Products({
   if (products.length === 0) {
     return (
       <EmptyState title={words.empty}>
-        <Link to="/shop" className={PILL}>
+        <Link prefetch="intent" to="/shop" className={PILL}>
           {text.shopPage.seeAll}
         </Link>
       </EmptyState>
@@ -187,7 +191,14 @@ function Products({
         {last ? words.shown(last.length) : ''}
       </output>
       {more ? (
-        <Link to={more} onClick={showMore} className={OUTLINE_PILL}>
+        // Not prefetched: a click brings the next products by showMore,
+        // never by going to the address (kept for opening a new tab).
+        <Link
+          prefetch="none"
+          to={more}
+          onClick={showMore}
+          className={OUTLINE_PILL}
+        >
           {words.more}
         </Link>
       ) : null}

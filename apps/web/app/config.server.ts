@@ -43,6 +43,11 @@ const schema = z.object({
     ),
   // Whether search engines may list the pages: only the live shop says on.
   WEB_INDEXING: z.enum(['on', 'off']).default('off'),
+  // How long the catalog and the policy pages, alike for every visitor, are
+  // kept from the API's answers, in seconds (app/api.server.ts). By
+  // default 60 for a built website, and 0 (not kept) on a laptop, so a
+  // change made in the console shows at once.
+  WEB_API_CACHE_SECONDS: z.coerce.number().int().min(0).max(600).optional(),
   // The key that seals a customer's sign-in cookie (ADR 0041): at least 32
   // random characters, kept secret. Needed by a built website; on a laptop
   // without it, a random one is made, so sign-ins end when the server stops.
@@ -63,6 +68,7 @@ export type WebConfig = {
   trustProxy: string[];
   indexing: boolean;
   sessionSecret: string;
+  apiCacheSeconds: number;
 };
 
 export function loadConfig(env: Record<string, string | undefined>): WebConfig {
@@ -76,8 +82,9 @@ export function loadConfig(env: Record<string, string | undefined>): WebConfig {
     );
   }
   const values = parsed.data;
+  const production = values.NODE_ENV === 'production';
   const config: WebConfig = {
-    production: values.NODE_ENV === 'production',
+    production,
     host: values.WEB_HOST,
     port: values.WEB_PORT,
     origin: values.WEB_ORIGIN,
@@ -86,6 +93,7 @@ export function loadConfig(env: Record<string, string | undefined>): WebConfig {
     trustProxy: values.WEB_TRUST_PROXY,
     indexing: values.WEB_INDEXING === 'on',
     sessionSecret: values.WEB_SESSION_SECRET ?? laptopSecret(),
+    apiCacheSeconds: values.WEB_API_CACHE_SECONDS ?? (production ? 60 : 0),
   };
   // A built website uses https, except on this computer, where the built
   // website is checked before it ships.

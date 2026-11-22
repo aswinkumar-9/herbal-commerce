@@ -27,7 +27,11 @@ export function Trail({
             {index > 0 ? (
               <CaretRight aria-hidden="true" className="size-3" />
             ) : null}
-            <Link to={step.to} className="hover:text-primary hover:underline">
+            <Link
+              prefetch="intent"
+              to={step.to}
+              className="hover:text-primary hover:underline"
+            >
               {step.label}
             </Link>
           </li>

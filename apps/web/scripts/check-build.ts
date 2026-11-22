@@ -3,18 +3,26 @@
 // a stand-in for the API, and reads its pages as a browser would: the home
 // page, the shop and a search, a category, a product, a policy page and
 // one not published yet, the account's forms and its emailed links, "not
-// found" (404) and an unknown category and product, and the home page
-// again while the API is busy, which then says the shop is taking a break
-// (503). Each must carry its own policy with a fresh nonce, every inline
+// found" (404) and an unknown category and product. The API is asked once
+// for a page shown again and again (its answer is kept); while the API is
+// busy, the home page just shown still opens, and a search not made before
+// says the shop is taking a break (503). Each must carry its own policy with a fresh nonce, every inline
 // script that nonce, and no inline style at all. No source map may be
-// published, and no font or picture may hide in a data: address. It also
-// signs in and signs up through the built website, as a browser would
-// (ADR 0041).
+// published, and no font or picture may hide in a data: address. Every
+// page preloads the shop's three fonts, the very files its stylesheet
+// names. It also signs in and signs up through the built website, as a
+// browser would (ADR 0041).
 import { randomBytes } from 'node:crypto';
-import { readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from 'node:fs';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import type { ServerBuild } from 'react-router';
 
@@ -116,6 +124,8 @@ const web = realpathSync.native(
   join(dirname(fileURLToPath(import.meta.url)), '..'),
 );
 const problems: string[] = [];
+// The font files the built stylesheet names, by their addresses.
+const stylesheetFonts = new Set<string>();
 
 function files(dir: string): string[] {
   return readdirSync(dir).flatMap((name) => {
@@ -133,6 +143,11 @@ for (const file of files(join(web, 'build', 'client'))) {
     }
     if (/url\(\s*['"]?data:/.test(content)) {
       problems.push(`a data: address the policy would refuse: ${file}`);
+    }
+    if (file.endsWith('.css')) {
+      for (const [, url] of content.matchAll(/url\(([^)]+\.woff2)\)/g)) {
+        stylesheetFonts.add(url ?? '');
+      }
     }
   }
 }
@@ -232,14 +247,53 @@ async function checkPage(
   if (/<style\b|\sstyle=/.test(html)) {
     problems.push(`${where} inline style, which the policy refuses`);
   }
-  const themeAt = html.search(
-    /<script src="\/assets\/theme-init-[0-9a-f]{8}\.js">/,
-  );
-  const styleAt = html.indexOf('rel="stylesheet"');
-  if (themeAt < 0 || styleAt < 0 || themeAt > styleAt) {
-    problems.push(
-      `${where} the theme's first step must come before the stylesheet`,
+  // The shop's fonts, preloaded from the website itself: the very files
+  // the stylesheet names, and marked as the CORS fetch a font always is,
+  // or the browser would fetch each one twice.
+  const fonts = [...html.matchAll(/<link\b[^>]*>/g)]
+    .map(([link]) => link)
+    .filter(
+      (link) => link.includes('rel="preload"') && link.includes('as="font"'),
     );
+  if (fonts.length !== 3) {
+    problems.push(`${where} preloads ${fonts.length} fonts, not 3`);
+  }
+  for (const link of fonts) {
+    const href = /\shref="([^"]*)"/.exec(link)?.[1] ?? '';
+    if (
+      !/^\/assets\/poppins-latin-[456]00-normal-[\w-]{8}\.woff2$/.test(href) ||
+      !stylesheetFonts.has(href) ||
+      !link.includes('type="font/woff2"') ||
+      !link.includes('crossorigin="anonymous"')
+    ) {
+      problems.push(`${where} a font preload the page would not use: ${link}`);
+    }
+  }
+  // The theme's first step: inline under the page's nonce, before the
+  // stylesheet, so nothing is fetched before it runs, and never a file of
+  // its own any more (part 14B).
+  const themeTag = `<script nonce="${nonce}" data-theme-step="">`;
+  const themeAt = html.indexOf(themeTag);
+  const themeCode =
+    themeAt < 0
+      ? ''
+      : html.slice(
+          themeAt + themeTag.length,
+          html.indexOf('</script>', themeAt),
+        );
+  const styleAt = html.indexOf('rel="stylesheet"');
+  if (
+    themeAt < 0 ||
+    styleAt < 0 ||
+    themeAt > styleAt ||
+    !themeCode.includes('localStorage')
+  ) {
+    problems.push(
+      `${where} the theme's first step must come, inline with the page's nonce, before the stylesheet`,
+    );
+  }
+  if (html.includes('/assets/theme-init-')) {
+    problems.push(`${where} the theme's first step is still fetched as a file`);
   }
   for (const [name, value] of [
     ['x-content-type-options', 'nosniff'],
@@ -304,6 +358,18 @@ async function checkSigningIn(): Promise<void> {
   const account = await fetch(`${base}/account`, {
     headers: { cookie: cookie.split(';')[0] ?? '' },
   });
+  await checkCache(
+    '/account.data',
+    'private, no-store',
+    cookie.split(';')[0] ?? '',
+  );
+  // Never kept, even fetched ahead.
+  await checkCache(
+    '/account.data',
+    'private, no-store',
+    cookie.split(';')[0] ?? '',
+    true,
+  );
   const html = await account.text();
   if (
     account.status !== 200 ||
@@ -315,6 +381,94 @@ async function checkSigningIn(): Promise<void> {
     problems.push(
       `${where} the account page did not open as it should (${account.status})`,
     );
+  }
+}
+
+// What a CDN in front of the website would read: the data a page asks for
+// as the customer moves on is no shared cache's, like the page itself, and
+// a signed-in customer's or a link's none at all; a missing file is never
+// kept, or a new release would stay broken for a while.
+// `ahead`: asked as the browser asks for a page while its link is pointed
+// at. A page's data is always told apart by the cookie.
+async function checkCache(
+  path: string,
+  cache: string,
+  cookie = '',
+  ahead = false,
+): Promise<void> {
+  const response = await fetch(`${base}${path}`, {
+    headers: {
+      ...(cookie ? { cookie } : {}),
+      ...(ahead ? { 'sec-purpose': 'prefetch' } : {}),
+    },
+    redirect: 'manual',
+  });
+  await response.arrayBuffer();
+  const where = `${path}${ahead ? ' (fetched ahead)' : ''}:`;
+  if (response.headers.get('cache-control') !== cache) {
+    problems.push(
+      `${where} cache-control is ${response.headers.get('cache-control')}, not ${cache}`,
+    );
+  }
+  if (
+    path.includes('.data') &&
+    !/\bcookie\b/i.test(response.headers.get('vary') ?? '')
+  ) {
+    problems.push(`${where} is not told apart by the cookie`);
+  }
+}
+
+// Brotli for what a browser downloads: each built script and stylesheet
+// of 1 kB or more has its copy, sent to a browser that takes it and coming
+// back out as the very file; gzip for one that takes only that; the plain
+// file otherwise. A page and its data are compressed as they go out.
+async function checkCompression(): Promise<void> {
+  const where = 'compression:';
+  const built = files(join(web, 'build', 'client', 'assets')).filter(
+    (file) => /\.(js|css)$/.test(file) && statSync(file).size >= 1024,
+  );
+  const bare = built.filter((file) => !existsSync(`${file}.br`));
+  if (bare.length > 0) {
+    problems.push(
+      `${where} no Brotli copy of ${bare.map((file) => basename(file)).join(', ')}`,
+    );
+  }
+  const biggest = built.sort((a, b) => statSync(b).size - statSync(a).size)[0];
+  if (!biggest) {
+    problems.push(`${where} no built scripts`);
+    return;
+  }
+  for (const [accepted, coding] of [
+    ['gzip, deflate, br, zstd', 'br'],
+    ['gzip', 'gzip'],
+    ['identity', null],
+  ] as const) {
+    const response = await fetch(`${base}/assets/${basename(biggest)}`, {
+      headers: { 'accept-encoding': accepted },
+    });
+    // fetch undoes the coding: what comes out must be the file itself.
+    const text = await response.text();
+    if (
+      response.headers.get('content-encoding') !== coding ||
+      response.headers.get('vary') !== 'Accept-Encoding' ||
+      text !== readFileSync(biggest, 'utf8')
+    ) {
+      problems.push(
+        `${where} ${basename(biggest)} for "${accepted}" went wrong`,
+      );
+    }
+  }
+  for (const path of ['/', '/shop.data']) {
+    const response = await fetch(`${base}${path}`, {
+      headers: { 'accept-encoding': 'gzip, deflate, br, zstd' },
+    });
+    const text = await response.text();
+    if (
+      response.headers.get('content-encoding') !== 'br' ||
+      text.length < 100
+    ) {
+      problems.push(`${where} ${path} was not sent with Brotli`);
+    }
   }
 }
 
@@ -371,8 +525,32 @@ try {
   await checkPage('/this-page-does-not-exist', 404);
   await checkPage('/categories/no-such-category', 404);
   await checkPage('/products/no-such-product', 404);
+  await checkCache('/shop.data', 'private, no-cache');
+  await checkCache('/products/tulsi-drops.data', 'private, no-cache');
+  // Fetched ahead (a link pointed at): kept 10 seconds for the click, but
+  // only a page as it is, never a redirect or "not found".
+  await checkCache('/shop.data', 'private, max-age=10', '', true);
+  await checkCache('/account.data', 'private, no-cache', '', true);
+  await checkCache(
+    '/products/no-such-product.data',
+    'private, no-cache',
+    '',
+    true,
+  );
+  await checkCache(`/reset-password.data?token=${TOKEN}`, 'private, no-store');
+  await checkCache('/assets/no-such-file.js', 'no-store');
+  await checkCompression();
+  // The product's page and its data were both opened by now: the API was
+  // asked once, its answer kept (app/api.server.ts).
+  const productAsked = asked.filter(
+    (call) => call === 'GET /v1/products/tulsi-drops',
+  ).length;
+  if (productAsked !== 1) {
+    problems.push(`the API was asked ${productAsked} times for one product`);
+  }
   busy = true;
-  await checkPage('/', 503);
+  await checkPage('/', 200);
+  await checkPage('/shop?q=asked+while+busy', 503);
 } finally {
   await new Promise((resolve) => server.close(resolve));
   await new Promise((resolve) => api.close(resolve));
@@ -388,5 +566,5 @@ if (problems.length > 0) {
   process.exit(1);
 }
 console.log(
-  'Built website checked: a policy with a fresh nonce on every page, every inline script carrying it, no inline style, no source maps.',
+  'Built website checked: a policy with a fresh nonce on every page, every inline script carrying it, no inline style, no source maps, the fonts preloaded as the stylesheet names them, Brotli for files, pages and data.',
 );

@@ -1,6 +1,6 @@
-// The theme switch's first step, as a classic script's address
-// (scripts/theme-init-plugin.ts).
+// The theme switch's first step, as the code of a classic script, written
+// inline at the top of each page's <head> (scripts/theme-init-plugin.ts).
 declare module 'virtual:herbal-theme-init' {
-  const href: string;
-  export default href;
+  const code: string;
+  export default code;
 }

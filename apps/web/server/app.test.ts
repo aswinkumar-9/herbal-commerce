@@ -1,8 +1,15 @@
 // @vitest-environment node
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import type { Server } from 'node:http';
+import { request as ask } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import {
+  brotliCompressSync,
+  brotliDecompressSync,
+  gunzipSync,
+  gzipSync,
+} from 'node:zlib';
 import type { ServerBuild } from 'react-router';
 import {
   afterAll,
@@ -60,10 +67,22 @@ async function start(
   base = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
 }
 
+const SCRIPT = `export const words = ${JSON.stringify('Tulsi '.repeat(500))};`;
+
 beforeAll(() => {
   clientDir = mkdtempSync(join(tmpdir(), 'herbal-web-'));
   mkdirSync(join(clientDir, 'assets'));
   writeFileSync(join(clientDir, 'assets', 'entry-abc123.js'), 'export {};');
+  // A built file with the copies scripts/precompress.ts makes.
+  writeFileSync(join(clientDir, 'assets', 'words-def456.js'), SCRIPT);
+  writeFileSync(
+    join(clientDir, 'assets', 'words-def456.js.br'),
+    brotliCompressSync(SCRIPT),
+  );
+  writeFileSync(
+    join(clientDir, 'assets', 'words-def456.js.gz'),
+    gzipSync(SCRIPT),
+  );
   writeFileSync(
     join(clientDir, 'favicon.svg'),
     '<svg xmlns="http://www.w3.org/2000/svg"/>',
@@ -108,12 +127,69 @@ describe('the website server', () => {
     );
   });
 
-  it('answers a missing built file with a plain 404, never a page', async () => {
+  it('answers a missing built file with a plain 404, never a page, that no cache keeps', async () => {
     await start();
     const response = await fetch(`${base}/assets/missing.js`);
     expect(response.status).toBe(404);
     expect(response.headers.get('content-type')).toContain('text/plain');
+    // A CDN keeping it would break a new release for everyone a while.
+    expect(response.headers.get('cache-control')).toBe('no-store');
     expect(await response.text()).toBe('Not found');
+  });
+
+  it('sends a built file’s Brotli copy to a browser that takes it, its gzip copy to one that takes only that, and the file itself otherwise', async () => {
+    await start();
+    // Node's own request, so the bytes arrive as they were sent.
+    const get = (acceptEncoding: string) =>
+      new Promise<{ headers: Record<string, unknown>; body: Buffer }>(
+        (resolve, reject) => {
+          ask(
+            `${base}/assets/words-def456.js`,
+            { headers: { 'accept-encoding': acceptEncoding } },
+            (response) => {
+              const parts: Buffer[] = [];
+              response.on('data', (part: Buffer) => parts.push(part));
+              response.on('end', () =>
+                resolve({
+                  headers: response.headers,
+                  body: Buffer.concat(parts),
+                }),
+              );
+            },
+          )
+            .on('error', reject)
+            .end();
+        },
+      );
+
+    const br = await get('gzip, deflate, br, zstd');
+    expect(br.headers['content-encoding']).toBe('br');
+    expect(br.headers['content-type']).toBe('text/javascript; charset=utf-8');
+    expect(br.headers['vary']).toBe('Accept-Encoding');
+    expect(br.headers['cache-control']).toBe(
+      'public, max-age=31536000, immutable',
+    );
+    expect(brotliDecompressSync(br.body).toString()).toBe(SCRIPT);
+
+    const gzip = await get('gzip');
+    expect(gzip.headers['content-encoding']).toBe('gzip');
+    expect(gunzipSync(gzip.body).toString()).toBe(SCRIPT);
+
+    const plain = await get('identity');
+    expect(plain.headers['content-encoding']).toBeUndefined();
+    expect(plain.headers['content-type']).toBe(br.headers['content-type']);
+    expect(plain.headers['vary']).toBe('Accept-Encoding');
+    expect(plain.body.toString()).toBe(SCRIPT);
+  });
+
+  it('leaves a file without copies as it is', async () => {
+    await start();
+    const small = await fetch(`${base}/assets/entry-abc123.js`, {
+      headers: { 'accept-encoding': 'br' },
+    });
+    expect(small.headers.has('content-encoding')).toBe(false);
+    expect(small.headers.has('vary')).toBe(false);
+    expect(await small.text()).toBe('export {};');
   });
 
   it('serves the other public files for an hour', async () => {

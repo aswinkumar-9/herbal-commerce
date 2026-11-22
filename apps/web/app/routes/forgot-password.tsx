@@ -71,7 +71,7 @@ export default function ForgotPassword({ actionData }: Route.ComponentProps) {
   const { alert, title } = useAfterSending(actionData, FIELDS);
   const back = (
     <p className="body-6">
-      <Link to="/sign-in" className={TEXT_LINK}>
+      <Link prefetch="intent" to="/sign-in" className={TEXT_LINK}>
         {words.back}
       </Link>
     </p>

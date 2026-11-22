@@ -12,6 +12,7 @@
     "./console.css": "./css/console.css",
     "./shop.css": "./css/shop.css",
     "./theme-init": "./src/theme-init.ts",
+    "./shop-fonts": "./src/shop-fonts.ts",
     "./text-marks": "./src/text-marks.ts"
   },
   "scripts": {
