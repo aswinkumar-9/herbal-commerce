@@ -1,8 +1,8 @@
 // The website server (ADR 0039): Express, in front of React Router, which
 // makes each page. It sends the security headers with every answer, tells
 // the page code the customer's IP, serves the built files, refuses forms
-// sent from other sites (ADR 0041), and answers a failure with a plain
-// message, never a stack trace.
+// sent from other sites (ADR 0041) but Razorpay's answer (ADR 0042), and
+// answers a failure with a plain message, never a stack trace.
 import { readdirSync, statSync } from 'node:fs';
 import { extname, join, relative, sep } from 'node:path';
 import { createRequestHandler } from '@react-router/express';
@@ -21,6 +21,7 @@ import {
   FILE_POLICY,
   baseHeaders,
 } from '../app/security-headers.ts';
+import { RAZORPAY_RETURN_PATH, paymentReturn } from './payment-return.ts';
 
 export function createWebsite({
   config,
@@ -76,6 +77,9 @@ export function createWebsite({
       }),
     );
   }
+  // The one form another site may send: Razorpay's, as it sends the
+  // customer back. It changes nothing (server/payment-return.ts).
+  app.post(RAZORPAY_RETURN_PATH, ...paymentReturn);
   app.use(formsFromThisSite(config));
   app.use(
     createRequestHandler({

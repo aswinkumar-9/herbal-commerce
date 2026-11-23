@@ -232,11 +232,14 @@ export async function apiSend<T>(
     path,
     body,
     accessToken,
+    idempotencyKey,
   }: {
     method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
     path: string;
     body?: unknown;
     accessToken?: string | undefined;
+    // Placing an order: the same key again answers the same order.
+    idempotencyKey?: string | undefined;
   },
   schema: z.ZodType<T>,
 ): Promise<ApiAnswer<T>> {
@@ -247,6 +250,9 @@ export async function apiSend<T>(
   }
   if (accessToken) {
     headers.set('authorization', `Bearer ${accessToken}`);
+  }
+  if (idempotencyKey) {
+    headers.set('idempotency-key', idempotencyKey);
   }
   const ip = request.headers.get(CLIENT_IP_HEADER);
   if (ip) {

@@ -15,9 +15,10 @@ export async function askAsCustomer<T>(
   request: Request,
   context: Readonly<RouterContextProvider>,
   call: {
-    method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+    method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
     path: string;
     body?: unknown;
+    idempotencyKey?: string;
   },
   schema: z.ZodType<T>,
 ): Promise<ApiAnswer<T>> {

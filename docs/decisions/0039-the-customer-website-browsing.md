@@ -144,6 +144,13 @@ For a CDN in front of the website, when one is chosen, and for the browser:
 - **The build check also** checks the compressed copies, the cache rules above (data answers, signed-in, token pages and a missing file), the font preloads, the inline theme step, and that answers kept from the API are asked once.
 - **Headless Chrome** checked, against a stand-in for the API, the loading bar (4), the pages fetched ahead (7) and the theme step (3), besides the account's checks (ADR 0041). On a throwaway database, with the real API, it went through all of part 14B (24).
 
+## Changed in part 14C
+
+- **Forms may go to Razorpay's payment page:** `form-action 'self' https://api.razorpay.com`, on every page. A page's policy is fixed when the browser first loads it, and customers reach an order's page from any other, so a narrower one would block paying. Nothing else in the policy changed: no Razorpay script, frame or connection (ADR 0042).
+- **One form from another site is taken:** Razorpay's answer, `POST /orders/:id/payment`, has its own route before the check for forms from other sites. It changes nothing and only sends the customer on (ADR 0042).
+- **The cart, checkout and orders are a signed-in customer's,** so they are read afresh every time, never from the minute's cache, and `private, no-store`.
+- **The tests:** 495 for the website when part 14C ended.
+
 ## Consequences
 
 - A link to the shop, a category or a product shows its words and picture in WhatsApp and to Google, and every page works before, or without, its script.

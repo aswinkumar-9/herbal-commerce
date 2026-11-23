@@ -17,6 +17,10 @@ export const text = {
     shop: 'Shop',
     signIn: 'Sign in',
     account: 'Account',
+    cart: 'Cart',
+    // The menu's cart, read out with what it holds (part 14C).
+    cartHolding: (packs: number) =>
+      packs === 1 ? 'Cart, 1 pack' : `Cart, ${packs} packs`,
   },
   theme: {
     label: 'Theme',
@@ -247,6 +251,159 @@ export const text = {
     minutes: (count: number) => (count === 1 ? '1 minute' : `${count} minutes`),
     seconds: (count: number) => (count === 1 ? '1 second' : `${count} seconds`),
   },
+  // The cart (part 14C, ADR 0042): today's prices, and whether each line
+  // can be bought now. Delivery and the order's total come at checkout.
+  cart: {
+    title: 'Your cart',
+    description: 'The herbs in your Herbal Commerce cart.',
+    empty: 'Your cart is empty.',
+    emptyHint: 'Choose a pack size on any product page to add it here.',
+    browse: 'See all products',
+    lines: 'In your cart',
+    each: (price: string) => `${price} each`,
+    packs: (count: number) => (count === 1 ? '1 pack' : `${count} packs`),
+    // What each line's buttons are read out as: their sign or word, then
+    // which line.
+    fewer: (which: string) => `One pack fewer, ${which}`,
+    more: (which: string) => `One pack more, ${which}`,
+    remove: 'Remove',
+    removeFor: (which: string) => `Remove, ${which}`,
+    removing: 'Removing',
+    status: {
+      OUT_OF_STOCK: 'Out of stock just now, so it is not counted below.',
+      OFF_SALE:
+        'No longer sold, so it is not counted below. You can remove it.',
+    },
+    summary: {
+      heading: 'Summary',
+      packs: (count: number) =>
+        count === 1 ? '1 pack to order' : `${count} packs to order`,
+      mrp: 'At MRP',
+      save: 'You save',
+      subtotal: 'Subtotal',
+      delivery:
+        'Delivery is free on orders of ₹499 or more, and ₹49 below that. Checkout adds it.',
+      gst: 'Prices include GST.',
+      checkout: 'Go to checkout',
+      // While a line can't be bought: the API would refuse the order.
+      fixFirst:
+        'Remove the packs that can’t be bought now, and you can check out.',
+    },
+    saved: {
+      packs: (which: string, packs: string) => `${which}: now ${packs}.`,
+      removed: (which: string) => `Removed ${which}.`,
+    },
+    problems: {
+      stock: 'That pack size is out of stock, so no more can be added.',
+      full: 'That is the most for one product: 4 packs, all sizes together.',
+      gone: 'That pack size is no longer sold. You can remove it.',
+      resting:
+        'We could not change your cart just now. Please try again in a minute.',
+    },
+  },
+  // Checkout (part 14C, ADR 0042): where it goes, what it costs as the API
+  // prices it, and placing the order.
+  checkout: {
+    title: 'Checkout',
+    description: 'Choose where your order goes, and place it.',
+    address: {
+      title: 'Delivery address',
+      add: 'Add an address',
+      none: 'Add a delivery address, and your order can go there.',
+      phone: (phone: string) => `Phone ${phone}`,
+    },
+    order: {
+      title: 'Your order',
+      packs: (count: number, price: string) =>
+        count === 1 ? `1 pack at ${price}` : `${count} packs at ${price} each`,
+      items: 'Items',
+      delivery: 'Delivery',
+      free: 'Free',
+      total: 'Total',
+      gst: (amount: string) =>
+        `Prices include GST: ${amount} of the items is GST.`,
+    },
+    place: 'Place order',
+    placing: 'Placing your order',
+    hold: 'Placing it holds your packs for 15 minutes while you pay.',
+    back: 'Back to your cart',
+    backToCheckout: 'Back to checkout',
+    problems: {
+      empty: 'Your cart is empty, so there is nothing to order.',
+      unavailable:
+        'Some packs in your cart can’t be ordered now. Change or remove them in your cart first.',
+      changed:
+        'The total has changed since this page opened. Please check the new total, then place your order again.',
+      tooMany:
+        'You have 3 orders waiting for payment. Pay for one first, or wait: an order not paid within 15 minutes ends by itself.',
+      stock:
+        'Some packs ran out while you were here. Please change them in your cart.',
+      address: 'That address is no longer saved. Please choose another.',
+      resting:
+        'We could not place your order just now. Please try again in a minute.',
+    },
+  },
+  // One of the customer's orders (part 14C). Its history, the list of all
+  // of them and cancelling come with part 14D.
+  order: {
+    title: (reference: string) => `Order ${reference}`,
+    description: 'Your Herbal Commerce order.',
+    reference: 'Quote this reference if you contact us.',
+    status: {
+      PENDING_PAYMENT: (until: string) =>
+        `Waiting for payment. Your packs are held until ${until}.`,
+      PAID: 'Paid. We will pack it next.',
+      PACKED: 'Packed, and ready for the courier.',
+      SHIPPED: 'On its way with the courier.',
+      DELIVERED: 'Delivered.',
+      CANCELLED: 'Cancelled.',
+      EXPIRED:
+        'Not paid in time, so it was not sent. Its packs went back on sale.',
+    },
+    items: 'What you ordered',
+    deliverTo: 'Delivering to',
+    // Paying on Razorpay's own page (ADR 0042).
+    pay: {
+      button: (amount: string) => `Pay ${amount}`,
+      opening: 'Opening Razorpay',
+      how: 'You pay on Razorpay’s page, then come back here.',
+      over: 'The time to pay for this order is over, so its packs are going back on sale. You can order them again.',
+      shop: 'Go to the shop',
+      problems: {
+        changed:
+          'This order changed a moment ago. Refresh the page to see where it stands.',
+        resting:
+          'Payments are not available right now. Please try again in a minute.',
+      },
+    },
+    // Back from Razorpay's page, when the order alone doesn't say what
+    // happened.
+    returned: {
+      cancelled: 'You left Razorpay’s page before paying. You can pay below.',
+      failed: 'The payment did not go through. You can try again below.',
+      checking:
+        'Razorpay has not confirmed your payment yet. Look at this page again in a minute, before paying again.',
+      unverified:
+        'We could not verify that payment. If it went through, this page will show it once Razorpay tells us.',
+    },
+    // A payment going back to the customer, always in full.
+    refunds: {
+      heading: 'Money going back',
+      reason: {
+        ORDER_EXPIRED:
+          'Your payment came after the time to pay was over, when there was no longer enough stock.',
+        ORDER_CANCELLED: 'Your payment came after the order was cancelled.',
+        ALREADY_PAID:
+          'This order was paid twice, so the second payment goes back.',
+        CANCELLED_BY_CUSTOMER: 'You cancelled the order.',
+        CANCELLED_BY_STAFF: 'We cancelled the order.',
+      } as Record<string, string>,
+      coming: (amount: string) => `${amount} is on its way back to you.`,
+      back: (amount: string) => `${amount} is back with you.`,
+      byHand: (amount: string) =>
+        `${amount} could not be given back by itself. Our team has been told, and gives it back by hand.`,
+    },
+  },
   // Signing in (part 14B, ADR 0041). One answer for a wrong email or
   // password, as the API gives (ADR 0007).
   signIn: {
@@ -254,6 +411,8 @@ export const text = {
     description: 'Sign in to your Herbal Commerce account.',
     intro: 'Welcome back. Sign in to see your account.',
     forPage: 'Sign in to see that page.',
+    // Coming from "Add to cart" on a product page (part 14C).
+    forCart: 'Sign in to add it to your cart. We will add it as you come back.',
     // After a session ended on purpose, said above the form.
     ended: {
       password:
@@ -557,6 +716,28 @@ export const text = {
       none: 'Not on sale yet. Please come back soon.',
       terms:
         'Prices include GST. Delivery is free on orders of ₹499 or more, and ₹49 below that.',
+    },
+    // Choosing a pack size and how many, for the cart (part 14C).
+    add: {
+      howMany: 'How many packs',
+      submit: 'Add to cart',
+      adding: 'Adding',
+      noneInStock:
+        'None of its pack sizes is in stock just now. Please come back soon.',
+      added: (packs: string, pack: string) =>
+        `Added ${packs} of ${pack} to your cart.`,
+      seeCart: 'See your cart',
+      problems: {
+        full: (room: number) =>
+          room === 0
+            ? 'Your cart already holds 4 packs of this product, the most for one product.'
+            : `Your cart already holds ${4 - room} of this product. You can add ${room} more: 4 at most, all sizes together.`,
+        stock:
+          'That pack size has just run out. Please choose another, or come back soon.',
+        gone: 'That pack size is no longer sold. Please choose another.',
+        resting: 'We could not add it just now. Please try again in a minute.',
+        choose: 'Choose a pack size in stock, and how many packs.',
+      },
     },
     // A pack's net quantity, as its label gives it.
     units: {

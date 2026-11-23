@@ -109,7 +109,7 @@ export type Pack = Product['variants'][number];
 // A picture shows only from the shop's media address, the one place the
 // page's policy lets pictures come from (img-src). Any other is left out:
 // the page shows no photo rather than a broken one.
-function onMedia(address: string): string | null {
+export function onMedia(address: string): string | null {
   // Both as the browser reads them, with any "/../" worked out.
   const url = new URL(address).href;
   const media = new URL(mediaSource(getConfig().mediaBaseUrl)).href;

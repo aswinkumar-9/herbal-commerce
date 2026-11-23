@@ -266,6 +266,134 @@ describe('the website server', () => {
     }
   });
 
+  describe('Razorpay’s answer, as it sends the customer back (ADR 0042)', () => {
+    const ORDER = '4f7c2a9e-3b1d-4e8a-9c6f-2d5b8e1a7c30';
+    const PAYMENT = 'pay_G3P9vcIhRs3NV4';
+    const SIGNATURE = 'ab'.repeat(32);
+    const fromRazorpay = (
+      body: BodyInit | null,
+      {
+        path = `/orders/${ORDER}/payment`,
+        type,
+      }: { path?: string; type?: string } = {},
+    ) =>
+      fetch(`${base}${path}`, {
+        method: 'POST',
+        redirect: 'manual',
+        headers: {
+          origin: 'https://api.razorpay.com',
+          'sec-fetch-site': 'cross-site',
+          ...(type ? { 'content-type': type } : {}),
+        },
+        body,
+      });
+
+    it('takes it from Razorpay’s site, and sends the customer on to confirm it, changing nothing', async () => {
+      await start({ WEB_ORIGIN: 'http://localhost:3001' });
+      const response = await fromRazorpay(
+        new URLSearchParams({
+          razorpay_payment_id: PAYMENT,
+          razorpay_order_id: 'order_RB58MiP5SPFYyM',
+          razorpay_signature: SIGNATURE,
+        }),
+      );
+      expect(response.status).toBe(303);
+      expect(response.headers.get('location')).toBe(
+        `/orders/${ORDER}/payment?payment=${PAYMENT}&signature=${SIGNATURE}`,
+      );
+      expect(response.headers.get('cache-control')).toBe('no-store');
+    });
+
+    it('reads it sent as multipart form data too', async () => {
+      await start({ WEB_ORIGIN: 'http://localhost:3001' });
+      const form = new FormData();
+      form.set('razorpay_payment_id', PAYMENT);
+      form.set('razorpay_signature', SIGNATURE);
+      const response = await fromRazorpay(form);
+      expect(response.headers.get('location')).toBe(
+        `/orders/${ORDER}/payment?payment=${PAYMENT}&signature=${SIGNATURE}`,
+      );
+    });
+
+    it('sends anything but a payment’s ID and signature to the order, as a payment that did not go through', async () => {
+      await start({ WEB_ORIGIN: 'http://localhost:3001' });
+      for (const [body, type] of [
+        [
+          new URLSearchParams({
+            'error[code]': 'BAD_REQUEST_ERROR',
+            'error[description]': 'Payment failed',
+          }),
+          undefined,
+        ],
+        [new URLSearchParams({ razorpay_payment_id: PAYMENT }), undefined],
+        [
+          new URLSearchParams({
+            razorpay_payment_id: 'pay_x/../../evil',
+            razorpay_signature: SIGNATURE,
+          }),
+          undefined,
+        ],
+        [
+          new URLSearchParams({
+            razorpay_payment_id: PAYMENT,
+            razorpay_signature: 'zz'.repeat(32),
+          }),
+          undefined,
+        ],
+        [
+          `{"razorpay_payment_id":"${PAYMENT}","razorpay_signature":"${SIGNATURE}"}`,
+          'application/json',
+        ],
+        [null, undefined],
+      ] as const) {
+        const response = await fromRazorpay(body, type ? { type } : {});
+        expect([
+          String(body),
+          response.status,
+          response.headers.get('location'),
+        ]).toEqual([String(body), 303, `/orders/${ORDER}?payment=failed`]);
+      }
+    });
+
+    it('takes it for an order’s address only; every other form from another site is still refused', async () => {
+      await start({ WEB_ORIGIN: 'http://localhost:3001' });
+      const form = new URLSearchParams({
+        razorpay_payment_id: PAYMENT,
+        razorpay_signature: SIGNATURE,
+      });
+      const notAnOrder = await fromRazorpay(form, {
+        path: '/orders/7/payment',
+      });
+      expect(notAnOrder.status).toBe(404);
+      for (const path of [
+        `/orders/${ORDER}`,
+        '/checkout',
+        `/orders/${ORDER}/payment/x`,
+      ]) {
+        const response = await fromRazorpay(form, { path });
+        expect([path, response.status]).toEqual([path, 403]);
+      }
+      // Reading the page it leads to is the page code's.
+      const page = await fetch(
+        `${base}/orders/${ORDER}/payment?payment=${PAYMENT}`,
+      );
+      expect(await page.text()).toMatch(/^ip=/);
+    });
+
+    it('refuses a form far bigger than Razorpay’s', async () => {
+      await start({ WEB_ORIGIN: 'http://localhost:3001' });
+      vi.spyOn(console, 'error').mockImplementation(() => undefined);
+      const response = await fromRazorpay(
+        new URLSearchParams({
+          razorpay_payment_id: PAYMENT,
+          padding: 'x'.repeat(20_000),
+        }),
+      );
+      expect(response.status).toBe(413);
+      expect(response.headers.get('location')).toBeNull();
+    });
+  });
+
   it('answers a failure with a plain message, never its details', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => undefined);
     await start({}, async () => {

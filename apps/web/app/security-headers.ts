@@ -2,6 +2,7 @@
 // headers below with every answer. A page made on the server also gets its
 // own Content Security Policy, with a nonce: a new random key for that page
 // alone, which only the page's own inline scripts carry (entry.server.tsx).
+import { RAZORPAY_ORIGIN } from './razorpay.ts';
 
 // The one header the website server writes for the page code: the
 // customer's IP, as the server saw it, for the API's rate limits. The
@@ -22,7 +23,10 @@ export function mediaSource(mediaBaseUrl: string): string {
 // product photos. Scripts: the website's files, and inline only with this
 // page's nonce (React Router's start-up data). No inline style, no eval,
 // and no string ever turned into HTML or script (Trusted Types). Forms
-// may only go to the website. Nobody may frame the page.
+// may only go to the website, or to Razorpay's payment page (ADR 0042):
+// on every page, because a page's policy is fixed as it first loads, and
+// the customer reaches an order's page by moving on from any other.
+// Nobody may frame the page.
 export function documentPolicy({
   nonce,
   mediaBaseUrl,
@@ -42,7 +46,7 @@ export function documentPolicy({
     "connect-src 'self'",
     "manifest-src 'self'",
     "base-uri 'none'",
-    "form-action 'self'",
+    `form-action 'self' ${RAZORPAY_ORIGIN}`,
     "object-src 'none'",
     "frame-ancestors 'none'",
     "require-trusted-types-for 'script'",

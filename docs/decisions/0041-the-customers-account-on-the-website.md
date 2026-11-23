@@ -37,6 +37,7 @@ The owner made these choices on 2026-11-21:
 
 - **A form must come from the website itself** (`server/app.ts`). Any `POST` needs an `Origin` equal to `WEB_ORIGIN`, or no `Origin` with `Sec-Fetch-Site` of `same-origin` or none. Anything else is `403`. React Router also refuses an action whose `Origin` differs from the request's own.
 - **`SameSite=Lax`** keeps the cookie out of other sites' forms as well. No CSRF token is needed beside the two.
+- **One exception, since part 14C:** Razorpay's answer, sent from Razorpay's own site as it sends the customer back to an order, has its own route before this check. It changes nothing: it only sends the customer on to a page where their own session confirms the payment with the API (ADR 0042).
 - **Found on the way:** with `Referrer-Policy: no-referrer`, browsers send `Origin: null` with a form sent without the page's script, which the check refused. The website now sends `Referrer-Policy: same-origin` (ADR 0039).
 
 ### The pages
