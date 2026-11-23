@@ -13,6 +13,7 @@ export const AUDIT_KINDS = [
   'orders',
   'catalog',
   'stock',
+  'policies',
 ] as const;
 export type AuditKind = (typeof AUDIT_KINDS)[number];
 

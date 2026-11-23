@@ -19,6 +19,27 @@ export default defineConfig({
     // its own file, never a data: address the policy would refuse.
     sourcemap: false,
     assetsInlineLimit: 0,
+    rolldownOptions: {
+      output: {
+        // Each page's own code is split off by React Router. The libraries
+        // every page needs get files of their own, as in the console, so a
+        // release that changes only the website's words or pages leaves
+        // them cached. Icons are left out of the groups: each page keeps
+        // just the icons it shows.
+        codeSplitting: {
+          groups: [
+            {
+              name: 'react',
+              test: /[\\/]node_modules[\\/](react|react-dom|scheduler)[\\/]/,
+            },
+            {
+              name: 'router',
+              test: /[\\/]node_modules[\\/](react-router|@react-router[\\/][^\\/]+)[\\/]/,
+            },
+          ],
+        },
+      },
+    },
   },
   test: {
     environment: 'jsdom',

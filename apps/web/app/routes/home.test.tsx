@@ -119,6 +119,23 @@ describe('the rest of the home page', () => {
     expect(fields.querySelector('img')).toHaveAttribute('loading', 'lazy');
   });
 
+  it('offers each picture in sizes between phone and wide screen', async () => {
+    await renderHome();
+    const fields = section('Grown where we can see it').querySelector('img');
+    expect(fields?.getAttribute('srcset')).toMatch(
+      /fields-960\.webp 960w, .*fields-1280\.webp 1280w, .*fields-1672\.webp 1672w/,
+    );
+    const roots = document.querySelector('img[srcset*="roots-"]');
+    expect(roots?.getAttribute('srcset')).toMatch(
+      /roots-640\.webp 640w, .*roots-960\.webp 960w, .*roots-1254\.webp 1254w/,
+    );
+    // A phone is sent what its screen shows: the page less its margins.
+    expect(roots).toHaveAttribute(
+      'sizes',
+      '(min-width: 48rem) 28rem, calc(100vw - 3rem)',
+    );
+  });
+
   it('has the tagline, every word its own', async () => {
     await renderHome();
     const tagline = screen.getByRole('region', {

@@ -176,10 +176,24 @@ describe('auditLogQuerySchema', () => {
   });
 
   it('takes one kind of change, from the kinds there are (ADR 0038)', () => {
-    for (const kind of ['accounts', 'sign_ins', 'orders', 'catalog', 'stock']) {
+    for (const kind of [
+      'accounts',
+      'sign_ins',
+      'orders',
+      'catalog',
+      'stock',
+      'policies',
+    ]) {
       expect(auditLogQuerySchema.parse({ kind })).toEqual({ limit: 50, kind });
     }
-    for (const kind of ['', 'Orders', 'order', 'payments', ['orders']]) {
+    for (const kind of [
+      '',
+      'Orders',
+      'order',
+      'payments',
+      'policy',
+      ['orders'],
+    ]) {
       expect(accepts({ kind })).toBe(false);
     }
   });

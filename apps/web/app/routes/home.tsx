@@ -9,6 +9,7 @@ import {
 import { Fragment } from 'react';
 import { Link } from 'react-router';
 import fields960 from '../art/fields-960.webp';
+import fields1280 from '../art/fields-1280.webp';
 import fields1672 from '../art/fields-1672.webp';
 import heroTall640 from '../art/hero-tall-640.webp';
 import heroTall941 from '../art/hero-tall-941.webp';
@@ -16,6 +17,7 @@ import heroWide960 from '../art/hero-wide-960.webp';
 import heroWide1672 from '../art/hero-wide-1672.webp';
 import previewHome from '../art/preview-home.jpg';
 import roots640 from '../art/roots-640.webp';
+import roots960 from '../art/roots-960.webp';
 import roots1254 from '../art/roots-1254.webp';
 import { listCategories } from '../catalog.server.ts';
 import { getConfig } from '../config.server.ts';
@@ -70,8 +72,8 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         <Reveal className="order-2 md:order-1 md:col-span-5">
           <img
             src={roots1254}
-            srcSet={`${roots640} 640w, ${roots1254} 1254w`}
-            sizes="(min-width: 48rem) 28rem, 100vw"
+            srcSet={`${roots640} 640w, ${roots960} 960w, ${roots1254} 1254w`}
+            sizes="(min-width: 48rem) 28rem, calc(100vw - 3rem)"
             width={1254}
             height={1254}
             alt=""
@@ -101,6 +103,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               {categories.map((category) => (
                 <li key={category.slug}>
                   <Link
+                    prefetch="intent"
                     to={`/categories/${category.slug}`}
                     className="title-3 block rounded-full border border-line-strong px-6 py-3 text-ink transition hover:border-primary hover:bg-primary-soft hover:text-primary active:scale-98"
                   >
@@ -158,7 +161,7 @@ function Hero() {
             ))}
           </h1>
           <p className="body-3 max-w-170 md:title-1">{home.hero.body}</p>
-          <Link to="/shop" className={GOLD_PILL_LARGE}>
+          <Link prefetch="intent" to="/shop" className={GOLD_PILL_LARGE}>
             {home.hero.cta}
           </Link>
           <ul className="caption-1 flex flex-wrap gap-x-6 gap-y-2">
@@ -223,8 +226,8 @@ function Fields() {
         <figure className="relative isolate flex min-h-120 flex-col justify-end overflow-hidden rounded-3xl md:aspect-video md:min-h-0">
           <img
             src={fields1672}
-            srcSet={`${fields960} 960w, ${fields1672} 1672w`}
-            sizes="(min-width: 72rem) 72rem, 100vw"
+            srcSet={`${fields960} 960w, ${fields1280} 1280w, ${fields1672} 1672w`}
+            sizes="(min-width: 72rem) 69rem, 100vw"
             width={1672}
             height={941}
             alt={home.fields.alt}
@@ -322,7 +325,7 @@ function Closing() {
         >
           {home.closing.heading}
         </h2>
-        <Link to="/shop" className={GOLD_PILL}>
+        <Link prefetch="intent" to="/shop" className={GOLD_PILL}>
           {home.closing.cta}
         </Link>
       </Reveal>

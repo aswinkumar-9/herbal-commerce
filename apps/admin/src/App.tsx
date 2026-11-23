@@ -25,6 +25,8 @@ import { RefundsPage } from './orders/RefundsPage';
 import { OverviewPage } from './pages/OverviewPage';
 import { SignInPage } from './pages/SignInPage';
 import { SetupLinkPage } from './setup/SetupLinkPage';
+import { PoliciesPage } from './policies/PoliciesPage';
+import { PolicyPage } from './policies/PolicyPage';
 import { PackStockPage } from './stock/PackStockPage';
 import { StockPage } from './stock/StockPage';
 
@@ -89,6 +91,8 @@ export const routes = createRoutesFromElements(
         <Route element={<RequireRole only="SUPER_USER" />}>
           <Route path="admins" element={<AdminsPage />} />
           <Route path="audit-log" element={<AuditLogPage />} />
+          <Route path="policies" element={<PoliciesPage />} />
+          <Route path="policies/:page" element={<PolicyPage />} />
           {forSuperUsers.map(comingSoon)}
         </Route>
         <Route path="*" element={<NotFoundPage />} />

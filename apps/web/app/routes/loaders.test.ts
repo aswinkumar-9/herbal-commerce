@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { loader as categoryLoader } from './category.tsx';
+import { loader as policyLoader } from './policy.tsx';
 import { loader as productLoader } from './product.tsx';
 import { loader as shopLoader } from './shop.tsx';
 
@@ -355,5 +356,67 @@ describe('a product’s loader', () => {
         }),
     });
     expect(await thrownStatus(productAt('ashwagandha-capsules'))).toBe(503);
+  });
+});
+
+describe('a policy page’s loader', () => {
+  const policyAt = (page: string) =>
+    policyLoader({
+      request: new Request(`http://localhost:3001/${page}`),
+      params: { page },
+      context: undefined,
+    } as unknown as Parameters<typeof policyLoader>[0]);
+  const PRIVACY = {
+    page: 'privacy',
+    version: 3,
+    body: '## Who we are\n\nA shop.',
+    // 00:30 on 22 Nov 2026 in India, while it is still the 21st in UTC: the
+    // day shown is India's.
+    publishedAt: '2026-11-21T19:00:00.000Z',
+  };
+
+  it('asks the API for the page, and gives its text with the day in India', async () => {
+    apiAnswers({ '/v1/policies/privacy': () => answer(200, PRIVACY) });
+
+    const page = await policyAt('privacy');
+
+    expect(page).toMatchObject({
+      page: 'privacy',
+      policy: {
+        body: PRIVACY.body,
+        publishedAt: PRIVACY.publishedAt,
+        publishedOn: '22 November 2026',
+      },
+    });
+    expect(asked()).toEqual([{ pathname: '/v1/policies/privacy', query: {} }]);
+  });
+
+  it('gives no text for a page not published yet, rather than "not found"', async () => {
+    apiAnswers({});
+
+    const page = await policyAt('terms');
+
+    expect(page).toMatchObject({ page: 'terms', policy: null });
+  });
+
+  it('is "not found" for any other word, without asking the API', async () => {
+    for (const word of ['cookies', 'Privacy', 'constructor', '__proto__']) {
+      expect(await thrownStatus(policyAt(word))).toBe(404);
+    }
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('says the shop is taking a break when the API is busy, or the answer is odd', async () => {
+    apiAnswers({ '/v1/policies/privacy': () => answer(503, { message: 'x' }) });
+    expect(await thrownStatus(policyAt('privacy'))).toBe(503);
+    for (const odd of [
+      { ...PRIVACY, page: 'cookies' },
+      { ...PRIVACY, body: '' },
+      { ...PRIVACY, publishedAt: 'yesterday' },
+      { ...PRIVACY, body: 'x'.repeat(30_001) },
+    ]) {
+      apiAnswers({ '/v1/policies/privacy': () => answer(200, odd) });
+      expect(await thrownStatus(policyAt('privacy'))).toBe(503);
+    }
   });
 });

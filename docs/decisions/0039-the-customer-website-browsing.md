@@ -1,6 +1,6 @@
 # 0039. The customer website: browsing the shop
 
-- Status: Accepted and implemented (part 14A)
+- Status: Accepted and implemented (part 14A), changed in part 14B (see "Changed in part 14B")
 - Date: 2026-11-20
 
 ## Context
@@ -31,7 +31,8 @@ These defaults were chosen during development and told to the owner, who could o
   - `/shop`, every product on sale: searched by words, filtered by category, type and price, sorted, 24 to a page, products in stock first;
   - `/categories/:slug`, a category's products in the order staff chose, with "Show more";
   - `/products/:slug`, a product's own page: its photos, its packs, what it is and how to use it, and its licence and maker;
-  - any other address, the "not found" page, with the status 404.
+  - any other address, the "not found" page, with the status 404;
+  - since part 14B, the policy pages (ADR 0040), and signing in, signing up and the customer's own page (ADR 0041). Every page sits in one layout route, `routes/pages.tsx` (see "Changed in part 14B").
 - **Everything works without a script.** The search is a plain `GET` form, the sort list belongs to it through its `form` attribute and has its own button inside `<noscript>`, "Show more" is a link to `?after=`, and a product's thumbnails are links to `?photo=`. With a script, a choice from a list shows its results at once, the page stays where it was and the keyboard stays on the list; "Show more" adds the products in place and puts the keyboard on the first one added; a thumbnail swaps the photo in place.
 - **Windows:** `server.ts` and the build check start from the folder's real name (`realpathSync.native`), as a lowercase `c:` made Node load React twice.
 
@@ -46,8 +47,8 @@ These defaults were chosen during development and told to the owner, who could o
 ### Security
 
 - **A policy for each page, with its own nonce** (`app/security-headers.ts`, `app/entry.server.tsx`): `default-src 'none'; script-src 'self' 'nonce-…'; style-src 'self'; img-src 'self' <media address>/; font-src 'self'; connect-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'self'; object-src 'none'; frame-ancestors 'none'; require-trusted-types-for 'script'; trusted-types 'none'`. Only React Router's start-up data is inline, and it carries the nonce. No inline style anywhere: motion uses CSS classes, the element's style object, or the browser's animation calls. In development Vite needs inline code, so the policy is left out there.
-- **Every answer** carries `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, a closed `Permissions-Policy`, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy: same-origin`, `X-Robots-Tag: noindex, nofollow` until `WEB_INDEXING=on`, and HSTS over HTTPS. Pages are `private, no-cache`; the built files under `/assets` are kept a year, as their names change with them. Files and data answers have their own policy, `default-src 'none'; frame-ancestors 'none'`.
-- **The theme's first step** is a file of its own in `<head>`, before the stylesheet, so a dark choice never flashes white (ADR 0036).
+- **Every answer** carries `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin` (`no-referrer` until part 14B: see "Changed in part 14B"), a closed `Permissions-Policy`, `Cross-Origin-Opener-Policy` and `Cross-Origin-Resource-Policy: same-origin`, `X-Robots-Tag: noindex, nofollow` until `WEB_INDEXING=on`, and HSTS over HTTPS. Pages are `private, no-cache`; the built files under `/assets` are kept a year, as their names change with them. Since part 14B the rules for every answer are in "What may be kept, and where" below. Files and data answers have their own policy, `default-src 'none'; frame-ancestors 'none'`.
+- **The theme's first step** runs in `<head>`, before the stylesheet, so a dark choice never flashes white (ADR 0036). Until part 14B it was a file of its own; since then it is written into the page, under the page's nonce.
 - **Text is always text:** React writes every value from the API as text, and the linter refuses `dangerouslySetInnerHTML`, `eval` and `javascript:` links.
 - **Google's product data is written into the page itself** (schema.org microdata: `itemscope`, `itemprop`), not as a JSON-LD script. Under Trusted Types, React cannot make a script element when a customer moves to a product page without a full reload: it would need `innerHTML`, which the policy refuses.
 - **The build is checked** (`scripts/check-build.ts`, part of `pnpm web:build`): it starts the built website with a stand-in for the API and reads the home page, the shop, a search, a category, a product, "not found" for an unknown address, category and product, and the home page while the API is busy (503). Each must have its own policy with a fresh nonce and nothing loose in it, every inline script must carry the nonce, nothing may be styled inline, every picture must come from the website or the media address, and no source map or `data:` address may be published.
@@ -65,6 +66,8 @@ Every setting has a default for a laptop, so `pnpm web:dev` needs none. The serv
 | `WEB_MEDIA_BASE_URL` | `http://127.0.0.1:3000/media` | Where product photos come from: the API's `MEDIA_BASE_URL` |
 | `WEB_TRUST_PROXY` | none | Proxies allowed to report the customer's IP, comma separated |
 | `WEB_INDEXING` | `off` | `on` lets search engines list the website: only the live shop |
+| `WEB_SESSION_SECRET` | a random one on a laptop | The key that seals customers' sign-in cookies, at least 32 characters: needed by the built website (since part 14B, ADR 0041) |
+| `WEB_API_CACHE_SECONDS` | `60` built, `0` on a laptop | How long the API's public answers are kept, 0 to 600 seconds (since part 14B) |
 
 ### The look and the motion
 
@@ -77,6 +80,69 @@ Every setting has a default for a laptop, so `pnpm web:dev` needs none. The serv
 - **Every page names itself** (`app/seo.ts`): its title, its description, its own whole address (`canonical`), and Open Graph and Twitter tags with a picture at a whole address. The home page, the shop and categories show the owner's picture; a product shows its own main photo with its size and description, says it is a product (`og:type`), and gives its lowest price in rupees.
 - **A view of another page** (a search, a filter, a later page of a category) says `noindex, follow` and names no canonical address. A product's `?photo=` view names the product's own address.
 - **A product's page** is marked up for Google from what it shows: the product, its name, address, photos, description, maker and country of origin, and each pack as an offer with its SKU, its price in INR, and whether it is in stock.
+
+## Changed in part 14B
+
+### A page that can't be made shows inside the site
+
+- **Every page sits in one layout route** (`routes/pages.tsx`, in `app/routes.ts`), and its error page shows "not found", "short break" or "something went wrong" inside the site's frame. The root's own error page is left only for a frame that can't be made.
+- **Why:** until then the root's error page took the page's place. A link within the site to a page that couldn't be made, such as an unknown single word (404) or any page while the API rested (503), made React draw the whole document anew. Doing so it makes `<script>` elements (the theme's step, React Router's scripts and its scroll restoration) through `innerHTML`, which Trusted Types refuses, and **the page went blank.** Typing the address had always worked, as the server made the page, so only the run against the real API in part 14B, step 7, found it.
+- **Checked:** a test follows a link to a page that is "not found" and counts how often the frame is made: once inside the layout, twice without it. Headless Chrome follows links to a "not found" and a "short break" page with no policy violation.
+
+### Speed, after a Lighthouse audit on 2026-11-22
+
+- **Pictures:** the owner's pictures as WebP at quality 68 with Sharp's photo preset, which looked the same as 78 side by side, with a middle width for each (960 and 1280 pixels), so a phone fetches a smaller file. The first row of product photos is fetched first; the rest wait until they near the screen.
+- **Fonts:** Poppins 400, 500 and 600 preloaded from the shop itself (`@herbal/design/shop-fonts`, with `crossorigin`, as fonts are fetched). 700 is not: no text style uses it. The build check makes sure each preload is a file the stylesheet names.
+- **Compression** (`app/compression.server.ts`, `scripts/precompress.ts`), with Node's own `zlib`, no package:
+  - Brotli, else gzip, else none, as the browser asks;
+  - the built files compressed once at Brotli's best when the website is built, each copy kept only if it saves 10% or more;
+  - pages and their data compressed as they are sent, at a quicker level.
+
+  No secret ever shares a compressed answer with words a visitor chose: the session stays in its cookie, and each page's nonce is new. So compression gives nothing away (BREACH). The built files went from 512 kB to 139 kB.
+- **Code split** into React's and React Router's own files, beside each page's (`vite.config.ts`), so a release of the shop leaves them cached, as the console does (ADR 0031).
+- **The theme's step inline,** under the page's nonce (`scripts/theme-init-plugin.ts`, ADR 0036): the file, fetched last, had held a phone's first paint back by about 300 ms. The build check makes sure it carries the nonce and comes before the stylesheet, and that no theme file is left.
+- **The API's public answers kept for a minute** (`app/api.server.ts`):
+  - only the catalog and the policy pages, asked with no customer's token, never a customer's own;
+  - answers `200` and `404`, never a failure;
+  - at most 500 addresses, the least recently used going first;
+  - two pages asking the same at the same moment share one request.
+
+  `WEB_API_CACHE_SECONDS` sets it: 60 for the built website, 0 on a laptop, so a change in the console shows at once while developing. **Prices, stock and policy pages may lag the console by up to that long**, and a page asked for just before a change keeps the older answer until then. The cart, checkout and orders (14C, 14D) must read afresh.
+- **A thin bar at the very top** while the next page loads, shown only after 300 ms, so a quick change never shows it. It is read out as "Loading the page". With less motion asked for, it stands still across the width.
+- **The next page fetched ahead:** every link within the site has `prefetch="intent"`, so pointing at it, focusing it or touching it fetches its page's code and data. A test reads every page and fails on a link without it. Chrome (157) reuses a prefetched answer only when it may be kept, so a prefetched data answer that is `200` is `private, max-age=10`.
+- **The shop's cards are drawn once,** not again for every letter typed in its search (`memo`).
+- **Lighthouse fixes:**
+  - the tagline's words not yet lit are `ink-muted`, readable at 4.5:1, rather than the design rules' 25 to 35% (flagged to the owner);
+  - the category cards' names are headings in order;
+  - the label's list is a proper list.
+- **Lighthouse afterwards,** on a phone: home 100, shop 98, a category 99, a product 99, the forms and policy pages 100. The desktop: 100 everywhere. Accessibility and best practices: 100 everywhere. SEO: 100, except the forms, which ask search engines not to list them by design.
+
+### What may be kept, and where
+
+For a CDN in front of the website, when one is chosen, and for the browser:
+
+| What | `Cache-Control` | Why |
+|---|---|---|
+| Built files under `/assets` | kept a year, `immutable` | Their names change with them |
+| Other public files (the icon, `robots.txt`) | kept an hour | |
+| Pages and their data, for a visitor | `private, no-cache` | Asked again each time; never shared between visitors |
+| A page's data fetched ahead, `200` only | `private, max-age=10` | So the click uses it. A redirect (`202`) or "not found" never is |
+| Anything for a signed-in customer | `private, no-store` | ADR 0041 |
+| The pages of emailed links | `private, no-store` | They carry a token |
+| A missing file, a failure | `no-store` | |
+
+- **Every data answer says `Vary: Cookie`,** so one fetched ahead while signed out is never used after signing in, and `Vary: Accept-Encoding` with compression.
+- **A CDN must pass the cookie, and keep nothing marked `private`.** Behind one, `WEB_TRUST_PROXY` names its ranges, such as Cloudflare's, and the API's photos (ADR 0023) move to object storage behind it.
+
+### Signing in brought one change
+
+- **`Referrer-Policy: same-origin`,** not `no-referrer`: with `no-referrer`, a form sent without the page's script carries `Origin: null`, which the website's check for forms from another site refused (ADR 0041). Within the site the full address goes along; to another site, nothing.
+
+### The checks
+
+- **The tests:** 399 for the website when part 14B ended.
+- **The build check also** checks the compressed copies, the cache rules above (data answers, signed-in, token pages and a missing file), the font preloads, the inline theme step, and that answers kept from the API are asked once.
+- **Headless Chrome** checked, against a stand-in for the API, the loading bar (4), the pages fetched ahead (7) and the theme step (3), besides the account's checks (ADR 0041). On a throwaway database, with the real API, it went through all of part 14B (24).
 
 ## Consequences
 

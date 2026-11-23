@@ -1,6 +1,7 @@
 // The website server's settings (ADR 0039), from its environment. Every one
 // has a default that suits a laptop, so `pnpm web:dev` needs none. The
 // server checks them once as it starts, and refuses to start on a bad one.
+import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 
 // A plain http or https address, with no query, fragment or odd character,
@@ -42,6 +43,19 @@ const schema = z.object({
     ),
   // Whether search engines may list the pages: only the live shop says on.
   WEB_INDEXING: z.enum(['on', 'off']).default('off'),
+  // How long the catalog and the policy pages, alike for every visitor, are
+  // kept from the API's answers, in seconds (app/api.server.ts). By
+  // default 60 for a built website, and 0 (not kept) on a laptop, so a
+  // change made in the console shows at once.
+  WEB_API_CACHE_SECONDS: z.coerce.number().int().min(0).max(600).optional(),
+  // The key that seals a customer's sign-in cookie (ADR 0041): at least 32
+  // random characters, kept secret. Needed by a built website; on a laptop
+  // without it, a random one is made, so sign-ins end when the server stops.
+  WEB_SESSION_SECRET: z
+    .string()
+    .min(32, 'WEB_SESSION_SECRET must have at least 32 characters')
+    .max(512)
+    .optional(),
 });
 
 export type WebConfig = {
@@ -53,6 +67,8 @@ export type WebConfig = {
   mediaBaseUrl: string;
   trustProxy: string[];
   indexing: boolean;
+  sessionSecret: string;
+  apiCacheSeconds: number;
 };
 
 export function loadConfig(env: Record<string, string | undefined>): WebConfig {
@@ -66,8 +82,9 @@ export function loadConfig(env: Record<string, string | undefined>): WebConfig {
     );
   }
   const values = parsed.data;
+  const production = values.NODE_ENV === 'production';
   const config: WebConfig = {
-    production: values.NODE_ENV === 'production',
+    production,
     host: values.WEB_HOST,
     port: values.WEB_PORT,
     origin: values.WEB_ORIGIN,
@@ -75,6 +92,8 @@ export function loadConfig(env: Record<string, string | undefined>): WebConfig {
     mediaBaseUrl: values.WEB_MEDIA_BASE_URL,
     trustProxy: values.WEB_TRUST_PROXY,
     indexing: values.WEB_INDEXING === 'on',
+    sessionSecret: values.WEB_SESSION_SECRET ?? laptopSecret(),
+    apiCacheSeconds: values.WEB_API_CACHE_SECONDS ?? (production ? 60 : 0),
   };
   // A built website uses https, except on this computer, where the built
   // website is checked before it ships.
@@ -85,6 +104,9 @@ export function loadConfig(env: Record<string, string | undefined>): WebConfig {
     ]
       .filter(([, value]) => !isHttpsOrThisComputer(value ?? ''))
       .map(([name]) => `${name}: must use https in production`);
+    if (!values.WEB_SESSION_SECRET) {
+      problems.push('WEB_SESSION_SECRET: must be set in production');
+    }
     if (problems.length > 0) {
       throw new Error(
         `The website's settings are wrong:\n- ${problems.join('\n- ')}`,
@@ -92,6 +114,15 @@ export function loadConfig(env: Record<string, string | undefined>): WebConfig {
     }
   }
   return config;
+}
+
+// A laptop's own key, made once for the server's life: kept across Vite's
+// reloads of this file, so a code change doesn't sign everyone out.
+const LAPTOP_SECRET = Symbol.for('herbal.web.laptopSessionSecret');
+function laptopSecret(): string {
+  const held = globalThis as { [LAPTOP_SECRET]?: string };
+  held[LAPTOP_SECRET] ??= randomBytes(32).toString('base64url');
+  return held[LAPTOP_SECRET];
 }
 
 const THIS_COMPUTER = new Set(['localhost', '127.0.0.1']);

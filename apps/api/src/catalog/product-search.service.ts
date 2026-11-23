@@ -5,6 +5,7 @@ import { MediaStorage } from '../media/media-storage';
 import { PrismaService } from '../prisma/prisma.service';
 import { IMAGE_ORDER, imageFileNames } from './image-files';
 import type { ProductSearchQuery, SearchSort } from './product-search.schemas';
+import { SearchCache } from './search-cache';
 
 // At most this many products are weighed for one search: the shop's
 // catalog is small, so all of them, today. Revisit when the shop has a few
@@ -24,6 +25,13 @@ const SEARCH_FIELDS = {
   },
   images: { orderBy: IMAGE_ORDER, take: 1, select: { fileKey: true } },
 } satisfies Prisma.ProductSelect;
+
+// What a search read of the catalog: the products found, and how well each
+// matches the words (none without words). Kept a while (SearchCache).
+interface CatalogRead {
+  rows: Prisma.ProductGetPayload<{ select: typeof SEARCH_FIELDS }>[];
+  scores: Map<string, number> | null;
+}
 
 // A product found, as a category's page shows it, and whether any of its
 // packs on sale is in stock.
@@ -87,28 +95,22 @@ export class ProductSearchService {
     private readonly prisma: PrismaService,
     private readonly stock: StockService,
     private readonly media: MediaStorage,
+    private readonly kept: SearchCache,
   ) {}
 
   async search(query: ProductSearchQuery): Promise<SearchPage> {
-    const scores = query.q ? await this.matches(query.q) : null;
-    const rows =
-      scores?.size === 0
-        ? []
-        : await this.prisma.product.findMany({
-            where: {
-              isActive: true,
-              category: {
-                isActive: true,
-                ...(query.category ? { slug: query.category } : {}),
-              },
-              ...(query.type ? { type: query.type } : {}),
-              ...(scores ? { id: { in: [...scores.keys()] } } : {}),
-            },
-            orderBy: [{ name: 'asc' }, { id: 'asc' }],
-            take: SEARCH_CANDIDATES,
-            select: SEARCH_FIELDS,
-          });
-    // The inventory says which packs are in stock (ADR 0024).
+    // The costly part, the same for every page, sort and price filter of
+    // these words, category and type: kept a while (SearchCache).
+    const { rows, scores } = await this.kept.read(
+      JSON.stringify([
+        query.q ?? null,
+        query.category ?? null,
+        query.type ?? null,
+      ]),
+      () => this.readCatalog(query),
+    );
+    // The inventory says which packs are in stock (ADR 0024): asked every
+    // time, as an order can change it any moment.
     const inStock = await this.stock.inStock(
       rows.flatMap((row) => row.variants.map((variant) => variant.id)),
     );
@@ -142,6 +144,30 @@ export class ProductSearchService {
       page: query.page,
       nextPage: found.length > start + query.limit ? query.page + 1 : null,
     };
+  }
+
+  // The live products in active categories the words, category and type
+  // find, with their packs on sale and their main photo.
+  private async readCatalog(query: ProductSearchQuery): Promise<CatalogRead> {
+    const scores = query.q ? await this.matches(query.q) : null;
+    const rows =
+      scores?.size === 0
+        ? []
+        : await this.prisma.product.findMany({
+            where: {
+              isActive: true,
+              category: {
+                isActive: true,
+                ...(query.category ? { slug: query.category } : {}),
+              },
+              ...(query.type ? { type: query.type } : {}),
+              ...(scores ? { id: { in: [...scores.keys()] } } : {}),
+            },
+            orderBy: [{ name: 'asc' }, { id: 'asc' }],
+            take: SEARCH_CANDIDATES,
+            select: SEARCH_FIELDS,
+          });
+    return { rows, scores };
   }
 
   // The live products whose name, summary or description has a word like

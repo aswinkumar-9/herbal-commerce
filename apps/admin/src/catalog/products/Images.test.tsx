@@ -28,6 +28,7 @@ import {
 } from '../../test/catalog-fixtures';
 import { heldBack, openSignedIn } from '../../test/console';
 import { json } from '../../test/fake-api';
+import { ImagesSection } from './ImagesSection';
 import { catalogKeys } from '../catalog-queries';
 
 const ALL = [FRONT, SIDE, BACK];
@@ -117,6 +118,15 @@ const describeBox = () =>
   within(
     screen.getByRole('dialog', { name: 'Describe the image' }),
   ).getByLabelText('Description');
+
+describe('the images section beside the product form', () => {
+  it('is drawn again only when the product changes, not at each key typed in the form', () => {
+    // Measured before: both sections drawn again at every key typed.
+    expect((ImagesSection as { $$typeof?: symbol }).$$typeof).toBe(
+      Symbol.for('react.memo'),
+    );
+  });
+});
 
 describe("a product's images", () => {
   it('lists them, the main photo first, with their descriptions and sizes', async () => {

@@ -17,6 +17,7 @@ import { buildLoggerParams } from './logging/logger.config';
 import { MediaModule } from './media/media.module';
 import { OrdersModule } from './orders/orders.module';
 import { PaymentsModule } from './payments/payments.module';
+import { PoliciesModule } from './policies/policies.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RateLimitGuard } from './rate-limit/rate-limit.guard';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
@@ -52,6 +53,7 @@ import { ValkeyModule } from './valkey/valkey.module';
     CartModule,
     OrdersModule,
     PaymentsModule,
+    PoliciesModule,
     HealthModule,
     RetentionModule,
   ],

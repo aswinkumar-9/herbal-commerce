@@ -10,12 +10,14 @@ import {
   Patch,
   Post,
   Put,
+  UseInterceptors,
 } from '@nestjs/common';
 import type { AuditContext } from '../audit/audit-context';
 import { CurrentAuditContext } from '../audit/audit-context.decorator';
 import { StaffOnly } from '../auth/staff-only.decorator';
 import { SuperUserOnly } from '../auth/super-user-only.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
+import { CatalogChanged } from './catalog-changed.interceptor';
 import {
   variantOrderSchema,
   variantSchema,
@@ -32,6 +34,7 @@ import { VariantsService } from './variants.service';
 // may add and change them; only Super Users may delete them. Every change,
 // a new price included, is written to the audit log.
 @StaffOnly()
+@UseInterceptors(CatalogChanged)
 @Controller('staff')
 export class StaffVariantsController {
   constructor(private readonly variants: VariantsService) {}

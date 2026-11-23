@@ -46,6 +46,9 @@ model User {
   orders                  Order[]
   // The failed refunds this Super User gave back by hand (ADR 0038).
   refundsGivenBack        Refund[]
+  // The policy pages this Super User saved a draft of, or published (ADR 0040).
+  policyDrafts            PolicyPage[]
+  policyVersions          PolicyVersion[]
 
   @@index([role])
   @@map("users")
@@ -151,6 +154,12 @@ model AuditLog {
   ip         String?
   requestId  String?
 
+  // For Super Users reading it (ADR 0017): the newest first, page by page,
+  // and the same for one admin, one thing changed, or one kind of action.
+  @@index([createdAt, id])
+  @@index([actorId, createdAt])
+  @@index([targetId, createdAt])
+  @@index([action, createdAt])
   @@map("audit_log")
 }
 
@@ -509,6 +518,8 @@ model Order {
   @@index([status, holdExpiresAt])
   // For staff: the orders in one status, the oldest first.
   @@index([status, createdAt])
+  // For staff: every order, the newest or the oldest first, page by page.
+  @@index([createdAt, id])
   @@map("orders")
 }
 
@@ -683,4 +694,53 @@ model Notification {
   // For the sender: the waiting ones, the most due first.
   @@index([status, nextAttemptAt])
   @@map("notifications")
+}
+
+// The website's policy pages (ADR 0040). The list is fixed: a new page is a
+// new value here, a migration, and its title on the website.
+enum PolicyKind {
+  PRIVACY
+  TERMS
+  REFUNDS
+  SHIPPING
+  CONTACT
+}
+
+// One row for each policy page, made when a Super User first saves it. It
+// holds the draft, which only Super Users see. Its revision goes up with
+// every save, discard and publish, so a Super User never overwrites a change
+// they haven't seen.
+model PolicyPage {
+  kind             PolicyKind @id
+  // The text being prepared, with when and by whom it was last saved: all
+  // three, or none when there is no draft.
+  draft            String?
+  draftUpdatedAt   DateTime?
+  draftUpdatedById String?    @db.Uuid
+  revision         Int        @default(0)
+
+  draftUpdatedBy User?           @relation(fields: [draftUpdatedById], references: [id], onDelete: Restrict)
+  versions       PolicyVersion[]
+
+  @@index([draftUpdatedById])
+  @@map("policy_pages")
+}
+
+// Every text customers have been shown, kept for good and never changed.
+// The website shows each page's newest version.
+model PolicyVersion {
+  id            String     @id @default(uuid()) @db.Uuid
+  kind          PolicyKind
+  // 1 for a page's first version, then one more each time.
+  version       Int
+  body          String
+  publishedAt   DateTime   @default(now())
+  publishedById String     @db.Uuid
+
+  page        PolicyPage @relation(fields: [kind], references: [kind], onDelete: Restrict)
+  publishedBy User       @relation(fields: [publishedById], references: [id], onDelete: Restrict)
+
+  @@unique([kind, version])
+  @@index([publishedById])
+  @@map("policy_versions")
 }

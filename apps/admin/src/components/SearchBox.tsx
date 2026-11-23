@@ -1,5 +1,5 @@
 import { Search } from 'lucide-react';
-import { useEffect, useId, useRef } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
 // Typing pauses this long before the search is sent.
@@ -18,19 +18,29 @@ export function searchWords(text: string): string | undefined {
 
 // A search box: the words are sent once typing pauses, or at once with
 // Enter, and only from two characters on.
+//
+// What is typed is the box's own state, so each key redraws the box alone,
+// never the page and its long list (part 14B). It follows the search the
+// page shows (`current`) when that changes from outside, as when the
+// filters are cleared or Back is pressed; when the change is only the
+// words just sent, what is typed stays as it is, spaces and all.
 export function SearchBox({
   label,
-  text,
-  onText,
   onSearch,
   current,
 }: {
   label: string;
-  text: string;
-  onText: (text: string) => void;
   onSearch: (text: string) => void;
   current: string;
 }) {
+  const [text, setText] = useState(current);
+  const [shown, setShown] = useState(current);
+  if (shown !== current) {
+    setShown(current);
+    if (tidyWords(text) !== tidyWords(current)) {
+      setText(current);
+    }
+  }
   const id = useId();
   const hintId = `${id}-hint`;
   const short = tidyWords(text).length === 1;
@@ -70,7 +80,7 @@ export function SearchBox({
             id={id}
             type="search"
             value={text}
-            onChange={(event) => onText(event.target.value)}
+            onChange={(event) => setText(event.target.value)}
             maxLength={SEARCH_MAX}
             autoComplete="off"
             spellCheck={false}

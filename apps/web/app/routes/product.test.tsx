@@ -413,6 +413,23 @@ describe('what search engines read from the page itself', () => {
       'https://schema.org/Organization',
     );
     expect(value(props(maker, 'name')[0])).toBe('Herbal Works Pvt Ltd');
+    expect(value(props(maker, 'address')[0])).toBe(
+      '12, Industrial Area,\nMysuru 570016',
+    );
+    expect(props(product, 'address')).toEqual([]);
+  });
+
+  it('keeps the label a proper list: each fact one term and its words', async () => {
+    await renderProduct();
+    const list = document.querySelector('dl') as HTMLElement;
+    for (const group of list.children) {
+      expect(group.tagName).toBe('DIV');
+      expect([...group.children].map((child) => child.tagName)).toEqual([
+        'DT',
+        'DD',
+      ]);
+    }
+    expect(list.children).toHaveLength(4);
   });
 
   it('describes it from its longer words when it has no summary', async () => {

@@ -95,6 +95,7 @@ export function Gallery({
             return (
               <li key={each.url}>
                 <Link
+                  prefetch="intent"
                   to={`?photo=${index + 1}`}
                   replace
                   preventScrollReset

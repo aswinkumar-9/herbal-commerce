@@ -130,7 +130,7 @@ Emails sent in development never leave your machine. Read them in Mailpit at htt
 | `pnpm web:test` | Run the website's tests |
 | `pnpm web:lint` | Run the linter on the website |
 | `pnpm web:typecheck` | Type-check the website |
-| `pnpm web:build` | Build the website into `apps/web/build`, then check the build: each page's security policy and nonce, nothing inline, pictures only from the media address, no source maps |
+| `pnpm web:build` | Build the website into `apps/web/build`, compress its files, then check the build: each page's security policy and nonce, nothing inline but the theme's step, pictures only from the media address, no source maps, the cache rules, signing in, and forms from another site refused |
 | `pnpm web:start` | Serve the built website at http://localhost:3001 (stop `web:dev` first) |
 | `pnpm design:test` | Run the design system's tests: the foundations, the CSS being up to date, and every look's contrast |
 | `pnpm design:typecheck` | Type-check the design system and its preview page |
@@ -216,7 +216,7 @@ Remove-Variable secure, code, body, login
 
 ## Open the admin console
 
-The admin console is a web app for staff (ADR 0031). Since part 12B its Catalog area has the categories and products (ADR 0032), since part 12C each product's pack sizes and images (ADR 0033), since part 12D its Stock area (ADR 0034), since part 12E its look, glass and clay (ADR 0035), since part 12F its Orders area (ADR 0037), and since part 12G its Admins and Audit log, for Super Users (ADR 0038): see "Manage the catalog in the console", "Manage pack sizes and images in the console", "Manage stock in the console", "Handle orders in the console", "Manage Admins in the console" and "Read the audit log in the console" below.
+The admin console is a web app for staff (ADR 0031). Since part 12B its Catalog area has the categories and products (ADR 0032), since part 12C each product's pack sizes and images (ADR 0033), since part 12D its Stock area (ADR 0034), since part 12E its look, glass and clay (ADR 0035), since part 12F its Orders area (ADR 0037), since part 12G its Admins and Audit log, for Super Users (ADR 0038), and since part 14B its Policy pages, for Super Users (ADR 0040): see "Manage the catalog in the console", "Manage pack sizes and images in the console", "Manage stock in the console", "Handle orders in the console", "Manage Admins in the console", "Read the audit log in the console" and "Write the policy pages in the console" below.
 
 1. Start the API (`pnpm api:dev`), then, in a second terminal:
    ```powershell
@@ -228,7 +228,7 @@ The admin console is a web app for staff (ADR 0031). Since part 12B its Catalog 
 - **Reloading keeps you signed in,** for up to 12 hours: the refresh token is in a cookie the page cannot read, and the access token only in the page's memory.
 - **After 30 minutes without activity,** in any tab of the console, you are signed out. A panel warns you a minute before.
 - **Signing out in one tab signs out the others.**
-- **Admins don't see Admins, the audit log, payments or refunds.**
+- **Admins don't see Admins, the audit log, payments, refunds or the policy pages.**
 - **The dev server runs without the page's security policy,** because live reload needs inline scripts. To see the console as it will be served, with its policy and headers, stop `admin:dev` and run `pnpm admin:build` then `pnpm admin:preview`. The browser's console (F12) should show no `Refused to …` messages.
 
 ### Manage the catalog in the console
@@ -350,6 +350,23 @@ Open **Audit log** in the menu, as a Super User (ADR 0038).
 - **"Show older entries"** reads the next page.
 - **From elsewhere:** "What they did" on an Admin's row, and "History" on an order's page, open the log for that Admin or that order. "Show everything" clears it.
 
+### Write the policy pages in the console
+
+Open **Policy pages** in the menu, as a Super User (ADR 0040). The website shows five: Privacy policy, Terms and conditions, Refunds and cancellations, Shipping and delivery, and Contact us. Until a page is published, the website says "We are still writing this page."
+
+- **The list** says where each page stands: "Not written yet", "Draft, not published", "On the website" or "Changes waiting", with who saved or published it last, and when.
+- **Write the page** in the box. Beside it, "How customers will see it" shows it as the website will. The text is plain, with three marks:
+  - a blank line starts a new paragraph; a single line break stays a line break, as in an address;
+  - a line starting `## ` is a heading;
+  - a line starting `- ` (or `• `) is an item of a list.
+
+  Nothing else is read: `**bold**`, a link or `<b>` shows as typed. At most 30,000 characters; pasting from a document can bring hidden characters, which the console names: paste as plain text instead.
+- **Save draft** keeps it where only Super Users see it. **Undo my changes** goes back to the saved draft, and **Discard draft** throws it away (it asks first).
+- **Publish,** once the draft is saved and nothing has changed since, asks first, naming the version it will be. Customers see it **within a minute**: the built website keeps what the API told it for up to 60 seconds.
+- **If another Super User saved meanwhile,** the page says so and keeps your words in the box. Copy what you want to keep, then "Load the newest text".
+- **Versions,** at the bottom: every version customers were shown, newest first, with who published it and when. "Read" opens one; "Show older versions" reads the next 20.
+- **The audit log** records each save, discard and publish, never the text: choose "Policy pages" under Show.
+
 ## See the shop's look
 
 The design system (ADR 0036) holds what the console and the website share: spacing, type, corners, contrast and motion, and the names of the colours and text styles. On top sit two looks: the console's, glass and clay (ADR 0035), and the shop's, from the owner's references. The preview page shows the shop's look on its own, with stand-ins for pictures and products.
@@ -382,11 +399,25 @@ The website shows the shop to anyone, without signing in (ADR 0039). Its pages a
 - **A category** (`/categories/hair-care`): its products in the order staff chose, with "Show more".
 - **A product** (`/products/ashwagandha-capsules`): its photos, each pack with its price, MRP and stock, what it is and how to use it, and its licence and maker. Buying comes with the cart, in part 14C.
 - **Light and dark** follow the computer, and "Auto", "Light" and "Dark" in the menu bar choose, as in the shop's preview.
-- **Without a script** every page still works: the search form, the sort, "Show more" and a product's thumbnails are plain links and forms.
+- **Without a script** every page still works: the search form, the sort, "Show more" and a product's thumbnails are plain links and forms, and so does every form of the account.
+- **The policy pages** (`/privacy`, `/terms`, `/refunds`, `/shipping`, `/contact`, in every page's footer), as a Super User publishes them in the console (ADR 0040).
+- **An account** (ADR 0041), from "Sign in" in the menu:
+  - **Create an account** with a name, an email address and a password of 10 characters or more. The email to confirm it arrives in Mailpit, at http://localhost:8025; open its link and press "Confirm my email address". Then sign in;
+  - **Your account** (`/account`): the name, the delivery addresses (add, change, make one the default, remove), a new password, and "Sign out" or "Sign out everywhere". A new password signs out every device, this one too;
+  - **Forgot your password?** on the sign-in page sends a link to Mailpit too;
+  - signed in, you stay so for 30 days in that browser.
 
 **As it runs in production:** `pnpm web:build`, then `pnpm web:start`. Only the built website has its full security policy: in development, Vite needs inline code.
 
-**Settings** (environment variables, all optional on a laptop): `WEB_PORT` (3001), `WEB_HOST` (localhost), `WEB_ORIGIN` (the website's own address, for link previews), `WEB_API_URL` (the API), `WEB_MEDIA_BASE_URL` (the API's `MEDIA_BASE_URL`: photos from anywhere else are left out), `WEB_TRUST_PROXY` (proxies allowed to report the customer's IP) and `WEB_INDEXING` (`on` only for the live shop: until then every page asks search engines not to list it). The server refuses to start on a bad one. See ADR 0039.
+The built website needs a key for customers' sign-in cookies (ADR 0041), at least 32 random characters, kept secret. Set it in the terminal before `pnpm web:start`; this makes one without showing it:
+
+```powershell
+$env:WEB_SESSION_SECRET = node -e "process.stdout.write(require('node:crypto').randomBytes(32).toString('base64url'))"
+```
+
+A new key signs every customer out. `pnpm web:dev` needs none: it makes its own, and sign-ins end when it stops. The emailed links lead to `WEB_BASE_URL` (in `.env`, by default http://localhost:3001), where the website runs.
+
+**Settings** (environment variables, all optional on a laptop): `WEB_PORT` (3001), `WEB_HOST` (localhost), `WEB_ORIGIN` (the website's own address, for link previews), `WEB_API_URL` (the API), `WEB_MEDIA_BASE_URL` (the API's `MEDIA_BASE_URL`: photos from anywhere else are left out), `WEB_TRUST_PROXY` (proxies allowed to report the customer's IP), `WEB_INDEXING` (`on` only for the live shop: until then every page asks search engines not to list it), `WEB_SESSION_SECRET` (the sign-in cookies' key: needed by the built website) and `WEB_API_CACHE_SECONDS` (how long the API's public answers are kept, 0 to 600: 60 for the built website, so prices, stock and policy pages may lag the console by a minute, and 0 with `pnpm web:dev`, so a change shows at once). The server refuses to start on a bad one. See ADR 0039 and ADR 0041.
 
 **The owner's pictures:** the originals stay outside the repository. After a new one, `pnpm --filter web art "<their folder>"` writes the WebP copies and the link preview picture into `apps/web/app/art/`.
 
@@ -1120,6 +1151,7 @@ Each email is saved with the change it tells of, and sent within a second of it.
 │   │       ├── orders/         the Orders page, each order's page and its dialogs, the packing slip, packing several, the Refunds tab, and giving a refund back by hand (ADR 0037, ADR 0038)
 │   │       ├── admins/         the Admins page and its dialogs (ADR 0038)
 │   │       ├── audit/          the audit log page: entries in sentences, what changed, the filters (ADR 0038)
+│   │       ├── policies/       the Policy pages for Super Users: each page beside its preview, drafts, publishing and versions (ADR 0040)
 │   │       ├── setup/          the pages of the emailed links: a password, the QR code and the key, and the code (ADR 0038)
 │   │       ├── components/, layout/, pages/   the screens, the menu and the pages
 │   │       ├── security-headers.ts   the page's Content Security Policy and security headers
@@ -1138,6 +1170,7 @@ Each email is saved with the change it tells of, and sent within a second of it.
 │   │       ├── inventory/      stock per batch: the rules (dates, 6-month shelf life, when a batch stops selling, low stock), the staff routes and the Stock page's list, counts of a shelf, what orders hold of each batch, "in stock" for the shop, and taking and giving back stock for orders
 │   │       ├── orders/         checkout and customers' orders: the rules (totals, delivery, GST, references), the routes, paying for them and Razorpay's webhooks, the job that expires unpaid orders, and staff taking orders through their steps
 │   │       ├── payments/       payments and refunds, the Super Users' list of refunds, and the only code that talks to Razorpay
+│   │       ├── policies/       the five policy pages: drafts, publishing and versions for Super Users, the published text for everyone (ADR 0040)
 │   │       ├── cli/            developer commands (create a Super User, set up staff MFA), without HTTP
 │   │       ├── staff/          staff accounts: Super Users, MFA, staff sign-in, inviting and managing Admins, /v1/staff/me
 │   │       ├── rate-limit/     limits, rate-limit guard, client IP
@@ -1150,13 +1183,13 @@ Each email is saved with the change it tells of, and sent within a second of it.
 │   │       └── health/, logging/, prisma/, common/
 │   └── web/                    the customer website (ADR 0039): React Router in framework mode, its pages made on the server
 │       ├── server.ts           starts the website server: Vite's live reload in development, the build in production
-│       ├── server/             the Express app: security headers, the customer's IP, the built files
-│       ├── app/                the pages (routes/), their parts (components/), asking the API (*.server.ts), the words (text/en.ts), the owner's pictures as WebP (art/)
-│       ├── scripts/            check-build.ts (run by `pnpm web:build`), make-art.ts (`pnpm --filter web art`)
+│       ├── server/             the Express app: security headers, the customer's IP, forms only from this site, the built files and their compressed copies
+│       ├── app/                the pages (routes/), their parts (components/), asking the API (*.server.ts), the sign-in cookie (session.server.ts), the words (text/en.ts), the owner's pictures as WebP (art/)
+│       ├── scripts/            check-build.ts and precompress.ts (run by `pnpm web:build`), theme-init-plugin.ts (the theme's step, inline), make-art.ts (`pnpm --filter web art`)
 │       └── .claude/skills/     the website's design rules (landing-page-design)
 ├── packages/
 │   └── design/                 the design system, @herbal/design (ADR 0036)
-│       ├── src/                the foundations, the console's and the shop's looks as data, and the shop's light and dark switch
+│       ├── src/                the foundations, the console's and the shop's looks as data, the shop's light and dark switch, the policy pages' marks (text-marks.ts) and the shop's fonts to preload
 │       ├── scripts/            build.ts (writes each look as CSS)
 │       ├── css/                console.css and shop.css, written by `pnpm design:build`, never by hand
 │       ├── test/               the foundations, the CSS up to date, and every look's contrast

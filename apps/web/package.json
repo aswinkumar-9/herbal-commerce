@@ -8,7 +8,7 @@
   },
   "scripts": {
     "dev": "node server.ts",
-    "build": "react-router typegen && tsc --noEmit && react-router build && node scripts/check-build.ts",
+    "build": "react-router typegen && tsc --noEmit && react-router build && node scripts/precompress.ts && node scripts/check-build.ts",
     "start": "node server.ts --production",
     "typecheck": "react-router typegen && tsc --noEmit",
     "lint": "oxlint app/ server/",

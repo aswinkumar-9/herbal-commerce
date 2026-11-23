@@ -1,5 +1,12 @@
-import { act, screen, waitFor, within } from '@testing-library/react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import {
+  Form,
+  Link,
+  Outlet,
+  createRoutesStub,
+  useNavigation,
+} from 'react-router';
 import { describe, expect, it } from 'vitest';
 import { mediaListeners, mediaMatches } from '../test/setup.ts';
 import { renderPage } from '../test/render.tsx';
@@ -14,8 +21,77 @@ function Page() {
   );
 }
 
+function Frame() {
+  return (
+    <SiteFrame>
+      <Outlet />
+    </SiteFrame>
+  );
+}
+
+// The first page leads on three ways: to the next page, to itself again
+// (as the shop's filters do), and by sending a form. It says how the
+// going is.
+function FirstPage() {
+  const navigation = useNavigation();
+  return (
+    <>
+      <Link to="/next">The next page</Link>
+      <Link to="/?again=1">The same page again</Link>
+      <Form method="post" action="/next">
+        <button type="submit">Send</button>
+      </Form>
+      <p data-testid="going">{navigation.state}</p>
+    </>
+  );
+}
+
+function NextPage() {
+  return <h1>The next page</h1>;
+}
+
 const toggle = () => screen.getByRole('button', { name: 'Menu' });
 const panel = () => document.getElementById('menu') as HTMLElement;
+
+// A page under the root, whose loader says whether someone is signed in.
+function openAs(signedIn: boolean) {
+  const Stub = createRoutesStub([
+    {
+      id: 'root',
+      path: '/',
+      loader: () => ({ signedIn }),
+      Component: Page,
+    },
+  ]);
+  render(<Stub initialEntries={['/']} />);
+}
+
+describe('the customer’s place in the menu', () => {
+  it('is the way to sign in for a visitor', async () => {
+    openAs(false);
+    const bar = await screen.findByRole('navigation', { name: 'Main' });
+    expect(within(bar).getByRole('link', { name: 'Sign in' })).toHaveAttribute(
+      'href',
+      '/sign-in',
+    );
+    expect(within(bar).queryByRole('link', { name: 'Account' })).toBeNull();
+  });
+
+  it('is the account for a signed-in customer, in the bar and the phone menu', async () => {
+    openAs(true);
+    const bar = await screen.findByRole('navigation', { name: 'Main' });
+    expect(within(bar).getByRole('link', { name: 'Account' })).toHaveAttribute(
+      'href',
+      '/account',
+    );
+    expect(
+      screen.getAllByRole('link', { name: 'Account', hidden: true }),
+    ).toHaveLength(2);
+    expect(
+      screen.queryByRole('link', { name: 'Sign in', hidden: true }),
+    ).toBeNull();
+  });
+});
 
 describe('every page’s frame', () => {
   it('starts with a link to skip to the page, then the menu bar, the page and its foot', () => {
@@ -32,6 +108,31 @@ describe('every page’s frame', () => {
     expect(screen.getByRole('contentinfo')).toHaveTextContent(
       'Prices include GST.',
     );
+  });
+
+  it('leads from its foot to the shop’s five policies, marking the one open', () => {
+    renderPage({ path: '/:page', url: '/terms', Component: Page });
+    const policies = within(screen.getByRole('contentinfo')).getByRole(
+      'navigation',
+      { name: 'The shop’s policies' },
+    );
+    const links = within(policies).getAllByRole('link');
+    expect(
+      links.map((link) => [link.textContent, link.getAttribute('href')]),
+    ).toEqual([
+      ['Privacy policy', '/privacy'],
+      ['Terms and conditions', '/terms'],
+      ['Refunds and cancellations', '/refunds'],
+      ['Shipping and delivery', '/shipping'],
+      ['Contact us', '/contact'],
+    ]);
+    expect(links.map((link) => link.getAttribute('aria-current'))).toEqual([
+      null,
+      'page',
+      null,
+      null,
+      null,
+    ]);
   });
 
   it('shows which page you are on, in the bar and the phone menu', () => {
@@ -159,5 +260,89 @@ describe('the phone menu', () => {
     expect(
       within(panel()).getByRole('group', { name: 'Theme' }),
     ).toBeInTheDocument();
+  });
+});
+
+// Every way on from the first page waits until arrive() is called.
+function openHeld() {
+  let arrive = () => {};
+  const held = new Promise<void>((resolve) => {
+    arrive = resolve;
+  });
+  const waitForIt = async () => {
+    await held;
+    return null;
+  };
+  const Stub = createRoutesStub([
+    {
+      id: 'root',
+      path: '/',
+      loader: () => ({ signedIn: false }),
+      Component: Frame,
+      children: [
+        {
+          index: true,
+          loader: ({ request }) =>
+            new URL(request.url).search ? waitForIt() : null,
+          Component: FirstPage,
+        },
+        {
+          path: 'next',
+          loader: waitForIt,
+          action: () => null,
+          Component: NextPage,
+        },
+      ],
+    },
+  ]);
+  render(<Stub initialEntries={['/']} />);
+  return async () => {
+    await act(async () => {
+      arrive();
+      await held;
+    });
+  };
+}
+
+const going = () => screen.getByTestId('going');
+
+describe('going to the next page', () => {
+  it('shows a thin bar, read out as loading the page, until the page arrives', async () => {
+    const arrive = openHeld();
+    await userEvent.click(
+      await screen.findByRole('link', { name: 'The next page' }),
+    );
+    expect(
+      await screen.findByRole('progressbar', { name: 'Loading the page' }),
+    ).toBeInTheDocument();
+    await arrive();
+    expect(
+      await screen.findByRole('heading', { name: 'The next page' }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+  });
+
+  it('shows nothing while a page simply sits open', async () => {
+    openAs(false);
+    await screen.findByRole('navigation', { name: 'Main' });
+    expect(screen.queryByRole('progressbar')).toBeNull();
+  });
+
+  it('shows nothing when the same page changes, which shows its own wait', async () => {
+    const arrive = openHeld();
+    await userEvent.click(
+      await screen.findByRole('link', { name: 'The same page again' }),
+    );
+    await waitFor(() => expect(going()).toHaveTextContent('loading'));
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    await arrive();
+  });
+
+  it('shows nothing after a form is sent, whose button shows the wait', async () => {
+    const arrive = openHeld();
+    await userEvent.click(await screen.findByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(going()).toHaveTextContent('loading'));
+    expect(screen.queryByRole('progressbar')).toBeNull();
+    await arrive();
   });
 });

@@ -65,7 +65,7 @@ async function renderCategory(
 const names = () =>
   screen
     .getAllByRole('article')
-    .map((card) => card.querySelector('h3')?.textContent);
+    .map((card) => card.querySelector('h2')?.textContent);
 
 describe('a category’s page', () => {
   it('names the category and says what it holds', async () => {
@@ -96,6 +96,8 @@ describe('a category’s page', () => {
   it('shows its products in the order staff chose', async () => {
     await renderCategory();
     expect(names()).toEqual(['amla-oil', 'bhringraj-oil']);
+    // The names are h2, straight under the page's h1: no level skipped.
+    expect(screen.queryByRole('heading', { level: 3 })).toBeNull();
   });
 
   it('leaves out a description staff didn’t give', async () => {

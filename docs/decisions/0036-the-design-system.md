@@ -92,6 +92,7 @@ Headless Chrome measured the preview page from its pixels too, with the text hid
 - **By default the page follows the device.** A customer may choose light or dark. The choice stays on that device, in `localStorage`, as a preference of the device, not the account, so it works before sign-in too. A choice that can't be read or kept, such as in a private window, simply means "as the device is set".
 - **It is set on `<html>` as `data-theme`,** which the shop's CSS reads alongside the device's own setting.
 - **It is set before the page is drawn,** so a page chosen dark never flashes white. That takes a plain, blocking script in `<head>`, and the policy forbids inline script. So `src/theme-init.ts` is built on its own as one small file and loaded first (`<script src>`). Chrome showed the theme set at 47.5 ms and the first paint at 112 ms.
+  - **Since part 14B the website writes it inline instead,** in `<head>` before the stylesheet, under the page's own nonce (ADR 0039). The same file is built into it (`virtual:herbal-theme-init`), so there is no request to wait for: the file, fetched last, had held up a phone's first paint by about 300 ms. A page with a nonce for every visit can allow one inline script without a hash. The preview page, which has no nonce, still loads the file.
 - **The console has no switch:** it still follows the computer (ADR 0035).
 
 ### The website's design rules
@@ -129,7 +130,7 @@ Headless Chrome measured the preview page from its pixels too, with the text hid
 - **Copying the console's CSS into the website.** Rejected: the two would drift.
 - **One look for everything.** Rejected by the owner on 2026-11-20.
 - **Fonts from Google Fonts.** Rejected: the policy would have to allow another site, and every visit would tell Google who looked at the shop.
-- **An inline script for the theme, allowed by its hash.** Rejected: the build check refuses inline script outright, and one file is as quick.
+- **An inline script for the theme, allowed by its hash.** Rejected: the build check refuses inline script outright, and one file is as quick. Since part 14B the website does write it inline, allowed by the page's nonce, not a hash, and its build check accepts only that one script with the nonce (ADR 0039).
 - **The theme choice on the customer's account.** Rejected: it is a preference of the device, and it must work before sign-in.
 - **An accent colour now.** Not yet, by the owner's choice: it is picked from the art.
 - **React components in the package.** Not yet: the website's framework isn't chosen. The package holds the foundations, the looks and the theme switch, which any framework can use.

@@ -7,12 +7,16 @@ export const text = {
     name: 'Herbal Commerce',
   },
   skipLink: 'Skip to content',
+  // Read out while the next page is on its way.
+  pageLoading: 'Loading the page',
   nav: {
     label: 'Main',
     phoneLabel: 'Main, on a phone',
     menu: 'Menu',
     home: 'Home',
     shop: 'Shop',
+    signIn: 'Sign in',
+    account: 'Account',
   },
   theme: {
     label: 'Theme',
@@ -24,6 +28,7 @@ export const text = {
     label: 'About the shop',
     prices: 'Prices include GST.',
     delivery: 'We deliver across India.',
+    policies: 'The shop’s policies',
   },
   // The home page (part 14A): calm and premium, by the owner's choice, and
   // only what is true of the shop (2026-11-20): its own fields and makers,
@@ -222,6 +227,319 @@ export const text = {
     shown: (count: number) =>
       count === 1 ? '1 more product shown' : `${count} more products shown`,
     start: 'Back to the start',
+  },
+  // What every account form says about its fields (part 14B). The API
+  // checks them again; these say it beside the field first.
+  forms: {
+    email: 'Email address',
+    showPassword: 'Show password',
+    emailMissing: 'Enter your email address.',
+    emailWrong: 'Enter an email address like name@example.com.',
+    passwordMissing: 'Enter your password.',
+    passwordLong: 'A password has at most 128 characters.',
+    newPasswordMissing: 'Choose a password.',
+    newPasswordShort: 'Choose a password with at least 10 characters.',
+    newPasswordHint: 'At least 10 characters.',
+    nameMissing: 'Enter your name.',
+    nameLong: 'A name has at most 100 characters.',
+    tooMany: (wait: string) =>
+      `Too many tries. Please wait ${wait} and try again.`,
+    minutes: (count: number) => (count === 1 ? '1 minute' : `${count} minutes`),
+    seconds: (count: number) => (count === 1 ? '1 second' : `${count} seconds`),
+  },
+  // Signing in (part 14B, ADR 0041). One answer for a wrong email or
+  // password, as the API gives (ADR 0007).
+  signIn: {
+    title: 'Sign in',
+    description: 'Sign in to your Herbal Commerce account.',
+    intro: 'Welcome back. Sign in to see your account.',
+    forPage: 'Sign in to see that page.',
+    // After a session ended on purpose, said above the form.
+    ended: {
+      password:
+        'Your password is changed, and you are signed out on every device. Sign in with the new password.',
+      everywhere: 'You are signed out on every device.',
+    },
+    password: 'Password',
+    submit: 'Sign in',
+    submitting: 'Signing in',
+    forgot: 'Forgot your password?',
+    newHere: 'New here?',
+    createAccount: 'Create an account',
+    sendAgain: 'Send the link again',
+    problems: {
+      wrong:
+        'The email address or the password is not right. Please check them and try again.',
+      unconfirmed:
+        'Signed up recently? Confirm your email address first, with the link we sent you.',
+      closed: 'This account is closed. To ask about it, see Contact us.',
+      resting:
+        'We could not sign you in just now. Please try again in a minute.',
+    },
+  },
+  // Creating an account (part 14B). The answer is the same whether or not
+  // the address has an account already, as the API's is (ADR 0007).
+  signUp: {
+    title: 'Create an account',
+    description: 'Create your Herbal Commerce account.',
+    intro:
+      'It takes a minute. We will send you a link to confirm your email address.',
+    name: 'Your name',
+    password: 'Password',
+    agree: {
+      before: 'By creating an account, you agree to the ',
+      between: ' and the ',
+      after: '.',
+    },
+    submit: 'Create account',
+    submitting: 'Creating your account',
+    haveOne: 'Have an account already?',
+    signIn: 'Sign in',
+    sent: {
+      title: 'Check your inbox',
+      body: (email: string) =>
+        `We have sent a message to ${email}. Open it to finish.`,
+      lasts: 'The link in it lasts 24 hours.',
+      nothing: 'Nothing after a few minutes? Look in your spam folder, or',
+      sendAgain: 'send the link again',
+    },
+    problems: {
+      resting:
+        'We could not create your account just now. Please try again in a minute.',
+    },
+  },
+  // Confirming the email address, from the link in the email (part 14B).
+  // Opening the link only shows a button: a mail scanner that opens every
+  // link can't use it up.
+  verifyEmail: {
+    title: 'Confirm your email address',
+    description: 'Confirm the email address of your Herbal Commerce account.',
+    intro: 'One more step: confirm that this email address is yours.',
+    confirm: 'Confirm my email address',
+    confirming: 'Confirming',
+    confirmed: {
+      title: 'Your email address is confirmed',
+      body: 'Thank you. You can sign in now.',
+      signIn: 'Sign in',
+    },
+    failed:
+      'This link has expired or has been used already. A link lasts 24 hours and works once.',
+    broken:
+      'This link is not complete. Copy the whole link from the email, or ask for a new one below.',
+    resend: {
+      title: 'Send the link again',
+      intro:
+        'Enter the email address you signed up with, and we will send a new link to confirm it.',
+      submit: 'Send the link',
+      submitting: 'Sending',
+      sent: (email: string) =>
+        `If ${email} is waiting to be confirmed, we have sent it a new link. It lasts 24 hours.`,
+    },
+    problems: {
+      resting: 'We could not do that just now. Please try again in a minute.',
+    },
+  },
+  // Forgot password, and choosing a new one from the emailed link (part
+  // 14B). The same answer whether or not the address has an account.
+  forgotPassword: {
+    title: 'Forgot your password?',
+    description: 'Choose a new password for your Herbal Commerce account.',
+    intro:
+      'Enter the email address of your account, and we will send you a link to choose a new password.',
+    submit: 'Send the link',
+    submitting: 'Sending',
+    sent: {
+      title: 'Check your inbox',
+      body: (email: string) =>
+        `If ${email} has an account, we have sent it a link to choose a new password.`,
+      lasts: 'The link lasts 30 minutes and works once.',
+    },
+    back: 'Back to sign in',
+    problems: {
+      resting:
+        'We could not send the link just now. Please try again in a minute.',
+    },
+  },
+  resetPassword: {
+    title: 'Choose a new password',
+    description: 'Choose a new password for your Herbal Commerce account.',
+    intro:
+      'Once it is saved, every device signed in to your account is signed out.',
+    password: 'New password',
+    submit: 'Save the new password',
+    submitting: 'Saving',
+    changed: {
+      title: 'Your password is changed',
+      body: 'Please sign in with your new password.',
+      signIn: 'Sign in',
+    },
+    failed:
+      'This link has expired or has been used already. A link lasts 30 minutes and works once.',
+    broken:
+      'This link is not complete. Copy the whole link from the email, or ask for a new one.',
+    askAgain: 'Ask for a new link',
+    problems: {
+      resting:
+        'We could not change your password just now. Please try again in a minute.',
+    },
+  },
+  // The customer's own page (part 14B). More comes with the account's
+  // details and addresses.
+  account: {
+    title: 'Your account',
+    description: 'Your Herbal Commerce account.',
+    details: {
+      title: 'Your details',
+      name: 'Your name',
+      email: 'Email address',
+      save: 'Save name',
+      saving: 'Saving',
+    },
+    addresses: {
+      title: 'Delivery addresses',
+      intro: 'Keep up to 10. The default one comes first.',
+      none: 'No delivery addresses saved yet.',
+      isDefault: 'Default',
+      phone: (phone: string) => `Phone ${phone}`,
+      edit: 'Edit',
+      makeDefault: 'Make default',
+      // Read out, as there may be several alike.
+      editFor: (who: string) => `Edit the address for ${who}`,
+      makeDefaultFor: (who: string) => `Make default, the address for ${who}`,
+      add: 'Add an address',
+      full: 'You have 10 addresses, the most we keep. Remove one to add another.',
+    },
+    password: {
+      title: 'Password',
+      intro: 'Changing it signs you out on every device, this one too.',
+      change: 'Change password',
+    },
+    signingOut: {
+      title: 'Signing out',
+      intro:
+        'Sign out everywhere if you used a shared computer or lost a phone.',
+      signOut: 'Sign out',
+      signingOut: 'Signing out',
+      everywhere: 'Sign out everywhere',
+    },
+    // What was just done, said at the top of the page.
+    saved: {
+      name: 'Your name is saved.',
+      default: 'Your default address is changed.',
+      added: 'The address is added.',
+      address: 'The address is saved.',
+      removed: 'The address is removed.',
+    },
+    problems: {
+      name: 'We could not save your name just now. Please try again in a minute.',
+      default:
+        'We could not change your default address just now. Please try again in a minute.',
+      gone: 'That address is no longer saved.',
+      everywhere:
+        'We could not sign you out everywhere just now. Please try again in a minute.',
+    },
+  },
+  // Adding or changing a delivery address (part 14B), by the API's rules.
+  address: {
+    newTitle: 'Add an address',
+    editTitle: 'Edit address',
+    description: 'A delivery address in your Herbal Commerce account.',
+    intro: 'Where we deliver, anywhere in India.',
+    fullName: 'Full name',
+    phone: 'Mobile number',
+    phoneHint: '10 digits, for the courier.',
+    line1: 'House number and street',
+    line2: 'Area or landmark (optional)',
+    city: 'City or town',
+    state: 'State or union territory',
+    chooseState: 'Choose one',
+    pincode: 'PIN code',
+    makeDefault: 'Make this my default address',
+    firstIsDefault: 'Your first address is your default.',
+    isDefault: 'This is your default address.',
+    add: 'Add address',
+    adding: 'Adding',
+    save: 'Save address',
+    saving: 'Saving',
+    back: 'Back to your account',
+    full: 'You have 10 addresses, the most we keep. Remove one to add another.',
+    remove: {
+      ask: 'Remove this address',
+      title: 'Remove this address?',
+      body: (name: string, line1: string) =>
+        `The address for ${name}, ${line1}, will be removed.`,
+      nextDefault: 'Your newest other address becomes the default.',
+      confirm: 'Remove address',
+      removing: 'Removing',
+      keep: 'Keep it',
+    },
+    problems: {
+      fullNameMissing: 'Enter the name of the person receiving it.',
+      phoneWrong: 'Enter a 10 digit Indian mobile number.',
+      line1Missing: 'Enter the house number and street.',
+      cityMissing: 'Enter the city or town.',
+      stateMissing: 'Choose a state or union territory.',
+      pincodeWrong: 'Enter a 6 digit PIN code.',
+      tooLong: (most: number) => `This has at most ${most} characters.`,
+      resting:
+        'We could not save the address just now. Please try again in a minute.',
+      removing:
+        'We could not remove the address just now. Please try again in a minute.',
+    },
+  },
+  // Changing the password while signed in (part 14B). The API then ends
+  // every session, this one too.
+  changePassword: {
+    title: 'Change your password',
+    description: 'Change the password of your Herbal Commerce account.',
+    intro:
+      'Changing it signs you out on every device, this one too. Then sign in with the new password.',
+    current: 'Current password',
+    new: 'New password',
+    submit: 'Change password',
+    submitting: 'Changing',
+    back: 'Back to your account',
+    problems: {
+      currentMissing: 'Enter your current password.',
+      currentWrong: 'The current password is not right.',
+      same: 'Choose a password different from the current one.',
+      resting:
+        'We could not change your password just now. Please try again in a minute.',
+    },
+  },
+  // The policy pages (part 14B, ADR 0040). Their words are the Super
+  // User's, from the console; these are only the names and the frame.
+  policies: {
+    pages: {
+      privacy: {
+        title: 'Privacy policy',
+        description:
+          'The privacy policy of Herbal Commerce: what personal details we keep, why, and for how long.',
+      },
+      terms: {
+        title: 'Terms and conditions',
+        description:
+          'The terms for ordering from Herbal Commerce and for using its website.',
+      },
+      refunds: {
+        title: 'Refunds and cancellations',
+        description:
+          'When an order from Herbal Commerce can be cancelled or returned, and how the money comes back.',
+      },
+      shipping: {
+        title: 'Shipping and delivery',
+        description:
+          'Where Herbal Commerce delivers, what delivery costs, and how long it takes.',
+      },
+      contact: {
+        title: 'Contact us',
+        description: 'How to reach Herbal Commerce.',
+      },
+    },
+    updated: 'Last updated',
+    // Not published yet: said plainly, with a way on.
+    pending: 'We are still writing this page.',
+    pendingHint: 'Please come back soon.',
   },
   // A product's own page (part 14A). Buying comes with the cart (14C).
   productPage: {

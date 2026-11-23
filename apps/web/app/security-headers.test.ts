@@ -93,7 +93,7 @@ describe('the headers on every answer', () => {
     expect(headers).toMatchObject({
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY',
-      'Referrer-Policy': 'no-referrer',
+      'Referrer-Policy': 'same-origin',
       'Cross-Origin-Opener-Policy': 'same-origin',
       'Cross-Origin-Resource-Policy': 'same-origin',
     });

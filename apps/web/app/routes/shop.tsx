@@ -239,13 +239,13 @@ export default function Shop({ loaderData }: Route.ComponentProps) {
           <ProductGrid products={found.products} />
         ) : found.total > 0 ? (
           <EmptyState title={shop.beyond}>
-            <Link to={shopHref(search)} className={PILL}>
+            <Link prefetch="intent" to={shopHref(search)} className={PILL}>
               {shop.firstPage}
             </Link>
           </EmptyState>
         ) : asked ? (
           <EmptyState title={shop.none} hint={shop.noneHint}>
-            <Link to="/shop" className={PILL}>
+            <Link prefetch="intent" to="/shop" className={PILL}>
               {shop.seeAll}
             </Link>
           </EmptyState>
@@ -523,6 +523,7 @@ function FilterChips({
         {chips.map((chip) => (
           <li key={chip.to}>
             <Link
+              prefetch="intent"
               to={chip.to}
               preventScrollReset
               aria-label={shop.filters.remove(chip.label)}
@@ -535,6 +536,7 @@ function FilterChips({
         ))}
       </ul>
       <Link
+        prefetch="intent"
         to={shopHref(search, {
           category: undefined,
           type: undefined,
@@ -569,6 +571,7 @@ function Pages({
     >
       {found.page > 1 ? (
         <Link
+          prefetch="intent"
           to={shopHref(search, { page: found.page - 1 })}
           rel="prev"
           className={OUTLINE_PILL}
@@ -584,6 +587,7 @@ function Pages({
       </p>
       {found.nextPage && found.nextPage <= LAST_PAGE ? (
         <Link
+          prefetch="intent"
           to={shopHref(search, { page: found.nextPage })}
           rel="next"
           className={OUTLINE_PILL}

@@ -273,19 +273,20 @@ function Label({ product }: { product: Product }) {
       </h2>
       <dl className="grid gap-4 sm:grid-cols-2">
         <Fact term={label.licence[product.type]}>{product.licenceNumber}</Fact>
-        <div
-          itemProp="manufacturer"
-          itemScope
-          itemType={`${SCHEMA}Organization`}
-          className="contents"
-        >
-          <Fact term={label.maker} itemProp="name">
-            {product.manufacturerName}
-          </Fact>
-          <Fact term={label.address} itemProp="address">
-            {product.manufacturerAddress}
-          </Fact>
-        </div>
+        {/* The maker is an item of its own for search engines, with its
+            address inside it. A wrapper around both facts would break the
+            list for screen readers, so the address goes along as a meta. */}
+        <Fact term={label.maker}>
+          <span
+            itemProp="manufacturer"
+            itemScope
+            itemType={`${SCHEMA}Organization`}
+          >
+            <span itemProp="name">{product.manufacturerName}</span>
+            <meta itemProp="address" content={product.manufacturerAddress} />
+          </span>
+        </Fact>
+        <Fact term={label.address}>{product.manufacturerAddress}</Fact>
         <Fact term={label.origin} itemProp="countryOfOrigin">
           {product.countryOfOrigin}
         </Fact>

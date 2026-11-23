@@ -1,4 +1,4 @@
-import { Link, useLocation } from 'react-router';
+import { Link, isRouteErrorResponse, useLocation } from 'react-router';
 import { text } from '../text/en.ts';
 import { pageTitle } from '../page-title.ts';
 import { GOLD_PILL } from './pills.ts';
@@ -12,7 +12,7 @@ export function NotFoundPage() {
         heading={text.notFound.heading}
         body={text.notFound.body}
         action={
-          <Link to="/" className={GOLD_PILL}>
+          <Link prefetch="intent" to="/" className={GOLD_PILL}>
             {text.notFound.home}
           </Link>
         }
@@ -46,6 +46,19 @@ export function FailedPage() {
         action={<Again label={text.failed.retry} />}
       />
     </>
+  );
+}
+
+// A page that could not be made: unknown (404), the API resting or busy
+// (503), or a failure. Never the failure's details.
+export function ErrorPage({ error }: { error: unknown }) {
+  const status = isRouteErrorResponse(error) ? error.status : 500;
+  return status === 404 ? (
+    <NotFoundPage />
+  ) : status === 503 ? (
+    <UnavailablePage />
+  ) : (
+    <FailedPage />
   );
 }
 

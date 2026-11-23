@@ -1,9 +1,11 @@
 // The theme switch's first step (@herbal/design/theme-init) must run before
 // the page is drawn, so a page chosen dark never flashes light (ADR 0036).
-// That takes a classic, blocking <script src> in <head>: a module script
-// waits for the page. So it is built on its own, as one small file with
-// nothing imported. Pages name it through `virtual:herbal-theme-init`.
-import { createHash } from 'node:crypto';
+// That takes a classic script in <head>: a module script waits for the
+// page. It is built on its own, as one small piece of code with nothing
+// imported, and `virtual:herbal-theme-init` gives that code as text. The
+// page's server writes it inline at the top of <head>, under the page's
+// nonce (app/entry.server.tsx): no file to fetch before the first paint
+// (part 14B; it was a file of its own before, as in the console).
 import { fileURLToPath } from 'node:url';
 import { build } from 'vite';
 import type { Plugin } from 'vite';
@@ -33,49 +35,22 @@ export function themeInit(): Plugin {
       if (/^\s*(import|export)\b/m.test(chunk.code)) {
         throw new Error('theme-init must stand alone, as a classic script');
       }
-      return chunk.code;
+      // Written inside <script>: nothing in it may end the element early.
+      if (/<\/script/i.test(chunk.code)) {
+        throw new Error('theme-init must not contain "</script"');
+      }
+      return chunk.code.trim();
     }));
 
-  // On a laptop it has a plain name; a build names it by its content, so a
-  // changed file is never served from an old cache.
-  let file = '/theme-init.js';
-  let building = false;
   return {
     name: 'herbal-theme-init',
-    configResolved(config) {
-      building = config.command === 'build';
-    },
-    configureServer(server) {
-      server.middlewares.use(file, (_request, response, next) => {
-        bundle().then((source) => {
-          response.setHeader('Content-Type', 'text/javascript');
-          response.end(source);
-        }, next);
-      });
-    },
-    async buildStart() {
-      if (building) {
-        const hash = createHash('sha256').update(await bundle());
-        file = `/assets/theme-init-${hash.digest('hex').slice(0, 8)}.js`;
-      }
-    },
     resolveId(id) {
       return id === MODULE ? RESOLVED : undefined;
     },
-    load(id) {
+    async load(id) {
       return id === RESOLVED
-        ? `export default ${JSON.stringify(file)};`
+        ? `export default ${JSON.stringify(await bundle())};`
         : undefined;
-    },
-    // Written once, with the browser's files.
-    async generateBundle() {
-      if (this.environment.name === 'client') {
-        this.emitFile({
-          type: 'asset',
-          fileName: file.slice(1),
-          source: await bundle(),
-        });
-      }
     },
   };
 }
