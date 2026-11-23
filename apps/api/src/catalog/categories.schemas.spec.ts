@@ -50,6 +50,23 @@ describe('categorySchema', () => {
     ).toBeNull();
   });
 
+  it('takes the top category it sits in by its ID, or null for none (part 15A)', () => {
+    const TOP = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+    expect(
+      categorySchema.parse({ name: 'Hair Oils', parentId: TOP }).parentId,
+    ).toBe(TOP);
+    expect(
+      categorySchema.parse({ name: 'Hair Oils', parentId: null }).parentId,
+    ).toBeNull();
+    const wrong = categorySchema.safeParse({
+      name: 'Hair',
+      parentId: 'hair-care',
+    });
+    expect(
+      wrong.error?.issues.map((issue) => [issue.path, issue.message]),
+    ).toEqual([[['parentId'], 'Choose the category it sits in by its ID']]);
+  });
+
   it('checks the length of the name and description, and the position', () => {
     const accepts = (changes: object) =>
       categorySchema.safeParse({ name: 'Hair Care', ...changes }).success;
@@ -81,6 +98,19 @@ describe('categoryUpdateSchema', () => {
     });
   });
 
+  it('moves it into a top category, or makes it one with null', () => {
+    const TOP = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+    expect(categoryUpdateSchema.parse({ parentId: TOP })).toEqual({
+      parentId: TOP,
+    });
+    expect(categoryUpdateSchema.parse({ parentId: null })).toEqual({
+      parentId: null,
+    });
+    expect(categoryUpdateSchema.safeParse({ parentId: 'x' }).success).toBe(
+      false,
+    );
+  });
+
   it('refuses a change with nothing in it', () => {
     expect(categoryUpdateSchema.safeParse({}).success).toBe(false);
     expect(categoryUpdateSchema.safeParse({ id: 'x' }).success).toBe(false);
@@ -97,8 +127,21 @@ describe('categoryOrderSchema', () => {
       : result.error.issues.map((issue) => [issue.path.join('.'), issue.message]);
   };
 
-  it('takes every category, first to last', () => {
-    expect(categoryOrderSchema.parse({ ids: [B, A], other: 1 })).toEqual({ ids: [B, A] });
+  it('takes every top category, first to last', () => {
+    expect(categoryOrderSchema.parse({ ids: [B, A], other: 1 })).toEqual({
+      parentId: null,
+      ids: [B, A],
+    });
+  });
+
+  it('takes every subcategory of one top category, by its ID (part 15A)', () => {
+    expect(categoryOrderSchema.parse({ parentId: A, ids: [B] })).toEqual({
+      parentId: A,
+      ids: [B],
+    });
+    expect(refused({ parentId: 'hair-care', ids: [B] })).toEqual([
+      ['parentId', 'Choose the category it sits in by its ID'],
+    ]);
   });
 
   it('refuses an empty list, a category twice, a bad ID and more than 500', () => {

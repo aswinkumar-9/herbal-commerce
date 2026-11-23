@@ -568,7 +568,7 @@ describe('ProductsService.listForShop', () => {
     imageUrl: `${BASE}/products/${KEY}-small.webp`,
   });
 
-  it("shows an active category and one page of its active products: a card's fields and the lowest price", async () => {
+  it("shows a category customers see and one page of its own active products: a card's fields and the lowest price", async () => {
     const { service, prisma } = setup([row('a', 450), row('b')]);
 
     await expect(service.listForShop('herbal-supplements', { limit: 20 })).resolves.toEqual({
@@ -576,14 +576,35 @@ describe('ProductsService.listForShop', () => {
       products: [card('a', 450), card('b')],
       nextAfter: null,
     });
+    // Active, and when a subcategory, inside an active top category. With
+    // the top category it sits in, or its active subcategories (part 15A).
     expect(prisma.category.findFirst).toHaveBeenCalledWith({
-      where: { slug: 'herbal-supplements', isActive: true },
-      select: { name: true, slug: true, description: true },
+      where: {
+        slug: 'herbal-supplements',
+        isActive: true,
+        OR: [{ parentId: null }, { parent: { isActive: true } }],
+      },
+      select: {
+        name: true,
+        slug: true,
+        description: true,
+        parent: { select: { name: true, slug: true } },
+        subcategories: {
+          where: { isActive: true },
+          orderBy: [{ position: 'asc' }, { name: 'asc' }, { id: 'asc' }],
+          select: { name: true, slug: true, description: true },
+        },
+      },
     });
+    // Only its own products: a subcategory's are on the subcategory's page.
     expect(prisma.product.findMany).toHaveBeenCalledWith({
       where: {
         isActive: true,
-        category: { slug: 'herbal-supplements', isActive: true },
+        category: {
+          slug: 'herbal-supplements',
+          isActive: true,
+          OR: [{ parentId: null }, { parent: { isActive: true } }],
+        },
       },
       orderBy: [{ position: 'asc' }, { name: 'asc' }, { id: 'asc' }],
       take: 21,
@@ -639,7 +660,7 @@ describe('ProductsService.listForShop', () => {
 });
 
 describe('ProductsService.findForShop', () => {
-  it("shows an active product of an active category, with its licence and maker details", async () => {
+  it("shows an active product of a category customers see, with its licence and maker details", async () => {
     const { service, prisma } = setup();
     const page = {
       name: 'Ashwagandha Capsules',
@@ -659,7 +680,10 @@ describe('ProductsService.findForShop', () => {
     expect(query.where).toEqual({
       slug: 'ashwagandha-capsules',
       isActive: true,
-      category: { isActive: true },
+      category: {
+        isActive: true,
+        OR: [{ parentId: null }, { parent: { isActive: true } }],
+      },
     });
     expect(Object.keys(query.select).sort()).toEqual([
       'brand',
@@ -678,7 +702,14 @@ describe('ProductsService.findForShop', () => {
       'usage',
       'variants',
     ]);
-    expect(query.select.category).toEqual({ select: { name: true, slug: true } });
+    // With the top category it sits in, null for a top category (part 15A).
+    expect(query.select.category).toEqual({
+      select: {
+        name: true,
+        slug: true,
+        parent: { select: { name: true, slug: true } },
+      },
+    });
     // Its brand by name and slug, null when it has none (part 15A).
     expect(query.select.brand).toEqual({ select: { name: true, slug: true } });
     // Only the packs on sale. The ID is read only to ask about stock.

@@ -14,7 +14,11 @@ import {
   isUniqueViolation,
 } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
-import { CATEGORY_NOT_FOUND } from './categories.service';
+import {
+  CATEGORY_NOT_FOUND,
+  CATEGORY_ORDER,
+  SHOP_CATEGORY_FIELDS,
+} from './categories.service';
 import { changedFields, pick } from './changes';
 import { IMAGE_ORDER, imageFileNames, removeImageFiles } from './image-files';
 import { productIssues } from './product-rules';
@@ -26,6 +30,7 @@ import type {
   ProductUpdateInput,
   ShopProductListQuery,
 } from './products.schemas';
+import { SHOWN_CATEGORY } from './shown-categories';
 import { validationFailed } from './validation-failed';
 import { VARIANT_ORDER } from './variant-order';
 
@@ -129,7 +134,13 @@ const SHOP_PAGE_FIELDS = {
   manufacturerName: true,
   manufacturerAddress: true,
   countryOfOrigin: true,
-  category: { select: { name: true, slug: true } },
+  category: {
+    select: {
+      name: true,
+      slug: true,
+      parent: { select: { name: true, slug: true } },
+    },
+  },
   brand: { select: { name: true, slug: true } },
   variants: {
     where: { isActive: true },
@@ -352,16 +363,25 @@ export class ProductsService {
     );
   }
 
-  // A category's page in the shop: the category and its active products,
-  // one page at a time, each with the lowest price of its packs on sale
-  // (fromPriceRupees, null while none is on sale) and the small file of its
-  // main photo (imageUrl). A hidden category answers 404, like an unknown
-  // one. Pages continue after a product's slug: customers never see product
-  // IDs.
+  // A category's page in the shop: the category, with the top category it
+  // sits in (parent) or its active subcategories (part 15A), and its own
+  // active products, one page at a time, each with the lowest price of its
+  // packs on sale (fromPriceRupees, null while none is on sale) and the
+  // small file of its main photo (imageUrl). A hidden category answers 404,
+  // like an unknown one, and so does a subcategory of a hidden one. Pages
+  // continue after a product's slug: customers never see product IDs.
   async listForShop(categorySlug: string, query: ShopProductListQuery) {
     const category = await this.prisma.category.findFirst({
-      where: { slug: categorySlug, isActive: true },
-      select: { name: true, slug: true, description: true },
+      where: { slug: categorySlug, ...SHOWN_CATEGORY },
+      select: {
+        ...SHOP_CATEGORY_FIELDS,
+        parent: { select: { name: true, slug: true } },
+        subcategories: {
+          where: { isActive: true },
+          orderBy: CATEGORY_ORDER,
+          select: SHOP_CATEGORY_FIELDS,
+        },
+      },
     });
     if (!category) {
       throw new NotFoundException(CATEGORY_NOT_FOUND);
@@ -369,7 +389,7 @@ export class ProductsService {
     const rows = await this.prisma.product.findMany({
       where: {
         isActive: true,
-        category: { slug: categorySlug, isActive: true },
+        category: { slug: categorySlug, ...SHOWN_CATEGORY },
       },
       orderBy: PRODUCT_ORDER,
       take: query.limit + 1,
@@ -394,13 +414,14 @@ export class ProductsService {
     };
   }
 
-  // A product's own page in the shop. Only an active product in an active
-  // category: any other answers 404, like an unknown one. Each image has the
+  // A product's own page in the shop. Only an active product in a category
+  // customers see: any other answers 404, like an unknown one. Its category
+  // comes with the top category it sits in, if any. Each image has the
   // addresses of its two files, its size, and a description: the product's
   // name when staff gave none.
   async findForShop(slug: string) {
     const product = await this.prisma.product.findFirst({
-      where: { slug, isActive: true, category: { isActive: true } },
+      where: { slug, isActive: true, category: SHOWN_CATEGORY },
       select: SHOP_PAGE_FIELDS,
     });
     if (!product) {

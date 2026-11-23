@@ -61,7 +61,7 @@ const slugs = (page: { products: { slug: string }[] }) =>
   page.products.map((product) => product.slug);
 
 describe('ProductSearchService.search', () => {
-  it('without words, weighs every live product in an active category, by name, and asks the inventory about every pack on sale', async () => {
+  it('without words, weighs every live product in a category customers see, by name, and asks the inventory about every pack on sale', async () => {
     const { service, prisma, stock } = setup(
       [row('amla-juice', [199, 149]), row('brahmi-oil', [349])],
       ['amla-juice-pack-1', 'brahmi-oil-pack-0'],
@@ -75,7 +75,17 @@ describe('ProductSearchService.search', () => {
     });
     expect(prisma.$queryRaw).not.toHaveBeenCalled();
     expect(prisma.product.findMany).toHaveBeenCalledWith({
-      where: { isActive: true, category: { isActive: true } },
+      where: {
+        isActive: true,
+        category: {
+          AND: [
+            {
+              isActive: true,
+              OR: [{ parentId: null }, { parent: { isActive: true } }],
+            },
+          ],
+        },
+      },
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
       take: 500,
       select: {
@@ -102,7 +112,7 @@ describe('ProductSearchService.search', () => {
     ]);
   });
 
-  it('filters by an active category and a product type', async () => {
+  it('filters by a category, with its subcategories, and a product type', async () => {
     const { service, prisma } = setup([]);
 
     await service.search(
@@ -111,7 +121,17 @@ describe('ProductSearchService.search', () => {
 
     expect(prisma.product.findMany.mock.calls[0][0].where).toStrictEqual({
       isActive: true,
-      category: { isActive: true, slug: 'herbal-teas' },
+      category: {
+        AND: [
+          {
+            isActive: true,
+            OR: [{ parentId: null }, { parent: { isActive: true } }],
+          },
+          {
+            OR: [{ slug: 'herbal-teas' }, { parent: { slug: 'herbal-teas' } }],
+          },
+        ],
+      },
       type: 'AYURVEDIC_MEDICINE',
     });
   });
@@ -166,6 +186,11 @@ describe('ProductSearchService.search', () => {
     expect(text).toContain('? <% p."description"');
     // Live products in active categories only.
     expect(text).toContain('WHERE p."isActive" AND c."isActive"');
+    // A subcategory's products only while its top category is active too.
+    expect(text).toContain(
+      'LEFT JOIN "categories" top ON top."id" = c."parentId"',
+    );
+    expect(text).toContain('AND (top."id" IS NULL OR top."isActive")');
     expect(text).toContain('ORDER BY "score" DESC, p."id"');
     expect(values).toEqual([
       'ashwaganda',

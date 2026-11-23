@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.32.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.33.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -417,26 +417,34 @@ Errors: `400` (the ID is not a UUID); `401`; `404 Address not found` (no such ad
 
 ### GET `/v1/categories`
 
-**Public.** The product categories customers see, with or without a token (ADR 0020). Only **active** categories, ordered as staff chose (by `position`, then by name).
+**Public.** The product categories customers see, with or without a token (ADR 0020). Only **active** top categories, each with its active **subcategories** (since part 15A), ordered as staff chose: by `position`, then by name, the subcategories among themselves.
 
 Response `200`:
 ```json
 {
   "categories": [
-    { "name": "Hair Care", "slug": "hair-care", "description": "Oils and powders for the hair" },
-    { "name": "Herbal Teas", "slug": "herbal-teas", "description": null }
+    {
+      "name": "Hair Care",
+      "slug": "hair-care",
+      "description": "Oils and powders for the hair",
+      "subcategories": [
+        { "name": "Hair Oils", "slug": "hair-oils", "description": null }
+      ]
+    },
+    { "name": "Herbal Teas", "slug": "herbal-teas", "description": null, "subcategories": [] }
   ]
 }
 ```
-- Each category has exactly these three fields. `description` may be `null`.
-- `slug` is the readable part of a web address (`/categories/hair-care`): lowercase letters, digits and single hyphens. Use it in links. It stays the same when a category is renamed.
+- Each category has exactly these four fields, and each subcategory the first three. `description` may be `null`.
+- **Only two levels:** a top category may hold products of its own as well as subcategories, and a subcategory holds only products. A subcategory of a hidden top category is hidden with it.
+- `slug` is the readable part of a web address (`/categories/hair-care`): lowercase letters, digits and single hyphens. Use it in links. It stays the same when a category is renamed. Slugs are unique across both levels, so a subcategory has its own page too (`/categories/hair-oils`).
 - An empty list while no category is active.
 
 Errors: `429` (the 600 per minute limit).
 
 ### GET `/v1/categories/:slug/products`
 
-**Public.** A category's page in the shop: the category and one page of its products (ADR 0021). Only **live** products are listed: those that are active, in an active category. The order is the one staff chose, by `position`, then by name.
+**Public.** A category's page in the shop: the category, with the top category it sits in or its subcategories, and one page of its own products (ADR 0021). Only **live** products are listed: those that are active, in a category customers see. The order is the one staff chose, by `position`, then by name.
 
 Query parameters, both optional:
 
@@ -448,7 +456,15 @@ Query parameters, both optional:
 Response `200`:
 ```json
 {
-  "category": { "name": "Herbal Supplements", "slug": "herbal-supplements", "description": null },
+  "category": {
+    "name": "Herbal Supplements",
+    "slug": "herbal-supplements",
+    "description": null,
+    "parent": null,
+    "subcategories": [
+      { "name": "Immunity", "slug": "immunity", "description": null }
+    ]
+  },
   "products": [
     {
       "name": "Ashwagandha Capsules",
@@ -461,6 +477,9 @@ Response `200`:
   "nextAfter": null
 }
 ```
+- `category.parent`: for a subcategory, the top category it sits in, as `{ "name", "slug" }`; `null` for a top category (since part 15A).
+- `category.subcategories`: a top category's active subcategories, in the order staff chose, each with `name`, `slug` and `description`. Always empty for a subcategory.
+- **Only the category's own products are listed.** Each subcategory's products are on the subcategory's own page, which the shop links to.
 - Each product has exactly these five fields. Its page has the rest (below).
 - `fromPriceRupees`: the lowest price among the product's packs on sale, for "from ₹400". It is `null` while no pack is on sale (ADR 0022).
 - `imageUrl`: the small file of the product's main photo, at most 400 pixels on its longest side (ADR 0023). A live product always has an image.
@@ -472,21 +491,21 @@ Errors:
 | Status | Body | When |
 |---|---|---|
 | `400` | `Validation failed` | `limit` outside 1 to 50, or `after` not a slug |
-| `404` | `Category not found` | No active category with this slug: unknown or hidden, which look the same |
+| `404` | `Category not found` | No category customers see with this slug: unknown, hidden, or a subcategory of a hidden one, which all look the same |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
 ## Products
 
 ### GET `/v1/products`
 
-**Public.** The shop's search (ADR 0030): live products, active and in an active category, found by words in their name, summary or description, and filtered by category, type and price. Words may be part of a word, or misspelt: "ashwa" and "ashwaganda" both find Ashwagandha. Without words, it lists every live product.
+**Public.** The shop's search (ADR 0030): live products, active and in a category customers see, found by words in their name, summary or description, and filtered by category, type and price. Words may be part of a word, or misspelt: "ashwa" and "ashwaganda" both find Ashwagandha. Without words, it lists every live product.
 
 Query parameters, all optional:
 
 | Parameter | Rules | Meaning |
 |---|---|---|
 | `q` | 2 to 100 characters, after trimming; each run of spaces becomes one; empty means none | The search words |
-| `category` | A category's slug | Only that category. A hidden or unknown one finds nothing. |
+| `category` | A category's slug | Only that category, and for a top category its subcategories too (since part 15A). A hidden or unknown one finds nothing. |
 | `type` | `AYURVEDIC_MEDICINE`, `FOOD_OR_SUPPLEMENT` or `COSMETIC` | Only that type |
 | `minPriceRupees`, `maxPriceRupees` | Whole numbers, 0 to 1000000; the lowest not above the highest | The product's lowest price on sale is within them. A product with no pack on sale is then never found. |
 | `sort` | `relevance`, `price-asc`, `price-desc` or `name` | Default: `relevance` with words, `name` without. `relevance` needs words. |
@@ -527,7 +546,7 @@ Errors:
 
 ### GET `/v1/products/:slug`
 
-**Public.** A product's own page in the shop (ADR 0021). Only for a live product: active, in an active category.
+**Public.** A product's own page in the shop (ADR 0021). Only for a live product: active, in a category customers see. That is an active category, and for a subcategory, one inside an active top category (since part 15A).
 
 Response `200`:
 ```json
@@ -543,7 +562,7 @@ Response `200`:
   "manufacturerName": "Herbal Works Pvt Ltd",
   "manufacturerAddress": "12, Industrial Area, Mysuru 570016",
   "countryOfOrigin": "India",
-  "category": { "name": "Herbal Supplements", "slug": "herbal-supplements" },
+  "category": { "name": "Herbal Supplements", "slug": "herbal-supplements", "parent": null },
   "brand": { "name": "Himalaya", "slug": "himalaya" },
   "variants": [
     { "sku": "ASH-CAP-60", "quantity": 60, "unit": "CAPSULES", "mrpRupees": 500, "priceRupees": 400, "inStock": true },
@@ -569,6 +588,7 @@ Response `200`:
 ```
 - **The licence and maker details must be shown on the product's page:** Indian labelling rules want them.
 - `brand`: its brand's name and slug, or `null` for a product without one (since part 15A).
+- `category.parent`: when its category is a subcategory, the top category it sits in, as `{ "name", "slug" }`; otherwise `null` (since part 15A).
 - `images`: the product's photos, the main one first, in the order staff chose (ADR 0023). There is always at least one. Each has exactly these five fields:
   - `url`: the large file, WebP, at most 1600 pixels on its longest side;
   - `thumbnailUrl`: the small file, at most 400 pixels;
@@ -590,7 +610,7 @@ Response `200`:
   - `COSMETIC`: a cosmetics licence.
 - `summary`, `description` and `usage` may be `null`. A live product always has its type, licence, maker's name and address, ingredients, country and at least one image.
 
-Errors: `404 Product not found` (no live product with this slug: unknown, a draft, or in a hidden category, which all look the same); `429` (the 600 per minute limit).
+Errors: `404 Product not found` (no live product with this slug: unknown, a draft, or in a hidden category or a subcategory of a hidden one, which all look the same); `429` (the 600 per minute limit).
 
 ## Image files
 
@@ -713,7 +733,7 @@ Request:
 
 - **Adding needs stock and room:** the pack size is in stock, the product's packs in all its sizes stay at 4 or fewer, and a new pack size fits within 50.
 - **Fewer packs are always fine,** even for a pack out of stock.
-- **Only a pack size sold now:** on sale, in a live product of an active category. Any other answers `404`, like an unknown SKU, and can only be removed.
+- **Only a pack size sold now:** on sale, in a live product: active, in a category customers see. Any other answers `404`, like an unknown SKU, and can only be removed.
 
 Response `200`: the whole cart, as it is now.
 
@@ -1436,8 +1456,8 @@ Product categories for staff (ADR 0020). These endpoints need a **staff** access
 |---|---|
 | `GET /v1/staff/categories` | List every category, hidden ones too |
 | `POST /v1/staff/categories` | Create a category |
-| `PATCH /v1/staff/categories/:id` | Change, activate or deactivate a category |
-| `PUT /v1/staff/categories/order` | Put every category in a new order, as staff dragged them (ADR 0032) |
+| `PATCH /v1/staff/categories/:id` | Change, activate, deactivate or move a category |
+| `PUT /v1/staff/categories/order` | Put the top categories, or one top category's subcategories, in a new order, as staff dragged them (ADR 0032) |
 | `DELETE /v1/staff/categories/:id` | Delete a category (Super Users only) |
 
 A category, as these endpoints return it:
@@ -1449,10 +1469,13 @@ A category, as these endpoints return it:
   "description": "Oils and powders for the hair",
   "isActive": false,
   "position": 0,
+  "parentId": null,
   "createdAt": "2026-11-03T06:15:05.292Z",
   "updatedAt": "2026-11-03T06:15:05.292Z"
 }
 ```
+
+**Subcategories (since part 15A):** a category may sit inside a top category. Only two levels: a top category may hold products of its own as well as subcategories, and a subcategory holds only products. Hiding a top category hides its subcategories and their products too. A product's category may be either.
 
 The rules for each field:
 
@@ -1463,10 +1486,11 @@ The rules for each field:
 | `description` | Optional, up to 500 characters, trimmed. An empty value, or `null` in a change, means none. |
 | `position` | A whole number from 0 to 9999. Customers see lower numbers first. Default `0`. |
 | `isActive` | `true` shows the category to customers. Default `false`. |
+| `parentId` | The top category it sits in, by its ID, or `null` for a top category. Default `null`. It must be a top category, never a subcategory, and never the category itself. |
 
 ### GET `/v1/staff/categories`
 
-Every category, hidden ones too, in the order customers see them. No paging: a catalog has only a few categories.
+Every category, hidden ones too, in the order customers see them: each top category followed by its own subcategories. No paging: a catalog has only a few categories.
 
 Response `200`: `{ "categories": [...] }`, each in the form above.
 
@@ -1483,6 +1507,7 @@ Request:
 - **Without a `slug`, it is made from the name:** accents are dropped, and every run of other characters becomes one hyphen. `Café Crème (Natural)` becomes `cafe-creme-natural`.
 - **A name without Latin letters or digits** (in Devanagari, for example) needs a `slug` too: `{ "name": "आयुर्वेद", "slug": "ayurveda" }`.
 - **A new category is hidden from customers** unless `"isActive": true` is sent.
+- **A subcategory** is created inside a top category by sending its `parentId`.
 - Any other field, such as `id`, is ignored.
 
 Response `201`: the category.
@@ -1491,7 +1516,7 @@ Errors:
 
 | Status | Body | When |
 |---|---|---|
-| `400` | `Validation failed` | A missing or invalid field, each named in `errors`. A name without Latin letters and no slug gives `The name has no Latin letters or digits: give a slug` for `slug`. |
+| `400` | `Validation failed` | A missing or invalid field, each named in `errors`. A name without Latin letters and no slug gives `The name has no Latin letters or digits: give a slug` for `slug`. A `parentId` that is unknown gives `No category with this ID`, and one of a subcategory `This is a subcategory. Choose a top category: there are only two levels.` |
 | `401` | see "Authentication errors on protected endpoints" | No staff access token, or a customer's |
 | `409` | `Another category already has this slug. Choose a different one.` | The slug, sent or made from the name, is taken |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
@@ -1501,6 +1526,7 @@ Errors:
 Changes a category. Send only the fields that change: `{ "isActive": true }` activates it, and `{ "description": null }` removes the description.
 
 - **Renaming keeps the slug,** so links keep working. Send a `slug` to change it.
+- **Moving:** `{ "parentId": "…" }` moves the category into that top category, and `{ "parentId": null }` makes it a top category. It keeps its `position`: reorder its new level to place it. Its products go with it.
 - **Sending the values the category already has changes nothing,** answers `200` too, and writes no audit entry. It is safe to send the same request twice.
 
 Response `200`: the category, as it is now.
@@ -1511,6 +1537,7 @@ Errors:
 |---|---|---|
 | `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
 | `400` | `Validation failed` | An invalid field, or an empty change (`Nothing to change`) |
+| `400` | `Validation failed` | A move refused, for `parentId`: `No category with this ID`, `This is a subcategory. Choose a top category: there are only two levels.`, `A category cannot sit inside itself`, or `This category has subcategories, so it cannot sit inside another. Move them first.` |
 | `401` | see above | No staff access token, or a customer's |
 | `404` | `Category not found` | No category with this ID |
 | `409` | `Another category already has this slug. Choose a different one.` | The new slug is taken |
@@ -1518,12 +1545,17 @@ Errors:
 
 ### PUT `/v1/staff/categories/order`
 
-Puts the categories in a new order, the one customers see: what staff dragged in the admin console (ADR 0032).
+Puts one level of categories in a new order, the one customers see: what staff dragged in the admin console (ADR 0032).
 
-Request: **every category, hidden ones too, each once,** first to last:
+Request: **every top category, hidden ones too, each once,** first to last:
 ```json
 { "ids": ["0b8f3a52-6d1e-4c7a-9f2b-3e4d5c6b7a81", "7c9e6679-7425-40de-944b-e07fc1f90ae7", "1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d"] }
 ```
+Or **every subcategory of one top category,** named by `parentId` (since part 15A):
+```json
+{ "parentId": "7c9e6679-7425-40de-944b-e07fc1f90ae7", "ids": ["2b7e4f1a-6c3d-4e8f-9a0b-5d1c7e3f9a26", "4e8a1c5f-2d6b-4f9e-8c3a-7b0d2e6f1a94"] }
+```
+Without `parentId`, or with `null`, the list is the top categories.
 
 - Each category's `position` becomes its place in the list: `0`, `1`, `2` and so on.
 - Only the categories that moved are changed, each with its own audit entry (`category.updated`, the position before and after). All of it is saved in one transaction.
@@ -1535,9 +1567,9 @@ Errors:
 
 | Status | Body | When |
 |---|---|---|
-| `400` | `Validation failed` | No list, an ID that is not a UUID (`Each category by its ID`), an ID twice (`List each category once`), or more than 500 |
+| `400` | `Validation failed` | No list, an ID that is not a UUID (`Each category by its ID`), an ID twice (`List each category once`), or more than 500; a `parentId` that is not a UUID, or no category's (`No category with this ID`) |
 | `401` | see above | No staff access token, or a customer's |
-| `409` | `The categories changed while you were ordering them. Reload and try again.` | The list is not exactly every category: one was added or deleted since the list was read, or an ID is unknown |
+| `409` | `The categories changed while you were ordering them. Reload and try again.` | The list is not exactly every category of that level: one was added, moved or deleted since the list was read, or an ID is unknown |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
 ### DELETE `/v1/staff/categories/:id`
@@ -1554,6 +1586,7 @@ Errors:
 | `401` | see above | No staff access token, or a customer's |
 | `403` | `Only a Super User may do this.` | Called by an Admin |
 | `404` | `Category not found` | No category with this ID, also when it was just deleted |
+| `409` | `This category still has subcategories. Move them to another category or delete them first.` | The category still has subcategories, hidden or not (since part 15A) |
 | `409` | `This category still has products. Move them to another category or delete them first.` | The category still has products, live or not. The database refuses the delete. |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 

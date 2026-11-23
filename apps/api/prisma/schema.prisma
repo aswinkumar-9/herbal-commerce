@@ -200,12 +200,22 @@ model Category {
   // Customers never see an inactive category. A new one starts inactive,
   // so staff can prepare it before it shows.
   isActive    Boolean  @default(false)
-  // Customers see the categories in this order, then by name.
+  // Customers see the categories in this order, then by name: the top
+  // categories among themselves, and each one's subcategories among
+  // themselves.
   position    Int      @default(0)
+  // The top category it sits in, when it is a subcategory (part 15A). Only
+  // two levels: a top category may hold its own products as well as
+  // subcategories, and a subcategory holds only products. One that still
+  // has subcategories can't be deleted.
+  parentId    String?  @db.Uuid
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   products Product[]
+  parent Category? @relation("Subcategories", fields: [parentId], references: [id], onDelete: Restrict)
+  subcategories Category[] @relation("Subcategories")
 
+  @@index([parentId])
   @@map("categories")
 }
 
