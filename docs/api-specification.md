@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.31.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.32.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -544,6 +544,7 @@ Response `200`:
   "manufacturerAddress": "12, Industrial Area, Mysuru 570016",
   "countryOfOrigin": "India",
   "category": { "name": "Herbal Supplements", "slug": "herbal-supplements" },
+  "brand": { "name": "Himalaya", "slug": "himalaya" },
   "variants": [
     { "sku": "ASH-CAP-60", "quantity": 60, "unit": "CAPSULES", "mrpRupees": 500, "priceRupees": 400, "inStock": true },
     { "sku": "ASH-CAP-120", "quantity": 120, "unit": "CAPSULES", "mrpRupees": 900, "priceRupees": 800, "inStock": false }
@@ -567,6 +568,7 @@ Response `200`:
 }
 ```
 - **The licence and maker details must be shown on the product's page:** Indian labelling rules want them.
+- `brand`: its brand's name and slug, or `null` for a product without one (since part 15A).
 - `images`: the product's photos, the main one first, in the order staff chose (ADR 0023). There is always at least one. Each has exactly these five fields:
   - `url`: the large file, WebP, at most 1600 pixels on its longest side;
   - `thumbnailUrl`: the small file, at most 400 pixels;
@@ -1555,6 +1557,83 @@ Errors:
 | `409` | `This category still has products. Move them to another category or delete them first.` | The category still has products, live or not. The database refuses the delete. |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
+## Managing brands (staff)
+
+Brands for staff (part 15A). Each product may have one, which the shop shows and reports group sales by. Staff keep the list, so a brand is spelled one way only. These endpoints need a **staff** access token: an Admin's or a Super User's. **Deleting is for Super Users only.** Every change is written to the audit log, with the staff member, the client IP and the request ID.
+
+| Endpoint | Purpose |
+|---|---|
+| `GET /v1/staff/brands` | List every brand, with how many products have it |
+| `POST /v1/staff/brands` | Create a brand |
+| `PATCH /v1/staff/brands/:id` | Rename a brand, or change its slug |
+| `DELETE /v1/staff/brands/:id` | Delete a brand no product has (Super Users only) |
+
+A brand, as these endpoints return it:
+```json
+{
+  "id": "3f6c1a2e-9b4d-4c7e-8a15-6d2f0e9b7c41",
+  "name": "Himalaya",
+  "slug": "himalaya",
+  "createdAt": "2026-11-23T09:15:00.000Z",
+  "updatedAt": "2026-11-23T09:15:00.000Z"
+}
+```
+
+The rules for each field:
+
+| Field | Rules |
+|---|---|
+| `name` | 1 to 60 characters, trimmed |
+| `slug` | As for categories: lowercase letters `a`–`z`, digits and single hyphens, at most 60, unique among brands. Made from the name if not sent, so `Himalaya` and `HIMALAYA` can't both exist. |
+
+### GET `/v1/staff/brands`
+
+Every brand, by name. No paging: a shop has only a few.
+
+Response `200`: `{ "brands": [...] }`, each in the form above with `productCount`, how many products have it, drafts too. A brand can be deleted only at `0`.
+
+Errors: `401` (see "Authentication errors on protected endpoints"), also for a customer access token; `429` (the 600 per minute limit).
+
+### POST `/v1/staff/brands`
+
+Creates a brand: `{ "name": "Himalaya" }`. Without a `slug`, it is made from the name, as for categories; a name without Latin letters or digits needs one. Any other field is ignored.
+
+Response `201`: the brand.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed` | A missing or invalid field, each named in `errors` |
+| `401` | see above | No staff access token, or a customer's |
+| `409` | `Another brand already has this slug. Choose a different one.` | The slug, sent or made from the name, is taken |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
+### PATCH `/v1/staff/brands/:id`
+
+Renames a brand, or changes its slug. **Renaming keeps the slug,** so links to the shop filtered by the brand keep working. Sending the values the brand already has changes nothing, answers `200` too, and writes no audit entry.
+
+Response `200`: the brand, as it is now.
+
+Errors: `400` (the ID is not a UUID, an invalid field, or `Nothing to change`); `401`; `404 Brand not found`; `409 Another brand already has this slug. Choose a different one.`; `429`.
+
+### DELETE `/v1/staff/brands/:id`
+
+Deletes a brand for good. **Super Users only.** The audit log keeps what was deleted.
+
+Response `204 No Content`.
+
+Errors:
+
+| Status | Body | When |
+|---|---|---|
+| `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
+| `401` | see above | No staff access token, or a customer's |
+| `403` | `Only a Super User may do this.` | Called by an Admin |
+| `404` | `Brand not found` | No brand with this ID, also when it was just deleted |
+| `409` | `This brand still has products. Choose another brand for them, or none, first.` | A product, live or not, still has it. The database refuses the delete. |
+| `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
+
 ## Managing products (staff)
 
 Products for staff (ADR 0021). These endpoints need a **staff** access token: an Admin's or a Super User's. **Deleting is for Super Users only.** Every change is written to the audit log, with the staff member, the client IP and the request ID.
@@ -1573,6 +1652,7 @@ A product, as these endpoints return it:
 {
   "id": "3f2b8c1d-5e6a-4b7c-8d9e-0f1a2b3c4d5e",
   "categoryId": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+  "brandId": "3f6c1a2e-9b4d-4c7e-8a15-6d2f0e9b7c41",
   "name": "Ashwagandha Capsules",
   "slug": "ashwagandha-capsules",
   "summary": "For calm and strength",
@@ -1598,6 +1678,7 @@ The rules for each field:
 | Field | Rules |
 |---|---|
 | `categoryId` | The ID of an existing category. Required to create. |
+| `brandId` | Optional: the ID of an existing brand (since part 15A). `null` takes the brand away. Going live doesn't need one. |
 | `name` | 1 to 100 characters, trimmed. Required to create. |
 | `slug` | As for categories: lowercase letters `a`–`z`, digits and single hyphens, at most 60, unique among products. Made from the name if not sent. |
 | `summary` | Optional, up to 160 characters: one line for list pages |
@@ -1647,6 +1728,7 @@ Query parameters, all optional:
 | `limit` | Whole number, 1 to 100, default 50 | Products per page |
 | `after` | UUID | The `nextAfter` of the previous page: continue just after it |
 | `categoryId` | UUID | Only this category's products |
+| `brandId` | UUID | Only this brand's products (since part 15A) |
 | `isActive` | `true` or `false` | Only live products, or only drafts |
 | `q` | 2 to 100 characters | Search by name (since part 12B, ADR 0032) |
 
@@ -1655,7 +1737,7 @@ Response `200`: `{ "products": [...], "nextAfter": "<id>" }`, each product in th
 **Searching by name** (`q`), for the admin console's product list:
 - **Only the name is searched,** with the shop's matching (ADR 0030): a part of a word or a typo still finds a product. `ashwa` finds "Ashwagandha Capsules", and so does `ashwaganda`.
 - **The closest names come first, all on one page** of up to `limit`, so `nextAfter` is always `null`. Sending `after` with `q` is refused: narrow the words instead.
-- It combines with `categoryId` and `isActive`.
+- It combines with `categoryId`, `brandId` and `isActive`.
 - Spaces at the ends are dropped and each run of spaces counts as one. An empty `q` means no search.
 - The words are a bound parameter in the query, never part of the SQL.
 
@@ -1684,7 +1766,7 @@ Errors:
 
 | Status | Body | When |
 |---|---|---|
-| `400` | `Validation failed` | A missing or invalid field, `"isActive": true` (a new product has no image), or a `categoryId` with no category behind it (`No category with this ID`) |
+| `400` | `Validation failed` | A missing or invalid field, `"isActive": true` (a new product has no image), or a `categoryId` with no category behind it (`No category with this ID`), or a `brandId` with no brand behind it (`No brand with this ID`) |
 | `401` | see "Authentication errors on protected endpoints" | No staff access token, or a customer's |
 | `409` | `Another product already has this slug. Choose a different one.` | The slug, sent or made from the name, is taken |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
@@ -1694,6 +1776,7 @@ Errors:
 Changes a product. Send only the fields that change:
 - `{ "isActive": false }` takes it out of the shop;
 - `{ "categoryId": "..." }` moves it to another category.
+- `{ "brandId": "..." }` gives it a brand, and `{ "brandId": null }` takes it away.
 
 **Renaming keeps the slug.** Sending the values the product already has changes nothing, answers `200` too, and writes no audit entry.
 
@@ -1704,7 +1787,7 @@ Errors:
 | Status | Body | When |
 |---|---|---|
 | `400` | `Validation failed (uuid is expected)` | The ID is not a UUID |
-| `400` | `Validation failed` | An invalid field, an empty change (`Nothing to change`), the going-live rules above, or a category that doesn't exist |
+| `400` | `Validation failed` | An invalid field, an empty change (`Nothing to change`), the going-live rules above, or a category or brand that doesn't exist |
 | `401` | see above | No staff access token, or a customer's |
 | `404` | `Product not found` | No product with this ID |
 | `409` | `Another product already has this slug. Choose a different one.` | The new slug is taken |

@@ -12,6 +12,7 @@ import { ProductsService } from './products.service';
 
 const ID = '3f2b8c1d-5e6a-4b7c-8d9e-0f1a2b3c4d5e';
 const CATEGORY = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+const BRAND = '3f6c1a2e-9b4d-4c7e-8a15-6d2f0e9b7c41';
 const BASE = 'http://127.0.0.1:3000/media';
 const KEY = 'b1c2d3e4-5f60-4a7b-8c9d-0e1f2a3b4c5d';
 const OTHER_KEY = 'c2d3e4f5-6071-4b8c-9d0e-1f2a3b4c5d6e';
@@ -25,6 +26,7 @@ const context = {
 // What staff set, as a draft without the details.
 const draftFields = {
   categoryId: CATEGORY,
+  brandId: null,
   name: 'Ashwagandha Capsules',
   slug: 'ashwagandha-capsules',
   summary: null,
@@ -660,6 +662,7 @@ describe('ProductsService.findForShop', () => {
       category: { isActive: true },
     });
     expect(Object.keys(query.select).sort()).toEqual([
+      'brand',
       'category',
       'countryOfOrigin',
       'description',
@@ -676,6 +679,8 @@ describe('ProductsService.findForShop', () => {
       'variants',
     ]);
     expect(query.select.category).toEqual({ select: { name: true, slug: true } });
+    // Its brand by name and slug, null when it has none (part 15A).
+    expect(query.select.brand).toEqual({ select: { name: true, slug: true } });
     // Only the packs on sale. The ID is read only to ask about stock.
     expect(query.select.variants).toEqual({
       where: { isActive: true },
@@ -823,8 +828,19 @@ describe('ProductsService.list with search words', () => {
     // By the name only, best match first, unlike the shop's search.
     expect(sql).not.toMatch(/summary|description|ingredients/);
     expect(sql).toMatch(/ORDER BY word_similarity\(\?, p\."name"\) DESC/);
-    // Every value is bound: the words, no category, any status, the limit.
-    expect(values).toEqual(['ashwa', null, null, null, null, 'ashwa', 50]);
+    // Every value is bound: the words, no category, no brand, any status,
+    // the limit.
+    expect(values).toEqual([
+      'ashwa',
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      'ashwa',
+      50,
+    ]);
     expect(sql).not.toContain('ashwa');
     const [query] = prisma.product.findMany.mock.calls[0] as [
       { where: object },
@@ -832,20 +848,25 @@ describe('ProductsService.list with search words', () => {
     expect(query.where).toEqual({ id: { in: [SECOND, ID] } });
   });
 
-  it('keeps the category and status filters, as bound values', async () => {
+  it('keeps the category, brand and status filters, as bound values', async () => {
     const { service, prisma } = setup();
 
     await service.list({
       q: 'tulsi',
       limit: 10,
       categoryId: CATEGORY,
+      brandId: BRAND,
       isActive: false,
     });
 
-    expect(rawCall(prisma.$queryRaw).values).toEqual([
+    const { sql, values } = rawCall(prisma.$queryRaw);
+    expect(sql).toContain('p."brandId" = ?::uuid');
+    expect(values).toEqual([
       'tulsi',
       CATEGORY,
       CATEGORY,
+      BRAND,
+      BRAND,
       false,
       false,
       'tulsi',
@@ -975,5 +996,144 @@ describe('ProductsService.reorder', () => {
       errors: [{ field: 'categoryId', message: 'No category with this ID' }],
     });
     expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+  });
+});
+
+// Part 15A: a product may have a brand from the list, or none.
+describe('ProductsService brands', () => {
+  const brandCheck = /FROM brands WHERE id = \?::uuid FOR KEY SHARE/;
+
+  it('filters the staff list by brand', async () => {
+    const { service, prisma } = setup([stored()]);
+
+    await service.list({ limit: 50, brandId: BRAND });
+
+    expect(prisma.product.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { categoryId: undefined, brandId: BRAND, isActive: undefined },
+      }),
+    );
+  });
+
+  it('saves a new product with a brand that exists, checked and kept while it is saved', async () => {
+    const { service, tx, audit } = setup();
+    tx.$queryRaw.mockResolvedValue([{ id: BRAND }]);
+    tx.product.create.mockResolvedValue(stored({ brandId: BRAND }));
+    const input = {
+      categoryId: CATEGORY,
+      brandId: BRAND,
+      name: 'Ashwagandha Capsules',
+      slug: 'ashwagandha-capsules',
+    };
+
+    await service.create(input, context);
+
+    const { sql, values } = rawCall(tx.$queryRaw);
+    expect(sql).toMatch(brandCheck);
+    // A parameter, never pasted into the SQL.
+    expect(values).toEqual([BRAND]);
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.product.create.mock.invocationCallOrder[0],
+    );
+    expect(tx.product.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: input }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        after: expect.objectContaining({ brandId: BRAND }) as object,
+      }),
+    );
+  });
+
+  it('answers 400 on brandId for a brand that does not exist, and saves nothing', async () => {
+    const { service, tx, audit } = setup();
+    tx.$queryRaw.mockResolvedValue([]);
+
+    await expect(
+      refusal(
+        service.create(
+          {
+            categoryId: CATEGORY,
+            brandId: BRAND,
+            name: 'Tulsi Tea',
+            slug: 'tulsi-tea',
+          },
+          context,
+        ),
+      ),
+    ).resolves.toEqual({
+      message: 'Validation failed',
+      errors: [{ field: 'brandId', message: 'No brand with this ID' }],
+    });
+    expect(tx.product.create).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('asks nothing about brands for a new product without one', async () => {
+    const { service, tx } = setup();
+
+    await service.create(
+      { categoryId: CATEGORY, name: 'Tulsi Tea', slug: 'tulsi-tea' },
+      context,
+    );
+
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('checks a new brand once the product is locked, then saves and records it', async () => {
+    const { service, tx, audit } = setup();
+
+    await service.update(ID, { brandId: BRAND }, context);
+
+    expect(rawCall(tx.$queryRaw, 0).sql).toMatch(
+      /FROM products WHERE id = \?::uuid FOR UPDATE/,
+    );
+    const { sql, values } = rawCall(tx.$queryRaw, 1);
+    expect(sql).toMatch(brandCheck);
+    expect(values).toEqual([BRAND]);
+    expect(tx.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { brandId: BRAND } }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        before: { brandId: null },
+        after: { brandId: BRAND },
+      }),
+    );
+  });
+
+  it('refuses a change to a brand that does not exist, and saves nothing', async () => {
+    const { service, tx, audit } = setup();
+    tx.$queryRaw.mockResolvedValueOnce([{ id: ID }]).mockResolvedValueOnce([]);
+
+    await expect(
+      refusal(service.update(ID, { brandId: BRAND }, context)),
+    ).resolves.toEqual({
+      message: 'Validation failed',
+      errors: [{ field: 'brandId', message: 'No brand with this ID' }],
+    });
+    expect(tx.product.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
+  it('takes the brand away with null, asking nothing about brands', async () => {
+    const { service, tx, audit } = setup();
+    tx.product.findUniqueOrThrow.mockResolvedValue(stored({ brandId: BRAND }));
+
+    await service.update(ID, { brandId: null }, context);
+
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(tx.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { brandId: null } }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        before: { brandId: BRAND },
+        after: { brandId: null },
+      }),
+    );
   });
 });

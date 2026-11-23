@@ -209,6 +209,22 @@ model Category {
   @@map("categories")
 }
 
+// A brand, such as "Himalaya" (part 15A). Staff keep the list, and each
+// product may have one, which the shop shows and reports group by. Kept
+// once, so reports never count one brand under two spellings.
+model Brand {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  // The brand's part of a web address, such as "himalaya". Unique, so two
+  // brands can never share a name that only differs in case or spacing.
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  products Product[]
+
+  @@map("brands")
+}
+
 // What a product is under Indian law. It decides which licence its page
 // shows: AYUSH for an Ayurvedic medicine, FSSAI for a food or supplement,
 // and a cosmetics licence for a cosmetic.
@@ -221,6 +237,8 @@ enum ProductType {
 model Product {
   id                  String       @id @default(uuid()) @db.Uuid
   categoryId          String       @db.Uuid
+  // Its brand, if it has one (part 15A).
+  brandId             String?      @db.Uuid
   name                String
   // The product's part of a web address, such as "ashwagandha-capsules".
   slug                String       @unique
@@ -251,10 +269,13 @@ model Product {
 
   // A category that still has products cannot be deleted.
   category Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  // A brand that still has products cannot be deleted.
+  brand    Brand?           @relation(fields: [brandId], references: [id], onDelete: Restrict)
   variants ProductVariant[]
   images   ProductImage[]
 
   @@index([categoryId])
+  @@index([brandId])
   // The search (ADR 0030): trigram indexes, so a part of a word, or a word
   // with a typo, in the name, the summary or the description still finds
   // the product.

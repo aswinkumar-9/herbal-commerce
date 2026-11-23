@@ -1,6 +1,7 @@
 import { Reflector } from '@nestjs/core';
 import { STAFF_ONLY } from '../auth/staff-only.decorator';
 import { SUPER_USER_ONLY } from '../auth/super-user-only.decorator';
+import { StaffBrandsController } from '../catalog/staff-brands.controller';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
 import { StaffImagesController } from '../catalog/staff-images.controller';
 import { StaffProductsController } from '../catalog/staff-products.controller';
@@ -24,6 +25,7 @@ describe('staff routes', () => {
       StaffAdminsController,
       StaffAuditLogController,
       StaffCategoriesController,
+      StaffBrandsController,
       StaffProductsController,
       StaffVariantsController,
       StaffImagesController,
@@ -55,11 +57,12 @@ describe('staff routes', () => {
     }
     // Admins manage categories (Part 4A), products (Part 4B), their pack
     // sizes and prices (Part 4C), their images (Part 4D), stock (Part 5),
-    // and orders (Part 9) too.
+    // orders (Part 9) and brands (Part 15A) too.
     for (const controller of [
       StaffAuthController,
       StaffMeController,
       StaffCategoriesController,
+      StaffBrandsController,
       StaffProductsController,
       StaffVariantsController,
       StaffImagesController,
@@ -73,10 +76,12 @@ describe('staff routes', () => {
     }
   });
 
-  // Parts 4A to 4C: of the catalog routes, only deleting is for Super Users.
-  it('let only Super Users delete categories, products and pack sizes', () => {
+  // Parts 4A to 4C, and brands in Part 15A: of the catalog routes, only
+  // deleting is for Super Users.
+  it('let only Super Users delete categories, brands, products and pack sizes', () => {
     for (const controller of [
       StaffCategoriesController,
+      StaffBrandsController,
       StaffProductsController,
       StaffVariantsController,
     ]) {

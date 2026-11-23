@@ -3,6 +3,7 @@ import { AddressesController } from '../addresses/addresses.controller';
 import { CartController } from '../cart/cart.controller';
 import { CategoriesController } from '../catalog/categories.controller';
 import { ProductsController } from '../catalog/products.controller';
+import { StaffBrandsController } from '../catalog/staff-brands.controller';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
 import { StaffImagesController } from '../catalog/staff-images.controller';
 import { StaffStockController } from '../inventory/staff-stock.controller';
@@ -93,6 +94,13 @@ describe('rate-limited routes', () => {
       update: undefined,
       remove: undefined,
       reorder: undefined,
+    });
+    // Brands (part 15A) likewise.
+    expect(routeLimits(StaffBrandsController)).toStrictEqual({
+      list: undefined,
+      create: undefined,
+      update: undefined,
+      remove: undefined,
     });
     expect(routeLimits(CategoriesController)).toStrictEqual({
       list: undefined,

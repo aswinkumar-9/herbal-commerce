@@ -7,6 +7,7 @@ import {
 } from './products.schemas';
 
 const CATEGORY = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+const BRAND = '3f6c1a2e-9b4d-4c7e-8a15-6d2f0e9b7c41';
 const draft = { categoryId: CATEGORY, name: ' Ashwagandha Capsules ' };
 const details = {
   type: 'AYURVEDIC_MEDICINE',
@@ -211,6 +212,45 @@ describe('productUpdateSchema', () => {
     expect(productUpdateSchema.safeParse({ id: 'x' }).success).toBe(false);
     expect(
       productUpdateSchema.safeParse({ categoryId: 'hair-care' }).success,
+    ).toBe(false);
+  });
+});
+
+// Part 15A: a brand from the list, or none.
+describe('a product’s brand', () => {
+  it('is optional on a new product, and given by its ID', () => {
+    expect(productSchema.parse(draft)).not.toHaveProperty('brandId');
+    expect(productSchema.parse({ ...draft, brandId: BRAND }).brandId).toBe(
+      BRAND,
+    );
+    expect(productSchema.parse({ ...draft, brandId: null }).brandId).toBeNull();
+  });
+
+  it('changes by its ID, or goes with null', () => {
+    expect(productUpdateSchema.parse({ brandId: BRAND })).toEqual({
+      brandId: BRAND,
+    });
+    expect(productUpdateSchema.parse({ brandId: null })).toEqual({
+      brandId: null,
+    });
+  });
+
+  it('refuses a brand given by name or slug', () => {
+    expect(refusedFields({ ...draft, brandId: 'himalaya' })).toEqual([
+      'brandId',
+    ]);
+    expect(productUpdateSchema.safeParse({ brandId: 'Himalaya' }).success).toBe(
+      false,
+    );
+  });
+
+  it('filters the staff list by its ID only', () => {
+    expect(productListQuerySchema.parse({ brandId: BRAND })).toEqual({
+      limit: 50,
+      brandId: BRAND,
+    });
+    expect(
+      productListQuerySchema.safeParse({ brandId: 'himalaya' }).success,
     ).toBe(false);
   });
 });

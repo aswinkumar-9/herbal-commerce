@@ -5,6 +5,8 @@ import { GST_RATES, HSN_CODE, productIssues } from './product-rules';
 import { slugSchema as slug, slugify } from './slug';
 
 const categoryId = z.uuid('Choose a category by its ID');
+// A product may have no brand (part 15A): null takes it away.
+const brandId = z.uuid('Choose a brand by its ID').nullable();
 const name = z.string().trim().min(1, 'Name is required').max(100);
 // Optional text: empty, or null in a change, means none.
 const optionalText = (max: number) =>
@@ -66,6 +68,7 @@ const position = z.number().int().min(0).max(9999);
 // Everything but the category, the name and the slug. All optional: a
 // product may be saved as a draft and completed later.
 const details = {
+  brandId: brandId.optional(),
   summary: optionalText(160).optional(),
   description: optionalText(5000).optional(),
   ingredients: optionalText(2000).optional(),
@@ -147,6 +150,7 @@ export const productListQuerySchema = z
     limit: z.coerce.number().int().min(1).max(100).default(50),
     after: z.uuid().optional(),
     categoryId: z.uuid().optional(),
+    brandId: z.uuid().optional(),
     isActive: z
       .enum(['true', 'false'], 'Use true or false')
       .transform((value) => value === 'true')

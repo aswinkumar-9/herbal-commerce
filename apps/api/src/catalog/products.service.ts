@@ -40,10 +40,15 @@ const NO_SUCH_CATEGORY: ProductIssue = {
   field: 'categoryId',
   message: 'No category with this ID',
 };
+const NO_SUCH_BRAND: ProductIssue = {
+  field: 'brandId',
+  message: 'No brand with this ID',
+};
 
 // Everything staff can set: what the audit log keeps of a product.
 const STAFF_FIELDS = [
   'categoryId',
+  'brandId',
   'name',
   'slug',
   'summary',
@@ -64,6 +69,7 @@ const STAFF_FIELDS = [
 const PRODUCT_FIELDS = {
   id: true,
   categoryId: true,
+  brandId: true,
   name: true,
   slug: true,
   summary: true,
@@ -124,6 +130,7 @@ const SHOP_PAGE_FIELDS = {
   manufacturerAddress: true,
   countryOfOrigin: true,
   category: { select: { name: true, slug: true } },
+  brand: { select: { name: true, slug: true } },
   variants: {
     where: { isActive: true },
     orderBy: VARIANT_ORDER,
@@ -192,7 +199,11 @@ export class ProductsService {
     }
     const rows = await this.prisma.product.findMany({
       // A filter left out is undefined, and Prisma ignores it.
-      where: { categoryId: query.categoryId, isActive: query.isActive },
+      where: {
+        categoryId: query.categoryId,
+        brandId: query.brandId,
+        isActive: query.isActive,
+      },
       orderBy: PRODUCT_ORDER,
       // One more than asked for, to know whether another page exists.
       take: query.limit + 1,
@@ -223,6 +234,7 @@ export class ProductsService {
   async create(input: ProductInput, context: AuditContext): Promise<Product> {
     const product = await this.saving(() =>
       this.prisma.$transaction(async (tx) => {
+        await this.brandKept(tx, input.brandId);
         const created = await tx.product.create({
           data: input,
           select: PRODUCT_FIELDS,
@@ -262,6 +274,7 @@ export class ProductsService {
         }
         const before = pick(current, fields);
         const after = pick(input, fields);
+        await this.brandKept(tx, after.brandId);
         // Going live needs an image too. Counted while the product is
         // locked, so an image deleted at the same moment cannot slip by.
         const imageCount = await tx.productImage.count({
@@ -485,7 +498,7 @@ export class ProductsService {
   // category and the status are bound parameters, never part of the SQL.
   private async search(
     words: string,
-    { categoryId, isActive, limit }: ProductListQuery,
+    { categoryId, brandId, isActive, limit }: ProductListQuery,
   ): Promise<ProductPage> {
     const matches = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT p."id"
@@ -493,6 +506,8 @@ export class ProductsService {
        WHERE ${words} <% p."name"
          AND (${categoryId ?? null}::uuid IS NULL
               OR p."categoryId" = ${categoryId ?? null}::uuid)
+         AND (${brandId ?? null}::uuid IS NULL
+              OR p."brandId" = ${brandId ?? null}::uuid)
          AND (${isActive ?? null}::boolean IS NULL
               OR p."isActive" = ${isActive ?? null}::boolean)
        ORDER BY word_similarity(${words}, p."name") DESC, p."name", p."id"
@@ -529,6 +544,23 @@ export class ProductsService {
       where: { id },
       select: PRODUCT_FIELDS,
     });
+  }
+
+  // A product's brand must exist, and stay while the product is saved with
+  // it: KEY SHARE lets other changes to the brand go on, but its deletion
+  // waits. No brand, or none given, needs no check.
+  private async brandKept(
+    tx: Prisma.TransactionClient,
+    brandId: string | null | undefined,
+  ): Promise<void> {
+    if (!brandId) {
+      return;
+    }
+    const found = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM brands WHERE id = ${brandId}::uuid FOR KEY SHARE`;
+    if (found.length === 0) {
+      throw validationFailed([NO_SUCH_BRAND]);
+    }
   }
 
   // A batch that still holds stock is never deleted, and its product with

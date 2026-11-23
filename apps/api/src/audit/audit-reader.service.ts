@@ -29,6 +29,7 @@ const KINDS = {
   orders: [{ action: { startsWith: 'order.' } }],
   catalog: [
     { action: { startsWith: 'category.' } },
+    { action: { startsWith: 'brand.' } },
     { action: { startsWith: 'product.' } },
     { action: { startsWith: 'variant.' } },
     { action: { startsWith: 'image.' } },
@@ -67,7 +68,15 @@ export type AuditLogEntry = AuditLog & {
 };
 
 // The targets whose names are looked up.
-const NAMED = ['category', 'product', 'variant', 'image', 'batch', 'order'];
+const NAMED = [
+  'category',
+  'brand',
+  'product',
+  'variant',
+  'image',
+  'batch',
+  'order',
+];
 
 export interface AuditLogPage {
   entries: AuditLogEntry[];
@@ -168,11 +177,17 @@ export class AuditReaderService {
     }
     const among = (type: string) => ({ id: { in: ids.get(type) ?? [] } });
     const asked = (type: string) => ids.has(type);
-    const [categories, products, variants, images, batches, orders] =
+    const [categories, brands, products, variants, images, batches, orders] =
       await Promise.all([
         asked('category')
           ? this.prisma.category.findMany({
               where: among('category'),
+              select: { id: true, name: true },
+            })
+          : [],
+        asked('brand')
+          ? this.prisma.brand.findMany({
+              where: among('brand'),
               select: { id: true, name: true },
             })
           : [],
@@ -223,6 +238,9 @@ export class AuditReaderService {
     const subjects = new Map<string, AuditSubject>();
     for (const { id, name } of categories) {
       subjects.set(`category:${id}`, { name, parent: null });
+    }
+    for (const { id, name } of brands) {
+      subjects.set(`brand:${id}`, { name, parent: null });
     }
     for (const { id, name } of products) {
       subjects.set(`product:${id}`, { name, parent: null });

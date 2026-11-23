@@ -707,6 +707,24 @@ async function main() {
     'a customer access token cannot list, create, change, reorder or delete categories',
     categoryAnswers.every((status) => status === 401),
   );
+  // Brands (part 15A): staff only, like categories.
+  const brandRoutes = [
+    ['GET', '/v1/staff/brands'],
+    ['POST', '/v1/staff/brands', { name: 'Smoke Brand' }],
+    ['PATCH', `/v1/staff/brands/${anyId}`, { name: 'Smoke Brand' }],
+    ['DELETE', `/v1/staff/brands/${anyId}`],
+  ];
+  const brandAnswers = [];
+  for (const [method, path, json] of brandRoutes) {
+    brandAnswers.push((await call(method, path, { json })).status);
+    brandAnswers.push(
+      (await call(method, path, { json, token: ownerToken })).status,
+    );
+  }
+  check(
+    'brands cannot be listed, created, changed or deleted without a staff token, nor with a customer one',
+    brandAnswers.every((status) => status === 401),
+  );
   // Products (part 4B). The shop is public: a category's page and a product's
   // page. Staff manage products, which is tried by hand with a phone.
   const missingSlug = `no-such-page-${Date.now()}`;
