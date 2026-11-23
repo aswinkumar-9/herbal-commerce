@@ -177,6 +177,28 @@ export async function readOrder(
   );
 }
 
+// Cancelling (part 14D, ADR 0028): the customer's own order, until it ships.
+// Its packs go back on sale at once, and a paid order's payment goes back in
+// full. The answer is the order, now cancelled.
+export const CANCELLABLE: readonly OrderStatus[] = [
+  'PENDING_PAYMENT',
+  'PAID',
+  'PACKED',
+];
+
+export async function cancelOrder(
+  request: Request,
+  context: Context,
+  id: string,
+) {
+  return askAsCustomer(
+    request,
+    context,
+    { method: 'POST', path: `me/orders/${segment(id)}/cancel` },
+    orderSchema,
+  );
+}
+
 // The customer's orders, the newest first, a page at a time (part 14D):
 // each with what is in it at a glance. A page continues after the last
 // order of the one before.

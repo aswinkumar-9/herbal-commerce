@@ -328,6 +328,8 @@ export const text = {
     placing: 'Placing your order',
     hold: 'Placing it holds your packs for 15 minutes while you pay.',
     back: 'Back to your cart',
+    // With 3 orders waiting for payment: where to pay or cancel one (14D).
+    toOrders: 'See your orders',
     backToCheckout: 'Back to checkout',
     problems: {
       empty: 'Your cart is empty, so there is nothing to order.',
@@ -336,7 +338,7 @@ export const text = {
       changed:
         'The total has changed since this page opened. Please check the new total, then place your order again.',
       tooMany:
-        'You have 3 orders waiting for payment. Pay for one first, or wait: an order not paid within 15 minutes ends by itself.',
+        'You have 3 orders waiting for payment. Pay for one or cancel it first, or wait: an order not paid within 15 minutes ends by itself.',
       stock:
         'Some packs ran out while you were here. Please change them in your cart.',
       address: 'That address is no longer saved. Please choose another.',
@@ -376,8 +378,8 @@ export const text = {
     start: 'Back to your newest orders',
     noMore: 'There are no more orders to show.',
   },
-  // One of the customer's orders (part 14C). Its history and cancelling
-  // come with part 14D.
+  // One of the customer's orders (part 14C), with its history and
+  // cancelling (part 14D).
   order: {
     title: (reference: string) => `Order ${reference}`,
     description: 'Your Herbal Commerce order.',
@@ -419,6 +421,31 @@ export const text = {
       copiedFull: 'Copied tracking number',
       saidCopied: 'Tracking number copied.',
       notCopied: 'Could not copy it. Select the number to copy it yourself.',
+    },
+    // Cancelling, until it ships (part 14D): asked once more first.
+    cancel: {
+      heading: 'Cancel this order',
+      intro: {
+        waiting: 'Changed your mind? Cancel it, and its packs go back on sale.',
+        paid: (amount: string) =>
+          `You can cancel it until it ships. Your ${amount} then comes back to you in full.`,
+      },
+      ask: 'Cancel order',
+      title: (reference: string) => `Cancel order ${reference}?`,
+      body: {
+        waiting: 'It will not be sent, and it can no longer be paid for.',
+        paid: (amount: string) =>
+          `It will not be sent, and your ${amount} goes back to you in full.`,
+      },
+      confirm: 'Yes, cancel it',
+      cancelling: 'Cancelling',
+      keep: 'Keep the order',
+      done: 'Your order is cancelled.',
+      problems: {
+        late: 'This order can no longer be cancelled. It may have shipped a moment ago.',
+        resting:
+          'We could not cancel your order just now. Please try again in a minute.',
+      },
     },
     // Paying on Razorpay's own page (ADR 0042).
     pay: {

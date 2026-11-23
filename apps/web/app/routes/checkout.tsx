@@ -174,6 +174,10 @@ export default function CheckoutPage({
             <Link prefetch="intent" to="/cart" className={TEXT_LINK}>
               {words.back}
             </Link>
+          ) : problem === 'tooMany' ? (
+            <Link prefetch="intent" to="/orders" className={TEXT_LINK}>
+              {words.toOrders}
+            </Link>
           ) : null}
         </FormAlert>
       ) : null}

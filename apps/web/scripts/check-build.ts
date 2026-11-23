@@ -207,6 +207,8 @@ const answers: Record<string, unknown> = {
     razorpayOrderId: 'order_RB58MiP5SPFYyM',
   },
   [`/v1/me/orders/${ORDER_ID}/payment/confirm`]: { ...ORDER, status: 'PAID' },
+  // Cancelling it (part 14D).
+  [`/v1/me/orders/${ORDER_ID}/cancel`]: { ...ORDER, status: 'CANCELLED' },
   '/v1/auth/register': { message: 'If this email address can be used…' },
   // Only the privacy policy is published; the rest answer 404.
   '/v1/policies/privacy': {
@@ -597,6 +599,47 @@ async function checkSigningIn(): Promise<void> {
     }
   }
   await checkPaying(session);
+  await checkCancelling(session);
+}
+
+// Cancelling (part 14D): the order's page offers it until the order ships.
+// "Cancel order" asks once more, without asking the API; only "Yes, cancel
+// it" does, and then the order's page says it is cancelled.
+async function checkCancelling(session: string): Promise<void> {
+  const where = 'cancelling:';
+  const path = `/orders/${ORDER_ID}`;
+  const send = (intent: string) =>
+    fetch(`${base}${path}`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { origin: base, cookie: session },
+      body: new URLSearchParams({ intent }),
+    });
+  const cancels = () =>
+    asked.filter((one) => one === `POST /v1/me/orders/${ORDER_ID}/cancel`)
+      .length;
+  const page = await (
+    await fetch(`${base}${path}`, { headers: { cookie: session } })
+  ).text();
+  const question = await send('cancel');
+  const questionHtml = await question.text();
+  const askedFirst = cancels();
+  const done = await send('cancelConfirmed');
+  if (
+    !page.includes('Cancel this order') ||
+    !page.includes('name="intent" value="cancel"') ||
+    question.status !== 200 ||
+    !questionHtml.includes('Cancel order 7KQ2M9XDPA?') ||
+    !questionHtml.includes('name="intent" value="cancelConfirmed"') ||
+    askedFirst !== 0 ||
+    done.status !== 302 ||
+    done.headers.get('location') !== `${path}?done=cancelled` ||
+    cancels() !== 1
+  ) {
+    problems.push(
+      `${where} the order was not cancelled as it should be (${question.status}, ${done.status}, ${cancels()} asked)`,
+    );
+  }
 }
 
 // Paying (part 14C, ADR 0042): the order's page sends a plain form to

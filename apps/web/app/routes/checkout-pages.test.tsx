@@ -163,6 +163,25 @@ describe('the checkout page', () => {
     expect(screen.queryByRole('button', { name: 'Place order' })).toBeNull();
   });
 
+  it('with 3 orders waiting for payment, says to pay for or cancel one, with the way to the orders (part 14D)', async () => {
+    const { user } = openCheckout({
+      answer: { problem: 'tooMany', wait: null, key: null },
+    });
+    await user.click(
+      await screen.findByRole('button', { name: 'Place order' }),
+    );
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent(
+      'You have 3 orders waiting for payment. Pay for one or cancel it first, or wait: an order not paid within 15 minutes ends by itself.',
+    );
+    expect(
+      within(alert).getByRole('link', { name: 'See your orders' }),
+    ).toHaveAttribute('href', '/orders');
+    expect(
+      within(alert).queryByRole('link', { name: 'Back to your cart' }),
+    ).toBeNull();
+  });
+
   it('when refused, says why and the keyboard goes there; not knowing if it went, sends the same key again', async () => {
     const { user } = openCheckout({
       answer: { problem: 'resting', wait: null, key: 'a-key-to-send-again' },

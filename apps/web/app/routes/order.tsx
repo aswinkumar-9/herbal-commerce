@@ -1,6 +1,8 @@
 import { CheckCircle, Circle, Copy, XCircle } from '@phosphor-icons/react';
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Link, data } from 'react-router';
+import type { Ref } from 'react';
+import { Form, Link, data, redirect, useNavigation } from 'react-router';
+import type { ShouldRevalidateFunctionArgs } from 'react-router';
 import {
   askAsCustomer,
   dataOrUnavailable,
@@ -10,11 +12,17 @@ import { phoneShown } from '../address.ts';
 import { getConfig } from '../config.server.ts';
 import { FormAlert, TEXT_LINK } from '../components/FormPage.tsx';
 import { OrderSummary } from '../components/OrderSummary.tsx';
-import { GOLD_PILL_LARGE, OUTLINE_PILL } from '../components/pills.ts';
-import { tooMany } from '../form-checks.server.ts';
+import {
+  DANGER_PILL,
+  GOLD_PILL_LARGE,
+  OUTLINE_PILL,
+} from '../components/pills.ts';
+import { given, tooMany } from '../form-checks.server.ts';
 import {
   API_HOLD_OVER,
+  CANCELLABLE,
   UUID,
+  cancelOrder,
   historyOf,
   readOrder,
   startPayment,
@@ -33,7 +41,7 @@ import type { Route } from './+types/order';
 // with the courier and tracking number once shipped (part 14D), what was
 // ordered at what price, where it goes, and any money going back. Only its
 // own customer sees it; anyone else's is "not found", like one that doesn't
-// exist. Cancelling comes later in 14D.
+// exist. Until it ships, it can be cancelled, once asked (part 14D).
 const words = text.order;
 
 type Returned = keyof typeof words.returned;
@@ -92,10 +100,15 @@ export async function loader({ request, context, params }: Route.LoaderArgs) {
     }
   }
   // Back from Razorpay's page: said only while the order still waits.
-  const returned = new URL(request.url).searchParams.get('payment');
+  const asked = new URL(request.url).searchParams;
+  const returned = asked.get('payment');
   return {
     order,
     history: historyOf(order),
+    // Not once the time to pay is over: that order is ending by itself.
+    canCancel: CANCELLABLE.includes(order.status) && payProblem !== 'over',
+    // Just cancelled here.
+    done: order.status === 'CANCELLED' && asked.get('done') === 'cancelled',
     holdUntil: timeInIndia(order.holdExpiresAt),
     pay,
     payProblem,
@@ -110,6 +123,61 @@ export async function loader({ request, context, params }: Route.LoaderArgs) {
   };
 }
 
+// Cancelling: "Cancel order" asks once more; only "Yes, cancel it" asks the
+// API. Then the order's page, saying it is cancelled.
+type CancelOutcome = {
+  confirming: boolean;
+  problem: 'late' | 'resting' | null;
+  wait: string | null;
+};
+const cancelling = (outcome: Partial<CancelOutcome>, status = 200) =>
+  data<CancelOutcome>(
+    { confirming: false, problem: null, wait: null, ...outcome },
+    { status },
+  );
+
+export async function action({ request, context, params }: Route.ActionArgs) {
+  if (!UUID.test(params.id)) {
+    throw data(null, { status: 404 });
+  }
+  const form = await request.formData();
+  switch (given(form, 'intent')) {
+    case 'cancel':
+      return cancelling({ confirming: true });
+    case 'cancelConfirmed': {
+      const answer = await cancelOrder(request, context, params.id);
+      if (answer.ok) {
+        throw redirect(`/orders/${params.id}?done=cancelled`);
+      }
+      if (answer.status === 404) {
+        throw data(null, { status: 404 });
+      }
+      // Shipped a moment ago, or cancelled or ended already.
+      if (answer.status === 409) {
+        return cancelling({ problem: 'late' }, 409);
+      }
+      return answer.status === 429
+        ? cancelling(
+            { problem: 'resting', wait: tooMany(answer.retryAfter) },
+            429,
+          )
+        : cancelling({ problem: 'resting' }, 503);
+    }
+    default:
+      return cancelling({}, 400);
+  }
+}
+
+// After cancelling, even refused, the page asks again: React Router
+// otherwise keeps what it had after a refusal (4xx), and the page would
+// still offer to cancel an order that has just shipped.
+export function shouldRevalidate({
+  actionStatus,
+  defaultShouldRevalidate,
+}: ShouldRevalidateFunctionArgs) {
+  return actionStatus === undefined ? defaultShouldRevalidate : true;
+}
+
 export const meta: Route.MetaFunction = ({ loaderData }) =>
   loaderData
     ? pageMeta({
@@ -121,18 +189,43 @@ export const meta: Route.MetaFunction = ({ loaderData }) =>
       })
     : [];
 
-export default function OrderPage({ loaderData }: Route.ComponentProps) {
-  const { order, history, holdUntil, pay, payProblem, payWait, returned } =
-    loaderData;
+export default function OrderPage({
+  loaderData,
+  actionData,
+}: Route.ComponentProps) {
+  const {
+    order,
+    history,
+    holdUntil,
+    pay,
+    payProblem,
+    payWait,
+    returned,
+    canCancel,
+    done,
+  } = loaderData;
   const { delivery } = order;
   const over = payProblem === 'over';
+  const outcome: CancelOutcome | undefined = actionData;
+  const confirming = (outcome?.confirming ?? false) && canCancel;
 
-  // Back from Razorpay's page: the keyboard starts at what happened.
+  // Back from Razorpay's page, or just cancelled: the keyboard starts at
+  // what happened.
   const alert = useRef<HTMLDivElement>(null);
   const status = useRef<HTMLOutputElement>(null);
   useEffect(() => {
     (alert.current ?? status.current)?.focus();
-  }, [returned]);
+  }, [returned, done]);
+  // Asked once more, the keyboard goes to the question; refused, to why.
+  const question = useRef<HTMLHeadingElement>(null);
+  const refused = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (outcome?.problem) {
+      refused.current?.focus();
+    } else if (confirming) {
+      question.current?.focus();
+    }
+  }, [outcome, confirming]);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 pt-32 pb-24">
@@ -147,6 +240,26 @@ export default function OrderPage({ loaderData }: Route.ComponentProps) {
         </h1>
         <p className="body-6 text-ink-muted">{words.reference}</p>
       </header>
+
+      {outcome?.problem ? (
+        <FormAlert alertRef={refused}>
+          <p className="body-4 text-ink">
+            {outcome.wait ?? words.cancel.problems[outcome.problem]}
+          </p>
+        </FormAlert>
+      ) : null}
+      {confirming ? (
+        <CancelQuestion order={order} questionRef={question} />
+      ) : null}
+      {done ? (
+        <output
+          ref={status}
+          tabIndex={-1}
+          className="body-4 block rounded-3xl bg-surface p-6 text-ink outline-none"
+        >
+          {words.cancel.done}
+        </output>
+      ) : null}
 
       {returned === 'failed' || returned === 'unverified' ? (
         <FormAlert alertRef={alert}>
@@ -170,7 +283,8 @@ export default function OrderPage({ loaderData }: Route.ComponentProps) {
               ? words.pay.over
               : words.status.PENDING_PAYMENT(holdUntil)}
         </p>
-        {pay ? <PayForm {...pay} /> : null}
+        {/* While asked whether to cancel, paying waits for the answer. */}
+        {pay && !confirming ? <PayForm {...pay} /> : null}
         {over ? (
           <Link to="/shop" prefetch="intent" className={OUTLINE_PILL}>
             {words.pay.shop}
@@ -219,7 +333,99 @@ export default function OrderPage({ loaderData }: Route.ComponentProps) {
           {text.checkout.address.phone(phoneShown(delivery.phone))}
         </address>
       </section>
+      {canCancel && !confirming ? <CancelSection order={order} /> : null}
     </div>
+  );
+}
+
+// Paid and not yet shipped: cancelling gives the payment back in full.
+const paidFor = (order: Order): boolean =>
+  order.status === 'PAID' || order.status === 'PACKED';
+
+// The way to cancel, at the foot of the page, out of the way of paying.
+function CancelSection({ order }: { order: Order }) {
+  const said = words.cancel;
+  return (
+    <section
+      aria-labelledby="cancel-heading"
+      className="flex flex-col items-start gap-4 rounded-3xl bg-surface p-6"
+    >
+      <h2 id="cancel-heading" className="title-1 text-ink">
+        {said.heading}
+      </h2>
+      <p className="body-6 text-ink-muted">
+        {paidFor(order)
+          ? said.intro.paid(rupees(order.totalRupees))
+          : said.intro.waiting}
+      </p>
+      <Form method="post" replace>
+        <input type="hidden" name="intent" value="cancel" />
+        <button type="submit" className={OUTLINE_PILL}>
+          {said.ask}
+        </button>
+      </Form>
+    </section>
+  );
+}
+
+// Asked once more, at the top of the page: what cancelling does, then
+// "Yes, cancel it", or keep the order. Once sent, a second press waits.
+function CancelQuestion({
+  order,
+  questionRef,
+}: {
+  order: Order;
+  questionRef: Ref<HTMLHeadingElement>;
+}) {
+  const said = words.cancel;
+  const navigation = useNavigation();
+  const sending =
+    navigation.state !== 'idle' &&
+    navigation.formData?.get('intent') === 'cancelConfirmed';
+  return (
+    <section
+      aria-labelledby="cancel-title"
+      className="flex flex-col gap-6 rounded-3xl bg-surface p-8"
+    >
+      <h2
+        id="cancel-title"
+        ref={questionRef}
+        tabIndex={-1}
+        className="heading-6 text-ink outline-none"
+      >
+        {said.title(order.reference)}
+      </h2>
+      <p className="body-3 text-ink">
+        {paidFor(order)
+          ? said.body.paid(rupees(order.totalRupees))
+          : said.body.waiting}
+      </p>
+      <div className="flex flex-wrap gap-3">
+        <Form method="post" replace>
+          <input type="hidden" name="intent" value="cancelConfirmed" />
+          <button
+            type="submit"
+            aria-disabled={sending || undefined}
+            onClick={(event) => {
+              if (sending) {
+                event.preventDefault();
+              }
+            }}
+            className={`${DANGER_PILL} aria-disabled:opacity-80`}
+          >
+            {sending ? `${said.cancelling}…` : said.confirm}
+          </button>
+        </Form>
+        <Link
+          prefetch="intent"
+          to={`/orders/${order.id}`}
+          replace
+          className={OUTLINE_PILL}
+        >
+          {said.keep}
+        </Link>
+      </div>
+    </section>
   );
 }
 
