@@ -13,6 +13,7 @@ import { phoneShown } from '../address.ts';
 import type { Address } from '../address.ts';
 import { segment } from '../api.server.ts';
 import { getConfig } from '../config.server.ts';
+import { BusyButton as Busy } from '../components/BusyButton.tsx';
 import { TextField } from '../components/FormField.tsx';
 import { FormAlert } from '../components/FormPage.tsx';
 import { OUTLINE_PILL, PILL } from '../components/pills.ts';
@@ -392,38 +393,5 @@ function AddressCard({ address, busy }: { address: Address; busy: boolean }) {
         )}
       </div>
     </li>
-  );
-}
-
-// A form's button: while its form is on its way it says so, and a second
-// click waits rather than sending it twice.
-function Busy({
-  busy,
-  label,
-  busyLabel,
-  className,
-  fullLabel,
-}: {
-  busy: boolean;
-  label: string;
-  busyLabel: string;
-  className: string;
-  // What it is read out as, when more than its words.
-  fullLabel?: string;
-}) {
-  return (
-    <button
-      type="submit"
-      aria-label={busy ? undefined : fullLabel}
-      aria-disabled={busy || undefined}
-      onClick={(event) => {
-        if (busy) {
-          event.preventDefault();
-        }
-      }}
-      className={`${className} aria-disabled:opacity-80`}
-    >
-      {busy ? `${busyLabel}…` : label}
-    </button>
   );
 }

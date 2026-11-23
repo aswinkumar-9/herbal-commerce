@@ -11,16 +11,51 @@ export const SITE_LINKS = [
   { to: '/shop', label: text.nav.shop },
 ] as const;
 
-// Then the customer's own place: their account once signed in, else the
-// way to sign in. The root's loader says which (root.tsx).
-function useSiteLinks(): readonly { to: string; label: string }[] {
-  const root = useRouteLoaderData<{ signedIn: boolean }>('root');
-  return [
-    ...SITE_LINKS,
-    root?.signedIn
-      ? { to: '/account', label: text.nav.account }
-      : { to: '/sign-in', label: text.nav.signIn },
-  ];
+type SiteLink = {
+  to: string;
+  label: string;
+  // How many packs the cart holds, shown beside "Cart".
+  count?: number | undefined;
+};
+
+// Then the customer's own places: their cart, with what it holds, and
+// their account, once signed in; else the way to sign in. The root's
+// loader says which (root.tsx).
+function useSiteLinks(): readonly SiteLink[] {
+  const root = useRouteLoaderData<{
+    signedIn: boolean;
+    cartPacks: number | null;
+  }>('root');
+  return root?.signedIn
+    ? [
+        ...SITE_LINKS,
+        // No count while it is empty, or the API can't say.
+        {
+          to: '/cart',
+          label: text.nav.cart,
+          count: root.cartPacks || undefined,
+        },
+        { to: '/account', label: text.nav.account },
+      ]
+    : [...SITE_LINKS, { to: '/sign-in', label: text.nav.signIn }];
+}
+
+// A link's words, and for the cart how many packs it holds: read out as
+// "Cart, 3 packs", starting with what it shows.
+function LinkWords({ link }: { link: SiteLink }) {
+  return link.count === undefined ? (
+    link.label
+  ) : (
+    <>
+      <span aria-hidden="true" className="flex items-center gap-2">
+        {link.label}
+        <span className="caption-3 rounded-full bg-gold px-2 py-0.5 text-on-gold">
+          {link.count}
+        </span>
+      </span>
+      <span className="sr-only">{text.nav.cartHolding(link.count)}</span>
+    </>
+  );
 }
 
 const WIDE = '(min-width: 64rem)';
@@ -137,7 +172,7 @@ export function SiteHeader({
                   to={link.to}
                   className="body-5 block rounded-full px-3 py-2 text-ink transition-colors hover:bg-primary-soft hover:text-primary aria-[current=page]:bg-primary-soft aria-[current=page]:text-primary"
                 >
-                  {link.label}
+                  <LinkWords link={link} />
                 </NavLink>
               </li>
             ))}
@@ -185,7 +220,7 @@ export function SiteHeader({
                   onClick={() => onMenuChange(false)}
                   className="heading-5 block rounded-2xl py-2 text-ink aria-[current=page]:text-primary"
                 >
-                  {link.label}
+                  <LinkWords link={link} />
                 </NavLink>
               </li>
             ))}

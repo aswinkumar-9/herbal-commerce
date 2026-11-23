@@ -1,4 +1,11 @@
-import { act, render, screen, waitFor, within } from '@testing-library/react';
+import {
+  act,
+  cleanup,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import {
   Form,
@@ -54,12 +61,12 @@ const toggle = () => screen.getByRole('button', { name: 'Menu' });
 const panel = () => document.getElementById('menu') as HTMLElement;
 
 // A page under the root, whose loader says whether someone is signed in.
-function openAs(signedIn: boolean) {
+function openAs(signedIn: boolean, cartPacks: number | null = null) {
   const Stub = createRoutesStub([
     {
       id: 'root',
       path: '/',
-      loader: () => ({ signedIn }),
+      loader: () => ({ signedIn, cartPacks }),
       Component: Page,
     },
   ]);
@@ -89,6 +96,48 @@ describe('the customer’s place in the menu', () => {
     ).toHaveLength(2);
     expect(
       screen.queryByRole('link', { name: 'Sign in', hidden: true }),
+    ).toBeNull();
+  });
+});
+
+describe('the cart in the menu', () => {
+  it('is there once signed in, with how many packs it holds, read out', async () => {
+    openAs(true, 3);
+    const bar = await screen.findByRole('navigation', { name: 'Main' });
+    const cart = within(bar).getByRole('link', { name: 'Cart, 3 packs' });
+    expect(cart).toHaveAttribute('href', '/cart');
+    expect(cart).toHaveTextContent('3');
+    expect(
+      screen.getAllByRole('link', { name: 'Cart, 3 packs', hidden: true }),
+    ).toHaveLength(2);
+  });
+
+  it('says one pack as one', async () => {
+    openAs(true, 1);
+    expect(
+      await screen.findAllByRole('link', {
+        name: 'Cart, 1 pack',
+        hidden: true,
+      }),
+    ).toHaveLength(2);
+  });
+
+  it('shows no number while it is empty, or the API can’t say', async () => {
+    for (const packs of [0, null]) {
+      openAs(true, packs);
+      const bar = await screen.findByRole('navigation', { name: 'Main' });
+      expect(within(bar).getByRole('link', { name: 'Cart' })).toHaveTextContent(
+        /^Cart$/,
+      );
+      cleanup();
+    }
+  });
+
+  it('is not there for a visitor: the cart is for signed-in customers', async () => {
+    openAs(false);
+    await screen.findByRole('navigation', { name: 'Main' });
+    expect(
+      screen.queryByRole('link', { name: /^Cart/, hidden: true }),
     ).toBeNull();
   });
 });

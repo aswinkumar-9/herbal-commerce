@@ -1,9 +1,9 @@
 import { screen, waitFor } from '@testing-library/react';
-import { RouterContextProvider, data } from 'react-router';
-import { describe, expect, it } from 'vitest';
+import { data } from 'react-router';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { renderPage } from './test/render.tsx';
 import { ErrorBoundary, links, loader as rootLoader } from './root.tsx';
-import { SessionHandle, sessionContext } from './session.server.ts';
+import { answer, contextWith } from './test/route-calls.ts';
 import NotFound, { loader as notFoundLoader } from './routes/not-found.tsx';
 
 const failingWith = (status: number) => () => {
@@ -11,30 +11,73 @@ const failingWith = (status: number) => () => {
 };
 
 describe('what every page knows', () => {
-  it('is only whether a customer is signed in, never their session', () => {
-    const asked = (signedIn: boolean) => {
-      const context = new RouterContextProvider();
-      context.set(
-        sessionContext,
-        new SessionHandle(
-          signedIn
-            ? {
-                accessToken: 'access.jwt.one',
-                refreshToken: 'refresh-token-one-0123456789',
-                accessEndsAt: Date.now() + 60_000,
-                endsAt: Date.now() + 86_400_000,
-              }
-            : null,
-        ),
-      );
-      return rootLoader({
-        context,
-        request: new Request('http://localhost:3001/'),
-        params: {},
-      } as never);
-    };
-    expect(asked(true)).toEqual({ signedIn: true });
-    expect(asked(false)).toEqual({ signedIn: false });
+  const SESSION = {
+    accessToken: 'access.jwt.one',
+    refreshToken: 'refresh-token-one-0123456789',
+    accessEndsAt: Date.now() + 60_000,
+    endsAt: Date.now() + 86_400_000,
+  };
+  const asked = (signedIn: boolean) =>
+    rootLoader({
+      context: contextWith(signedIn ? SESSION : null).context,
+      request: new Request('http://localhost:3001/'),
+      params: {},
+    } as never);
+  const fetchMock = vi.fn<typeof fetch>();
+  beforeEach(() => vi.stubGlobal('fetch', fetchMock));
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    fetchMock.mockReset();
+  });
+
+  it('is only whether a customer is signed in, and how many packs their cart holds: never their session', async () => {
+    fetchMock.mockResolvedValue(
+      answer(200, {
+        items: [
+          {
+            product: { name: 'Tulsi Tea', slug: 'tulsi-tea', imageUrl: null },
+            sku: 'TUL-TEA-100',
+            quantity: 100,
+            unit: 'G',
+            mrpRupees: 250,
+            priceRupees: 220,
+            packs: 2,
+            lineTotalRupees: 440,
+            status: 'AVAILABLE',
+          },
+          {
+            product: { name: 'Neem Soap', slug: 'neem-soap', imageUrl: null },
+            sku: 'NEM-SOP-1',
+            quantity: 1,
+            unit: 'PIECES',
+            mrpRupees: 90,
+            priceRupees: 90,
+            packs: 1,
+            lineTotalRupees: 90,
+            status: 'OUT_OF_STOCK',
+          },
+        ],
+        packs: 2,
+        subtotalRupees: 440,
+        mrpTotalRupees: 500,
+      }),
+    );
+    expect(await asked(true)).toEqual({ signedIn: true, cartPacks: 3 });
+    const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
+    expect(String(url)).toBe('http://127.0.0.1:3000/v1/me/cart');
+    expect(new Headers(init.headers).get('authorization')).toBe(
+      'Bearer access.jwt.one',
+    );
+  });
+
+  it('asks nothing for a visitor', async () => {
+    expect(await asked(false)).toEqual({ signedIn: false, cartPacks: null });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('never turns a page away when the cart can’t be read', async () => {
+    fetchMock.mockResolvedValue(answer(503, { message: 'Server busy' }));
+    expect(await asked(true)).toEqual({ signedIn: true, cartPacks: null });
   });
 });
 

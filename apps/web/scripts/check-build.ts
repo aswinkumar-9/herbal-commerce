@@ -111,6 +111,25 @@ const answers: Record<string, unknown> = {
       },
     ],
   },
+  // Their cart: one line, two packs (part 14C).
+  '/v1/me/cart': {
+    items: [
+      {
+        product: { name: 'Tulsi Tea', slug: 'tulsi-tea', imageUrl: null },
+        sku: 'TUL-TEA-100',
+        quantity: 100,
+        unit: 'G',
+        mrpRupees: 250,
+        priceRupees: 220,
+        packs: 2,
+        lineTotalRupees: 440,
+        status: 'AVAILABLE',
+      },
+    ],
+    packs: 2,
+    subtotalRupees: 440,
+    mrpTotalRupees: 500,
+  },
   '/v1/auth/register': { message: 'If this email address can be used…' },
   // Only the privacy policy is published; the rest answer 404.
   '/v1/policies/privacy': {
@@ -392,6 +411,8 @@ async function checkSigningIn(): Promise<void> {
     account.status !== 200 ||
     !html.includes('Asha Verma') ||
     !html.includes('12 MG Road') ||
+    // The menu says how many packs the cart holds.
+    !html.includes('Cart, 2 packs') ||
     html.includes('stand.in.access-token') ||
     html.includes('stand-in-refresh-token') ||
     account.headers.get('cache-control') !== 'private, no-store'
@@ -400,9 +421,10 @@ async function checkSigningIn(): Promise<void> {
       `${where} the account page did not open as it should (${account.status})`,
     );
   }
-  // The account's own pages: a visitor signs in first and comes back; the
-  // customer's open, kept by no cache, without a token.
+  // The account's own pages, and the cart: a visitor signs in first and
+  // comes back; the customer's open, kept by no cache, without a token.
   for (const path of [
+    '/cart',
     '/account/password',
     '/account/addresses/new',
     `/account/addresses/${ADDRESS_ID}`,

@@ -17,6 +17,10 @@ export const text = {
     shop: 'Shop',
     signIn: 'Sign in',
     account: 'Account',
+    cart: 'Cart',
+    // The menu's cart, read out with what it holds (part 14C).
+    cartHolding: (packs: number) =>
+      packs === 1 ? 'Cart, 1 pack' : `Cart, ${packs} packs`,
   },
   theme: {
     label: 'Theme',
@@ -247,6 +251,52 @@ export const text = {
     minutes: (count: number) => (count === 1 ? '1 minute' : `${count} minutes`),
     seconds: (count: number) => (count === 1 ? '1 second' : `${count} seconds`),
   },
+  // The cart (part 14C, ADR 0042): today's prices, and whether each line
+  // can be bought now. Delivery and the order's total come at checkout.
+  cart: {
+    title: 'Your cart',
+    description: 'The herbs in your Herbal Commerce cart.',
+    empty: 'Your cart is empty.',
+    emptyHint: 'Choose a pack size on any product page to add it here.',
+    browse: 'See all products',
+    lines: 'In your cart',
+    each: (price: string) => `${price} each`,
+    packs: (count: number) => (count === 1 ? '1 pack' : `${count} packs`),
+    // What each line's buttons are read out as: their sign or word, then
+    // which line.
+    fewer: (which: string) => `One pack fewer, ${which}`,
+    more: (which: string) => `One pack more, ${which}`,
+    remove: 'Remove',
+    removeFor: (which: string) => `Remove, ${which}`,
+    removing: 'Removing',
+    status: {
+      OUT_OF_STOCK: 'Out of stock just now, so it is not counted below.',
+      OFF_SALE:
+        'No longer sold, so it is not counted below. You can remove it.',
+    },
+    summary: {
+      heading: 'Summary',
+      packs: (count: number) =>
+        count === 1 ? '1 pack to order' : `${count} packs to order`,
+      mrp: 'At MRP',
+      save: 'You save',
+      subtotal: 'Subtotal',
+      delivery:
+        'Delivery is free on orders of ₹499 or more, and ₹49 below that. Checkout adds it.',
+      gst: 'Prices include GST.',
+    },
+    saved: {
+      packs: (which: string, packs: string) => `${which}: now ${packs}.`,
+      removed: (which: string) => `Removed ${which}.`,
+    },
+    problems: {
+      stock: 'That pack size is out of stock, so no more can be added.',
+      full: 'That is the most for one product: 4 packs, all sizes together.',
+      gone: 'That pack size is no longer sold. You can remove it.',
+      resting:
+        'We could not change your cart just now. Please try again in a minute.',
+    },
+  },
   // Signing in (part 14B, ADR 0041). One answer for a wrong email or
   // password, as the API gives (ADR 0007).
   signIn: {
@@ -254,6 +304,8 @@ export const text = {
     description: 'Sign in to your Herbal Commerce account.',
     intro: 'Welcome back. Sign in to see your account.',
     forPage: 'Sign in to see that page.',
+    // Coming from "Add to cart" on a product page (part 14C).
+    forCart: 'Sign in to add it to your cart. We will add it as you come back.',
     // After a session ended on purpose, said above the form.
     ended: {
       password:
@@ -557,6 +609,28 @@ export const text = {
       none: 'Not on sale yet. Please come back soon.',
       terms:
         'Prices include GST. Delivery is free on orders of ₹499 or more, and ₹49 below that.',
+    },
+    // Choosing a pack size and how many, for the cart (part 14C).
+    add: {
+      howMany: 'How many packs',
+      submit: 'Add to cart',
+      adding: 'Adding',
+      noneInStock:
+        'None of its pack sizes is in stock just now. Please come back soon.',
+      added: (packs: string, pack: string) =>
+        `Added ${packs} of ${pack} to your cart.`,
+      seeCart: 'See your cart',
+      problems: {
+        full: (room: number) =>
+          room === 0
+            ? 'Your cart already holds 4 packs of this product, the most for one product.'
+            : `Your cart already holds ${4 - room} of this product. You can add ${room} more: 4 at most, all sizes together.`,
+        stock:
+          'That pack size has just run out. Please choose another, or come back soon.',
+        gone: 'That pack size is no longer sold. Please choose another.',
+        resting: 'We could not add it just now. Please try again in a minute.',
+        choose: 'Choose a pack size in stock, and how many packs.',
+      },
     },
     // A pack's net quantity, as its label gives it.
     units: {

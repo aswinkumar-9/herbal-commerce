@@ -1,5 +1,6 @@
 import { Form, Link, data, redirect } from 'react-router';
 import { apiSend } from '../api.server.ts';
+import { addAfterSignIn, addIntent } from '../cart.server.ts';
 import { getConfig } from '../config.server.ts';
 import { PasswordField, TextField } from '../components/FormField.tsx';
 import {
@@ -38,8 +39,11 @@ export function loader({ request, context }: Route.LoaderArgs) {
   // Signed out on purpose, from the account: a new password, or every
   // device at once.
   const ended = search.get('ended');
+  const next = asked === null ? null : safeNext(asked);
   return {
-    next: asked === null ? null : safeNext(asked),
+    next,
+    // Coming from "Add to cart": it goes in as they come back.
+    forCart: next !== null && addIntent(next) !== null,
     ended: isEnded(ended) ? ended : null,
     origin: getConfig().origin,
   };
@@ -80,7 +84,10 @@ export async function action({ request, context }: Route.ActionArgs) {
   );
   if (answer.ok) {
     sessionOf(context).signIn(answer.data);
-    throw redirect(next);
+    const adding = addIntent(next);
+    throw redirect(
+      adding ? await addAfterSignIn(request, context, adding) : next,
+    );
   }
   if (answer.status === 401) {
     return refuse(
@@ -137,7 +144,13 @@ export default function SignIn({
   return (
     <FormPage
       title={words.title}
-      intro={loaderData.next ? words.forPage : words.intro}
+      intro={
+        loaderData.forCart
+          ? words.forCart
+          : loaderData.next
+            ? words.forPage
+            : words.intro
+      }
     >
       {loaderData.ended && !actionData ? (
         <output className="body-4 block rounded-3xl bg-primary-soft p-6 text-ink">

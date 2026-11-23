@@ -23,6 +23,8 @@ export default [
     route('account/password', 'routes/account-password.tsx'),
     route('account/addresses/new', 'routes/address-new.tsx'),
     route('account/addresses/:id', 'routes/address-edit.tsx'),
+    // The cart and checkout (ADR 0042).
+    route('cart', 'routes/cart.tsx'),
     // The policy pages (ADR 0040): /privacy, /terms, /refunds, /shipping and
     // /contact. Any other single word is "not found", from the loader.
     route(':page', 'routes/policy.tsx'),

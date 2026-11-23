@@ -5,6 +5,7 @@ import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 import themeStep from 'virtual:herbal-theme-init';
 import type { Route } from './+types/root';
 import styles from './app.css?url';
+import { cartPacks } from './cart.server.ts';
 import { NonceContext } from './nonce.ts';
 import { sessionMiddleware, sessionOf } from './session.server.ts';
 import { SiteFrame } from './components/SiteFrame.tsx';
@@ -13,10 +14,14 @@ import { ErrorPage } from './components/StatusPages.tsx';
 // Before every page and data request: the customer's sign-in (ADR 0041).
 export const middleware: Route.MiddlewareFunction[] = [sessionMiddleware];
 
-// What every page needs to know: whether a customer is signed in, for the
-// menu. Nothing else of the session ever reaches the browser.
-export function loader({ context }: Route.LoaderArgs) {
-  return { signedIn: sessionOf(context).current !== null };
+// What every page needs to know, for the menu: whether a customer is
+// signed in, and how many packs their cart holds (part 14C). Nothing else
+// of the session ever reaches the browser.
+export async function loader({ request, context }: Route.LoaderArgs) {
+  return {
+    signedIn: sessionOf(context).current !== null,
+    cartPacks: await cartPacks(request, context),
+  };
 }
 
 export const links: Route.LinksFunction = () => [

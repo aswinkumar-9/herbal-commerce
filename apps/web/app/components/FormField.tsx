@@ -3,7 +3,7 @@ import type { ComponentProps } from 'react';
 
 // The website's form fields (part 14B): a label above, the box, then what
 // is wrong with it, read out with the box. Pills, like the shop's search.
-const FIELD =
+export const FIELD =
   'body-3 w-full rounded-full border border-line-strong bg-surface px-4 py-3 text-ink placeholder:text-ink-muted aria-invalid:border-danger';
 
 type FieldProps = Omit<ComponentProps<'input'>, 'id' | 'name' | 'className'> & {

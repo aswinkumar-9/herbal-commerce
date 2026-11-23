@@ -166,7 +166,7 @@ describe('its packs', () => {
     expect(
       packs()
         .getAllByRole('listitem')
-        .map((item) => item.querySelector('p')?.textContent),
+        .map((item) => item.querySelector('[itemprop="name"]')?.textContent),
     ).toEqual([
       '1,000 g',
       '1 kg',
