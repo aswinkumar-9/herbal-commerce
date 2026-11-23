@@ -1,25 +1,14 @@
 import { SHOP_FONT_FILES } from '@herbal/design/shop-fonts';
 import { useContext } from 'react';
 import type { ReactNode } from 'react';
-import {
-  Links,
-  Meta,
-  Outlet,
-  Scripts,
-  ScrollRestoration,
-  isRouteErrorResponse,
-} from 'react-router';
+import { Links, Meta, Outlet, Scripts, ScrollRestoration } from 'react-router';
 import themeStep from 'virtual:herbal-theme-init';
 import type { Route } from './+types/root';
 import styles from './app.css?url';
 import { NonceContext } from './nonce.ts';
 import { sessionMiddleware, sessionOf } from './session.server.ts';
 import { SiteFrame } from './components/SiteFrame.tsx';
-import {
-  FailedPage,
-  NotFoundPage,
-  UnavailablePage,
-} from './components/StatusPages.tsx';
+import { ErrorPage } from './components/StatusPages.tsx';
 
 // Before every page and data request: the customer's sign-in (ADR 0041).
 export const middleware: Route.MiddlewareFunction[] = [sessionMiddleware];
@@ -83,19 +72,12 @@ export default function App() {
   );
 }
 
-// A page that could not be made: unknown (404), the API resting or busy
-// (503), or a failure. Never the failure's details.
+// Only when the frame itself could not be made. A page that could not be
+// made shows inside the frame instead (routes/pages.tsx).
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  const status = isRouteErrorResponse(error) ? error.status : 500;
   return (
     <SiteFrame>
-      {status === 404 ? (
-        <NotFoundPage />
-      ) : status === 503 ? (
-        <UnavailablePage />
-      ) : (
-        <FailedPage />
-      )}
+      <ErrorPage error={error} />
     </SiteFrame>
   );
 }
