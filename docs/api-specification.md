@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.30.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.31.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -908,13 +908,17 @@ Response `200`:
       "status": "CANCELLED",
       "totalRupees": 1347,
       "holdExpiresAt": "2026-11-07T14:57:38.771Z",
-      "createdAt": "2026-11-07T14:42:38.771Z"
+      "createdAt": "2026-11-07T14:42:38.771Z",
+      "firstProductName": "Ashwagandha Capsules",
+      "moreProducts": 2
     }
   ],
   "nextBefore": null
 }
 ```
 `nextBefore` is `null` on the last page.
+
+Since part 14D, each order says what is in it at a glance, for a list such as "Ashwagandha Capsules and 2 more": `firstProductName` is the product of its first line, and `moreProducts` how many other products it has. Two pack sizes of one product count as one. An order always has a line, so `firstProductName` is `null` only for one that has none.
 
 Errors: `400` (a bad parameter); `401`; `429` (the 600 per minute limit).
 

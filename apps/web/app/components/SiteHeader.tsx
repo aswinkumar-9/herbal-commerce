@@ -18,9 +18,9 @@ type SiteLink = {
   count?: number | undefined;
 };
 
-// Then the customer's own places: their cart, with what it holds, and
-// their account, once signed in; else the way to sign in. The root's
-// loader says which (root.tsx).
+// Then the customer's own places: their cart, with what it holds, their
+// orders and their account, once signed in; else the way to sign in. The
+// root's loader says which (root.tsx).
 function useSiteLinks(): readonly SiteLink[] {
   const root = useRouteLoaderData<{
     signedIn: boolean;
@@ -35,6 +35,7 @@ function useSiteLinks(): readonly SiteLink[] {
           label: text.nav.cart,
           count: root.cartPacks || undefined,
         },
+        { to: '/orders', label: text.nav.orders },
         { to: '/account', label: text.nav.account },
       ]
     : [...SITE_LINKS, { to: '/sign-in', label: text.nav.signIn }];

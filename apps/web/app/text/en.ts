@@ -18,6 +18,7 @@ export const text = {
     signIn: 'Sign in',
     account: 'Account',
     cart: 'Cart',
+    orders: 'Orders',
     // The menu's cart, read out with what it holds (part 14C).
     cartHolding: (packs: number) =>
       packs === 1 ? 'Cart, 1 pack' : `Cart, ${packs} packs`,
@@ -327,6 +328,8 @@ export const text = {
     placing: 'Placing your order',
     hold: 'Placing it holds your packs for 15 minutes while you pay.',
     back: 'Back to your cart',
+    // With 3 orders waiting for payment: where to pay or cancel one (14D).
+    toOrders: 'See your orders',
     backToCheckout: 'Back to checkout',
     problems: {
       empty: 'Your cart is empty, so there is nothing to order.',
@@ -335,7 +338,7 @@ export const text = {
       changed:
         'The total has changed since this page opened. Please check the new total, then place your order again.',
       tooMany:
-        'You have 3 orders waiting for payment. Pay for one first, or wait: an order not paid within 15 minutes ends by itself.',
+        'You have 3 orders waiting for payment. Pay for one or cancel it first, or wait: an order not paid within 15 minutes ends by itself.',
       stock:
         'Some packs ran out while you were here. Please change them in your cart.',
       address: 'That address is no longer saved. Please choose another.',
@@ -343,12 +346,45 @@ export const text = {
         'We could not place your order just now. Please try again in a minute.',
     },
   },
-  // One of the customer's orders (part 14C). Its history, the list of all
-  // of them and cancelling come with part 14D.
+  // The customer's orders, the newest first (part 14D).
+  orders: {
+    title: 'Your orders',
+    description: 'Your Herbal Commerce orders.',
+    intro: 'The newest first. Open one to see where it stands.',
+    // What is in it at a glance: its first product, and how many others.
+    what: (first: string, more: number) =>
+      more === 0 ? first : `${first} and ${more} more`,
+    // Said after it to a screen reader, so each link is told apart.
+    which: (reference: string) => `, order ${reference}`,
+    placed: (day: string) => `Placed on ${day}`,
+    status: {
+      PENDING_PAYMENT: 'Waiting for payment',
+      HOLD_OVER: 'Time to pay is over',
+      PAID: 'Paid',
+      PACKED: 'Packed',
+      SHIPPED: 'On its way',
+      DELIVERED: 'Delivered',
+      CANCELLED: 'Cancelled',
+      EXPIRED: 'Not paid in time',
+    },
+    payBy: (time: string) => `Pay by ${time}`,
+    empty: 'You have not placed an order yet.',
+    emptyHint: 'Your orders show here once you place one.',
+    shop: 'Go to the shop',
+    more: 'Show more orders',
+    shown: (count: number) =>
+      count === 1 ? '1 more order shown.' : `${count} more orders shown.`,
+    // A later page, opened as a page of its own.
+    start: 'Back to your newest orders',
+    noMore: 'There are no more orders to show.',
+  },
+  // One of the customer's orders (part 14C), with its history and
+  // cancelling (part 14D).
   order: {
     title: (reference: string) => `Order ${reference}`,
     description: 'Your Herbal Commerce order.',
     reference: 'Quote this reference if you contact us.',
+    allOrders: 'All your orders',
     status: {
       PENDING_PAYMENT: (until: string) =>
         `Waiting for payment. Your packs are held until ${until}.`,
@@ -362,6 +398,55 @@ export const text = {
     },
     items: 'What you ordered',
     deliverTo: 'Delivering to',
+    // Its history, step by step (part 14D), and the courier once shipped.
+    history: {
+      heading: 'History',
+      steps: {
+        placed: 'Placed',
+        paid: 'Paid',
+        packed: 'Packed',
+        shipped: 'Shipped',
+        delivered: 'Delivered',
+        cancelled: 'Cancelled',
+        expired: 'Not paid in time',
+      },
+      notYet: 'Not yet',
+      courier: 'Courier',
+      tracking: 'Tracking number',
+      trackingHint: 'Use it on the courier’s website to follow your parcel.',
+      copy: 'Copy',
+      copied: 'Copied',
+      // The button read out, starting with the word it shows.
+      copyFull: 'Copy tracking number',
+      copiedFull: 'Copied tracking number',
+      saidCopied: 'Tracking number copied.',
+      notCopied: 'Could not copy it. Select the number to copy it yourself.',
+    },
+    // Cancelling, until it ships (part 14D): asked once more first.
+    cancel: {
+      heading: 'Cancel this order',
+      intro: {
+        waiting: 'Changed your mind? Cancel it, and its packs go back on sale.',
+        paid: (amount: string) =>
+          `You can cancel it until it ships. Your ${amount} then comes back to you in full.`,
+      },
+      ask: 'Cancel order',
+      title: (reference: string) => `Cancel order ${reference}?`,
+      body: {
+        waiting: 'It will not be sent, and it can no longer be paid for.',
+        paid: (amount: string) =>
+          `It will not be sent, and your ${amount} goes back to you in full.`,
+      },
+      confirm: 'Yes, cancel it',
+      cancelling: 'Cancelling',
+      keep: 'Keep the order',
+      done: 'Your order is cancelled.',
+      problems: {
+        late: 'This order can no longer be cancelled. It may have shipped a moment ago.',
+        resting:
+          'We could not cancel your order just now. Please try again in a minute.',
+      },
+    },
     // Paying on Razorpay's own page (ADR 0042).
     pay: {
       button: (amount: string) => `Pay ${amount}`,
@@ -547,6 +632,12 @@ export const text = {
   account: {
     title: 'Your account',
     description: 'Your Herbal Commerce account.',
+    // The way to the customer's orders (part 14D).
+    orders: {
+      title: 'Your orders',
+      intro: 'See where each order stands, and pay for one waiting.',
+      see: 'See your orders',
+    },
     details: {
       title: 'Your details',
       name: 'Your name',

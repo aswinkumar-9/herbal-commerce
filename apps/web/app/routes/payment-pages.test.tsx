@@ -1,6 +1,7 @@
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
+import { historyOf } from '../orders.server.ts';
 import type { Order } from '../orders.server.ts';
 import { checkoutFields } from '../razorpay.ts';
 import { renderPage } from '../test/render.tsx';
@@ -78,6 +79,7 @@ function openOrder(
     Component: OrderPage as never,
     loader: () => ({
       order: ORDER,
+      history: historyOf(given.order ?? ORDER),
       holdUntil: '8:27 pm',
       pay: PAY,
       payProblem: null,
@@ -288,5 +290,14 @@ describe('money going back', () => {
     expect(
       screen.queryByRole('region', { name: 'Money going back' }),
     ).toBeNull();
+  });
+});
+
+describe('the way back', () => {
+  it('leads to all the customer’s orders (part 14D)', async () => {
+    openOrder();
+    expect(
+      await screen.findByRole('link', { name: 'All your orders' }),
+    ).toHaveAttribute('href', '/orders');
   });
 });

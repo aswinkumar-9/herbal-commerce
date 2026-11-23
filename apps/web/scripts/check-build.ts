@@ -83,6 +83,22 @@ const ORDER = {
   },
   payment: null,
 };
+// The customer's orders (part 14D): that order, with what is in it.
+const ORDER_LIST = {
+  orders: [
+    {
+      id: ORDER_ID,
+      reference: ORDER.reference,
+      status: 'PAID',
+      totalRupees: 489,
+      holdExpiresAt: ORDER.holdExpiresAt,
+      createdAt: ORDER.createdAt,
+      firstProductName: 'Tulsi Tea',
+      moreProducts: 1,
+    },
+  ],
+  nextBefore: null,
+};
 const answers: Record<string, unknown> = {
   '/v1/categories': { categories: [WELLNESS] },
   '/v1/products': {
@@ -191,6 +207,8 @@ const answers: Record<string, unknown> = {
     razorpayOrderId: 'order_RB58MiP5SPFYyM',
   },
   [`/v1/me/orders/${ORDER_ID}/payment/confirm`]: { ...ORDER, status: 'PAID' },
+  // Cancelling it (part 14D).
+  [`/v1/me/orders/${ORDER_ID}/cancel`]: { ...ORDER, status: 'CANCELLED' },
   '/v1/auth/register': { message: 'If this email address can be used…' },
   // Only the privacy policy is published; the rest answer 404.
   '/v1/policies/privacy': {
@@ -218,7 +236,11 @@ const api = createServer((request, response) => {
     if (request.method === 'POST' && path.endsWith('/payment/confirm')) {
       confirmations.push(Buffer.concat(chunks).toString());
     }
-    const body = answers[path];
+    // One address, two answers: the list of orders, and placing one.
+    const body =
+      request.method === 'GET' && path === '/v1/me/orders'
+        ? ORDER_LIST
+        : answers[path];
     response.writeHead(busy ? 503 : body ? 200 : 404, {
       'content-type': 'application/json',
     });
@@ -501,6 +523,7 @@ async function checkSigningIn(): Promise<void> {
   for (const path of [
     '/cart',
     '/checkout',
+    '/orders',
     `/orders/${ORDER_ID}`,
     '/account/password',
     '/account/addresses/new',
@@ -528,6 +551,21 @@ async function checkSigningIn(): Promise<void> {
         `${where} ${path} did not open as it should (${page.status}, ${page.headers.get('cache-control')})`,
       );
     }
+  }
+  // The customer's orders (part 14D): each with what is in it, the way to
+  // its own page, and the menu's way here.
+  const orders = await (
+    await fetch(`${base}/orders`, {
+      headers: { cookie: cookie.split(';')[0] ?? '' },
+    })
+  ).text();
+  if (
+    !orders.includes('Tulsi Tea and 1 more') ||
+    !orders.includes(`href="/orders/${ORDER_ID}"`) ||
+    !orders.includes('href="/orders"') ||
+    !asked.includes('GET /v1/me/orders')
+  ) {
+    problems.push(`${where} the list of orders did not show the order`);
   }
   // Placing an order (part 14C): with the key the checkout page gave, which
   // reaches the API as the Idempotency-Key header, then to the order.
@@ -561,6 +599,47 @@ async function checkSigningIn(): Promise<void> {
     }
   }
   await checkPaying(session);
+  await checkCancelling(session);
+}
+
+// Cancelling (part 14D): the order's page offers it until the order ships.
+// "Cancel order" asks once more, without asking the API; only "Yes, cancel
+// it" does, and then the order's page says it is cancelled.
+async function checkCancelling(session: string): Promise<void> {
+  const where = 'cancelling:';
+  const path = `/orders/${ORDER_ID}`;
+  const send = (intent: string) =>
+    fetch(`${base}${path}`, {
+      method: 'POST',
+      redirect: 'manual',
+      headers: { origin: base, cookie: session },
+      body: new URLSearchParams({ intent }),
+    });
+  const cancels = () =>
+    asked.filter((one) => one === `POST /v1/me/orders/${ORDER_ID}/cancel`)
+      .length;
+  const page = await (
+    await fetch(`${base}${path}`, { headers: { cookie: session } })
+  ).text();
+  const question = await send('cancel');
+  const questionHtml = await question.text();
+  const askedFirst = cancels();
+  const done = await send('cancelConfirmed');
+  if (
+    !page.includes('Cancel this order') ||
+    !page.includes('name="intent" value="cancel"') ||
+    question.status !== 200 ||
+    !questionHtml.includes('Cancel order 7KQ2M9XDPA?') ||
+    !questionHtml.includes('name="intent" value="cancelConfirmed"') ||
+    askedFirst !== 0 ||
+    done.status !== 302 ||
+    done.headers.get('location') !== `${path}?done=cancelled` ||
+    cancels() !== 1
+  ) {
+    problems.push(
+      `${where} the order was not cancelled as it should be (${question.status}, ${done.status}, ${cancels()} asked)`,
+    );
+  }
 }
 
 // Paying (part 14C, ADR 0042): the order's page sends a plain form to
@@ -586,6 +665,15 @@ async function checkPaying(session: string): Promise<void> {
     if (!html.includes(field)) {
       problems.push(`${where} the order's page has no ${field}`);
     }
+  }
+  // Its history (part 14D): placed, with when, then the steps to come.
+  if (
+    !html.includes('id="history-heading"') ||
+    !html.includes(`<time dateTime="${ORDER.createdAt}"`) ||
+    !html.includes('7 Nov 2026, 8:12 pm') ||
+    !html.includes('Not yet')
+  ) {
+    problems.push(`${where} the order's page has no history`);
   }
   if (!policy.includes("form-action 'self' https://api.razorpay.com;")) {
     problems.push(

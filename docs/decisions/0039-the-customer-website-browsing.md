@@ -151,6 +151,13 @@ For a CDN in front of the website, when one is chosen, and for the browser:
 - **The cart, checkout and orders are a signed-in customer's,** so they are read afresh every time, never from the minute's cache, and `private, no-store`.
 - **The tests:** 495 for the website when part 14C ended.
 
+## Changed in part 14D
+
+- **The menu,** for a signed-in customer, has "Orders" before "Account" (ADR 0043).
+- **Nothing changed in the security policy or the caches:** the list of orders and cancelling are a signed-in customer's pages and forms like the others, read afresh and `private, no-store`. Cancelling passes the same check for forms from other sites.
+- **"Show more orders"** works like a category's "Show more", without prefetching, as it is a fetcher's request.
+- **The tests:** 541 for the website when part 14D ended.
+
 ## Consequences
 
 - A link to the shop, a category or a product shows its words and picture in WhatsApp and to Google, and every page works before, or without, its script.

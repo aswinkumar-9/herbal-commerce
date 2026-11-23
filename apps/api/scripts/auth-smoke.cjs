@@ -1278,11 +1278,15 @@ async function main() {
         cartAfter.body?.items?.length === 0),
   );
   check(
-    'the same Idempotency-Key answers the same order, which only its owner can list and see',
+    'the same Idempotency-Key answers the same order, which only its owner can list, with its first product, and see',
     !packInStock ||
       (replayed.status === 201 &&
         replayed.body.id === placed.body.id &&
         orderList.body?.orders?.[0]?.id === placed.body.id &&
+        orderList.body.orders[0].firstProductName ===
+          placed.body.items[0].productName &&
+        orderList.body.orders[0].moreProducts ===
+          new Set(placed.body.items.map((item) => item.productName)).size - 1 &&
         strangerView.status === 404),
   );
   check(

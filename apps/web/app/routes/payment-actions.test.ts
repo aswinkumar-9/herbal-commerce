@@ -2,7 +2,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { API_HOLD_OVER } from '../orders.server.ts';
+import { API_HOLD_OVER, historyOf } from '../orders.server.ts';
+import type { Order } from '../orders.server.ts';
 import {
   RAZORPAY_KEY_ID,
   RAZORPAY_ORDER_ID,
@@ -124,6 +125,30 @@ function call(
     } as never),
   );
 }
+
+describe('an order that has shipped (part 14D)', () => {
+  it('has its history, with the courier, and starts no payment', async () => {
+    const shipped = {
+      ...ORDER,
+      status: 'SHIPPED',
+      packedAt: '2026-11-08T05:30:00.000Z',
+      shippedAt: '2026-11-08T11:05:00.000Z',
+      courierName: 'Blue Courier',
+      trackingNumber: 'BC1234567890',
+      payment: { paidAt: '2026-11-07T14:45:00.000Z', refunds: [] },
+    };
+    api({ [`GET /v1/me/orders/${ORDER_ID}`]: () => answer(200, shipped) });
+    const { data } = await call(orderLoader as Run, `/orders/${ORDER_ID}`);
+    expect(data).toMatchObject({
+      history: historyOf(shipped as Order),
+      pay: null,
+      order: { courierName: 'Blue Courier', trackingNumber: 'BC1234567890' },
+    });
+    expect(sent().map(({ method, url }) => `${method} ${url}`)).toEqual([
+      `GET ${API}/me/orders/${ORDER_ID}`,
+    ]);
+  });
+});
 
 describe('an order waiting for payment', () => {
   const open = (

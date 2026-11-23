@@ -70,9 +70,12 @@ describe('links to other pages', () => {
     expect(unsaid).toEqual([]);
   });
 
-  it('only the category’s “show more” loads in its own way', () => {
+  it('only the “show more” of a category and of the orders loads in its own way', () => {
     expect(
       links.filter((link) => link.prefetch === '"none"').map((link) => link.at),
-    ).toEqual([expect.stringMatching(/^routes[\\/]category\.tsx:\d+$/)]);
+    ).toEqual([
+      expect.stringMatching(/^routes[\\/]category\.tsx:\d+$/),
+      expect.stringMatching(/^routes[\\/]orders\.tsx:\d+$/),
+    ]);
   });
 });

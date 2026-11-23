@@ -59,7 +59,7 @@ function openAccount({
 const region = (name: string) => screen.getByRole('region', { name });
 
 describe('the account page', () => {
-  it('has the customer’s details, addresses, password and signing out, each under its heading', async () => {
+  it('has the way to the orders, the customer’s details, addresses, password and signing out, each under its heading', async () => {
     openAccount();
     expect(
       await screen.findByRole('heading', { name: 'Your account', level: 1 }),
@@ -67,6 +67,7 @@ describe('the account page', () => {
     expect(
       screen.getAllByRole('heading', { level: 2 }).map((h) => h.textContent),
     ).toEqual([
+      'Your orders',
       'Your details',
       'Delivery addresses',
       'Password',
@@ -81,6 +82,11 @@ describe('the account page', () => {
       'name',
     );
     expect(details).toHaveTextContent('asha@example.com');
+    expect(
+      within(region('Your orders')).getByRole('link', {
+        name: 'See your orders',
+      }),
+    ).toHaveAttribute('href', '/orders');
   });
 
   it('lists the addresses, the default first and marked, each with its own way to change it', async () => {

@@ -93,7 +93,10 @@ export interface OrderView extends Quote {
   payment: PaymentSummary | null;
 }
 
-// An order in the customer's list of orders.
+// An order in the customer's list of orders, with what is in it at a
+// glance (part 14D): the first line's product, and how many other products
+// there are. An order always has a line; the name is null only if one had
+// none.
 export interface OrderSummary {
   id: string;
   reference: string;
@@ -101,6 +104,8 @@ export interface OrderSummary {
   totalRupees: number;
   holdExpiresAt: Date;
   createdAt: Date;
+  firstProductName: string | null;
+  moreProducts: number;
 }
 
 // A priced line with what only the order keeps: the pack size's ID, and
@@ -157,7 +162,10 @@ const SUMMARY_FIELDS = {
   totalRupees: true,
   holdExpiresAt: true,
   createdAt: true,
+  items: { orderBy: { position: 'asc' }, select: { productName: true } },
 } satisfies Prisma.OrderSelect;
+
+type SummaryRow = Prisma.OrderGetPayload<{ select: typeof SUMMARY_FIELDS }>;
 
 // A customer's orders, the newest first.
 const NEWEST_FIRST = [
@@ -285,7 +293,7 @@ export class OrdersService {
       ...(query.before ? { cursor: { id: query.before }, skip: 1 } : {}),
       select: SUMMARY_FIELDS,
     });
-    const orders = rows.slice(0, query.limit);
+    const orders = rows.slice(0, query.limit).map(orderSummary);
     return {
       orders,
       nextBefore:
@@ -470,6 +478,16 @@ function customerLine({
   ...line
 }: PricedLine): OrderLine {
   return line;
+}
+
+// Two pack sizes of one product are one product here.
+function orderSummary({ items, ...order }: SummaryRow): OrderSummary {
+  const products = [...new Set(items.map((item) => item.productName))];
+  return {
+    ...order,
+    firstProductName: products[0] ?? null,
+    moreProducts: Math.max(products.length - 1, 0),
+  };
 }
 
 function customerOrder(

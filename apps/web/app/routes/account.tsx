@@ -225,6 +225,17 @@ export default function Account({
         </FormAlert>
       ) : null}
 
+      <Section id="orders" title={words.orders.title}>
+        <p className="body-6 text-ink-muted">{words.orders.intro}</p>
+        <Link
+          prefetch="intent"
+          to="/orders"
+          className={`${OUTLINE_PILL} self-start`}
+        >
+          {words.orders.see}
+        </Link>
+      </Section>
+
       <Section id="details" title={words.details.title}>
         <Form method="post" replace className="flex flex-col gap-6">
           <input type="hidden" name="intent" value="name" />

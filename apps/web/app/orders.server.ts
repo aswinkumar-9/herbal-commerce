@@ -177,6 +177,71 @@ export async function readOrder(
   );
 }
 
+// Cancelling (part 14D, ADR 0028): the customer's own order, until it ships.
+// Its packs go back on sale at once, and a paid order's payment goes back in
+// full. The answer is the order, now cancelled.
+export const CANCELLABLE: readonly OrderStatus[] = [
+  'PENDING_PAYMENT',
+  'PAID',
+  'PACKED',
+];
+
+export async function cancelOrder(
+  request: Request,
+  context: Context,
+  id: string,
+) {
+  return askAsCustomer(
+    request,
+    context,
+    { method: 'POST', path: `me/orders/${segment(id)}/cancel` },
+    orderSchema,
+  );
+}
+
+// The customer's orders, the newest first, a page at a time (part 14D):
+// each with what is in it at a glance. A page continues after the last
+// order of the one before.
+export const ORDERS_PER_PAGE = 20;
+export const orderListSchema = z.object({
+  orders: z
+    .array(
+      z.object({
+        id: z.string().regex(UUID),
+        reference,
+        status: z.enum(ORDER_STATUSES),
+        totalRupees: rupees,
+        holdExpiresAt: when,
+        createdAt: when,
+        firstProductName: z.string().min(1).max(200).nullable(),
+        moreProducts: z.number().int().min(0),
+      }),
+    )
+    .max(50),
+  nextBefore: z.string().regex(UUID).nullable(),
+});
+export type OrderList = z.infer<typeof orderListSchema>;
+
+export async function listOrders(
+  request: Request,
+  context: Context,
+  before: string | null,
+) {
+  const query = new URLSearchParams({ limit: String(ORDERS_PER_PAGE) });
+  if (before !== null) {
+    if (!UUID.test(before)) {
+      throw new Error('A page of orders continues after an order’s own ID');
+    }
+    query.set('before', before);
+  }
+  return askAsCustomer(
+    request,
+    context,
+    { method: 'GET', path: `me/orders?${query.toString()}` },
+    orderListSchema,
+  );
+}
+
 // Paying for an order on Razorpay's own page (ADR 0042): what the page
 // needs, from the API. Asking again answers the same Razorpay order.
 export const paymentStartSchema = z.object({
@@ -244,3 +309,79 @@ const TIME_IN_INDIA = new Intl.DateTimeFormat('en-IN', {
 });
 export const timeInIndia = (iso: string): string =>
   TIME_IN_INDIA.format(new Date(iso));
+
+// A day as the customer reads it, in India: 7 Nov 2026.
+const DATE_IN_INDIA = new Intl.DateTimeFormat('en-IN', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  timeZone: 'Asia/Kolkata',
+});
+export const dateInIndia = (iso: string): string =>
+  DATE_IN_INDIA.format(new Date(iso));
+
+// Both: 7 Nov 2026, 3:12 pm.
+export const whenInIndia = (iso: string): string =>
+  `${dateInIndia(iso)}, ${timeInIndia(iso)}`;
+
+// An order's history (part 14D): each step it has taken, with when, then
+// those still to come. An order that ended, cancelled or not paid in time,
+// shows the steps it took before, then how it ended. The API keeps no time
+// for a cancel, so that step has none (owner, 2026-11-23).
+export type StepName =
+  | 'placed'
+  | 'paid'
+  | 'packed'
+  | 'shipped'
+  | 'delivered'
+  | 'cancelled'
+  | 'expired';
+export type HistoryStep = {
+  step: StepName;
+  done: boolean;
+  at: string | null;
+  when: string | null;
+};
+
+const ON_ITS_WAY = [
+  'PENDING_PAYMENT',
+  'PAID',
+  'PACKED',
+  'SHIPPED',
+  'DELIVERED',
+];
+
+export function historyOf(order: Order): HistoryStep[] {
+  const paidAt = order.payment?.paidAt ?? null;
+  // A step is done once it has a time, or the order is past it.
+  const reached = ON_ITS_WAY.indexOf(order.status);
+  const step = (
+    name: StepName,
+    at: string | null,
+    rank = Number.POSITIVE_INFINITY,
+  ): HistoryStep => ({
+    step: name,
+    done: at !== null || reached >= rank,
+    at,
+    when: at === null ? null : whenInIndia(at),
+  });
+  const placed = step('placed', order.createdAt);
+  if (order.status === 'CANCELLED' || order.status === 'EXPIRED') {
+    const before = [
+      step('paid', paidAt),
+      step('packed', order.packedAt),
+    ].filter((taken) => taken.done);
+    const end =
+      order.status === 'CANCELLED'
+        ? { step: 'cancelled' as const, done: true, at: null, when: null }
+        : step('expired', order.holdExpiresAt);
+    return [placed, ...before, end];
+  }
+  return [
+    placed,
+    step('paid', paidAt, 1),
+    step('packed', order.packedAt, 2),
+    step('shipped', order.shippedAt, 3),
+    step('delivered', order.deliveredAt, 4),
+  ];
+}
