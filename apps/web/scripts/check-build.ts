@@ -96,19 +96,21 @@ const answers: Record<string, unknown> = {
   },
   '/v1/me': { fullName: 'Asha Verma', email: 'asha@example.com' },
   // Their one delivery address.
-  '/v1/me/addresses': [
-    {
-      id: ADDRESS_ID,
-      fullName: 'Asha Verma',
-      phone: '9845012345',
-      line1: '12 MG Road',
-      line2: null,
-      city: 'Bengaluru',
-      state: 'Karnataka',
-      pincode: '560001',
-      isDefault: true,
-    },
-  ],
+  '/v1/me/addresses': {
+    addresses: [
+      {
+        id: ADDRESS_ID,
+        fullName: 'Asha Verma',
+        phone: '9845012345',
+        line1: '12 MG Road',
+        line2: null,
+        city: 'Bengaluru',
+        state: 'Karnataka',
+        pincode: '560001',
+        isDefault: true,
+      },
+    ],
+  },
   '/v1/auth/register': { message: 'If this email address can be used…' },
   // Only the privacy policy is published; the rest answer 404.
   '/v1/policies/privacy': {

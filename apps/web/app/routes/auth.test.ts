@@ -368,13 +368,15 @@ describe('the account page', () => {
     };
     fetchMock.mockImplementation(async (url) =>
       String(url).endsWith('/v1/me/addresses')
-        ? answer(200, [
-            {
-              ...address,
-              createdAt: '2026-11-02T09:00:00.000Z',
-              updatedAt: '2026-11-02T09:00:00.000Z',
-            },
-          ])
+        ? answer(200, {
+            addresses: [
+              {
+                ...address,
+                createdAt: '2026-11-02T09:00:00.000Z',
+                updatedAt: '2026-11-02T09:00:00.000Z',
+              },
+            ],
+          })
         : answer(200, {
             id: 'u1',
             email: 'asha@example.com',

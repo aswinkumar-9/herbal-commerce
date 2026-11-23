@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { addressesSchema } from '../account.server.ts';
 import {
   addressProblems,
   forApi,
@@ -141,7 +142,7 @@ describe('the account page', () => {
   it('says what was done on an address page, only in its own words', async () => {
     fetchMock.mockImplementation(async (url) =>
       String(url).endsWith('/addresses')
-        ? answer(200, [])
+        ? answer(200, { addresses: [] })
         : answer(200, { fullName: 'Asha Verma', email: 'asha@example.com' }),
     );
     const added = await call(accountLoader as Run, '/account?saved=added')
@@ -405,7 +406,7 @@ describe('adding an address', () => {
     call(newAction as Run, '/account/addresses/new', { form: fields });
 
   it('knows how many there are, for the first one and the tenth', async () => {
-    fetchMock.mockResolvedValue(answer(200, [HOME, OFFICE]));
+    fetchMock.mockResolvedValue(answer(200, { addresses: [HOME, OFFICE] }));
     const { result } = call(newLoader as Run, '/account/addresses/new');
     expect((await result).data).toEqual({ count: 2, origin: SITE });
   });
@@ -503,7 +504,9 @@ describe('changing or removing an address', () => {
     });
 
   it('shows one of the customer’s own addresses, else “not found”', async () => {
-    fetchMock.mockImplementation(async () => answer(200, [HOME, OFFICE]));
+    fetchMock.mockImplementation(async () =>
+      answer(200, { addresses: [HOME, OFFICE] }),
+    );
     expect((await open(OTHER_ID).result).data).toEqual({
       address: OFFICE,
       others: 1,
@@ -609,6 +612,23 @@ describe('the address checks', () => {
     const names = [...list.matchAll(/'([^']+)'/g)].map((match) => match[1]);
     expect(names).toHaveLength(36);
     expect([...INDIAN_STATES]).toEqual(names);
+  });
+
+  // Found against the real API (part 14B, step 7): the list comes wrapped.
+  it('are read as the API lists them: { addresses }', () => {
+    const api = readFileSync(
+      join(
+        import.meta.dirname,
+        '../../../api/src/addresses/addresses.service.ts',
+      ),
+      'utf8',
+    );
+    const list = /async list\(userId: string\) \{([\s\S]*?)\n {2}\}/.exec(
+      api,
+    )?.[1];
+    expect(list).toContain('return { addresses };');
+    expect(addressesSchema.parse({ addresses: [HOME] })).toEqual([HOME]);
+    expect(addressesSchema.safeParse([HOME]).success).toBe(false);
   });
 });
 

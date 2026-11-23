@@ -65,5 +65,8 @@ const addressSchema: z.ZodType<Address> = z.object({
   isDefault: z.boolean(),
 });
 
-// The API keeps at most 10; a few more are read, never refused.
-export const addressesSchema = z.array(addressSchema).max(50);
+// The API's answer, { addresses }, the default first. It keeps at most 10;
+// a few more are read, never refused.
+export const addressesSchema = z
+  .object({ addresses: z.array(addressSchema).max(50) })
+  .transform(({ addresses }) => addresses);
