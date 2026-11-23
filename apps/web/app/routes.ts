@@ -26,6 +26,8 @@ export default [
     // The cart and checkout (ADR 0042).
     route('cart', 'routes/cart.tsx'),
     route('checkout', 'routes/checkout.tsx'),
+    // The customer's orders, and each one's own page (part 14D).
+    route('orders', 'routes/orders.tsx'),
     route('orders/:id', 'routes/order.tsx'),
     // Back from Razorpay's payment page: confirms the payment, then goes to
     // the order's page. No page of its own, so it answers alone.

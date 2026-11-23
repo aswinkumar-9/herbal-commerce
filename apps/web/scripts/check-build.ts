@@ -83,6 +83,22 @@ const ORDER = {
   },
   payment: null,
 };
+// The customer's orders (part 14D): that order, with what is in it.
+const ORDER_LIST = {
+  orders: [
+    {
+      id: ORDER_ID,
+      reference: ORDER.reference,
+      status: 'PAID',
+      totalRupees: 489,
+      holdExpiresAt: ORDER.holdExpiresAt,
+      createdAt: ORDER.createdAt,
+      firstProductName: 'Tulsi Tea',
+      moreProducts: 1,
+    },
+  ],
+  nextBefore: null,
+};
 const answers: Record<string, unknown> = {
   '/v1/categories': { categories: [WELLNESS] },
   '/v1/products': {
@@ -218,7 +234,11 @@ const api = createServer((request, response) => {
     if (request.method === 'POST' && path.endsWith('/payment/confirm')) {
       confirmations.push(Buffer.concat(chunks).toString());
     }
-    const body = answers[path];
+    // One address, two answers: the list of orders, and placing one.
+    const body =
+      request.method === 'GET' && path === '/v1/me/orders'
+        ? ORDER_LIST
+        : answers[path];
     response.writeHead(busy ? 503 : body ? 200 : 404, {
       'content-type': 'application/json',
     });
@@ -501,6 +521,7 @@ async function checkSigningIn(): Promise<void> {
   for (const path of [
     '/cart',
     '/checkout',
+    '/orders',
     `/orders/${ORDER_ID}`,
     '/account/password',
     '/account/addresses/new',
@@ -528,6 +549,21 @@ async function checkSigningIn(): Promise<void> {
         `${where} ${path} did not open as it should (${page.status}, ${page.headers.get('cache-control')})`,
       );
     }
+  }
+  // The customer's orders (part 14D): each with what is in it, the way to
+  // its own page, and the menu's way here.
+  const orders = await (
+    await fetch(`${base}/orders`, {
+      headers: { cookie: cookie.split(';')[0] ?? '' },
+    })
+  ).text();
+  if (
+    !orders.includes('Tulsi Tea and 1 more') ||
+    !orders.includes(`href="/orders/${ORDER_ID}"`) ||
+    !orders.includes('href="/orders"') ||
+    !asked.includes('GET /v1/me/orders')
+  ) {
+    problems.push(`${where} the list of orders did not show the order`);
   }
   // Placing an order (part 14C): with the key the checkout page gave, which
   // reaches the API as the Idempotency-Key header, then to the order.

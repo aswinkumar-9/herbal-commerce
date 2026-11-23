@@ -7,7 +7,7 @@ import {
 } from '../account.server.ts';
 import { phoneShown } from '../address.ts';
 import { getConfig } from '../config.server.ts';
-import { FormAlert } from '../components/FormPage.tsx';
+import { FormAlert, TEXT_LINK } from '../components/FormPage.tsx';
 import { OrderSummary } from '../components/OrderSummary.tsx';
 import { GOLD_PILL_LARGE, OUTLINE_PILL } from '../components/pills.ts';
 import { tooMany } from '../form-checks.server.ts';
@@ -131,6 +131,11 @@ export default function OrderPage({ loaderData }: Route.ComponentProps) {
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-6 pt-32 pb-24">
+      <p className="body-6">
+        <Link prefetch="intent" to="/orders" className={TEXT_LINK}>
+          {words.allOrders}
+        </Link>
+      </p>
       <header className="flex flex-col gap-2">
         <h1 className="heading-4 text-balance text-ink md:heading-3">
           {words.title(order.reference)}

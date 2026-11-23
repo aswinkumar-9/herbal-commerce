@@ -98,6 +98,30 @@ describe('the customer’s place in the menu', () => {
       screen.queryByRole('link', { name: 'Sign in', hidden: true }),
     ).toBeNull();
   });
+
+  it('has the customer’s orders once signed in, before the account, and none for a visitor', async () => {
+    openAs(true);
+    const bar = await screen.findByRole('navigation', { name: 'Main' });
+    expect(within(bar).getByRole('link', { name: 'Orders' })).toHaveAttribute(
+      'href',
+      '/orders',
+    );
+    expect(
+      within(bar)
+        .getAllByRole('link')
+        .map((link) => link.textContent)
+        .slice(-2),
+    ).toEqual(['Orders', 'Account']);
+    expect(
+      screen.getAllByRole('link', { name: 'Orders', hidden: true }),
+    ).toHaveLength(2);
+    cleanup();
+    openAs(false);
+    await screen.findByRole('navigation', { name: 'Main' });
+    expect(
+      screen.queryByRole('link', { name: 'Orders', hidden: true }),
+    ).toBeNull();
+  });
 });
 
 describe('the cart in the menu', () => {

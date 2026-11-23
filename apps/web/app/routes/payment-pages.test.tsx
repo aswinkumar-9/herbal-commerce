@@ -290,3 +290,12 @@ describe('money going back', () => {
     ).toBeNull();
   });
 });
+
+describe('the way back', () => {
+  it('leads to all the customer’s orders (part 14D)', async () => {
+    openOrder();
+    expect(
+      await screen.findByRole('link', { name: 'All your orders' }),
+    ).toHaveAttribute('href', '/orders');
+  });
+});

@@ -18,6 +18,7 @@ export const text = {
     signIn: 'Sign in',
     account: 'Account',
     cart: 'Cart',
+    orders: 'Orders',
     // The menu's cart, read out with what it holds (part 14C).
     cartHolding: (packs: number) =>
       packs === 1 ? 'Cart, 1 pack' : `Cart, ${packs} packs`,
@@ -343,12 +344,45 @@ export const text = {
         'We could not place your order just now. Please try again in a minute.',
     },
   },
-  // One of the customer's orders (part 14C). Its history, the list of all
-  // of them and cancelling come with part 14D.
+  // The customer's orders, the newest first (part 14D).
+  orders: {
+    title: 'Your orders',
+    description: 'Your Herbal Commerce orders.',
+    intro: 'The newest first. Open one to see where it stands.',
+    // What is in it at a glance: its first product, and how many others.
+    what: (first: string, more: number) =>
+      more === 0 ? first : `${first} and ${more} more`,
+    // Said after it to a screen reader, so each link is told apart.
+    which: (reference: string) => `, order ${reference}`,
+    placed: (day: string) => `Placed on ${day}`,
+    status: {
+      PENDING_PAYMENT: 'Waiting for payment',
+      HOLD_OVER: 'Time to pay is over',
+      PAID: 'Paid',
+      PACKED: 'Packed',
+      SHIPPED: 'On its way',
+      DELIVERED: 'Delivered',
+      CANCELLED: 'Cancelled',
+      EXPIRED: 'Not paid in time',
+    },
+    payBy: (time: string) => `Pay by ${time}`,
+    empty: 'You have not placed an order yet.',
+    emptyHint: 'Your orders show here once you place one.',
+    shop: 'Go to the shop',
+    more: 'Show more orders',
+    shown: (count: number) =>
+      count === 1 ? '1 more order shown.' : `${count} more orders shown.`,
+    // A later page, opened as a page of its own.
+    start: 'Back to your newest orders',
+    noMore: 'There are no more orders to show.',
+  },
+  // One of the customer's orders (part 14C). Its history and cancelling
+  // come with part 14D.
   order: {
     title: (reference: string) => `Order ${reference}`,
     description: 'Your Herbal Commerce order.',
     reference: 'Quote this reference if you contact us.',
+    allOrders: 'All your orders',
     status: {
       PENDING_PAYMENT: (until: string) =>
         `Waiting for payment. Your packs are held until ${until}.`,
@@ -547,6 +581,12 @@ export const text = {
   account: {
     title: 'Your account',
     description: 'Your Herbal Commerce account.',
+    // The way to the customer's orders (part 14D).
+    orders: {
+      title: 'Your orders',
+      intro: 'See where each order stands, and pay for one waiting.',
+      see: 'See your orders',
+    },
     details: {
       title: 'Your details',
       name: 'Your name',

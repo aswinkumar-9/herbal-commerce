@@ -177,6 +177,49 @@ export async function readOrder(
   );
 }
 
+// The customer's orders, the newest first, a page at a time (part 14D):
+// each with what is in it at a glance. A page continues after the last
+// order of the one before.
+export const ORDERS_PER_PAGE = 20;
+export const orderListSchema = z.object({
+  orders: z
+    .array(
+      z.object({
+        id: z.string().regex(UUID),
+        reference,
+        status: z.enum(ORDER_STATUSES),
+        totalRupees: rupees,
+        holdExpiresAt: when,
+        createdAt: when,
+        firstProductName: z.string().min(1).max(200).nullable(),
+        moreProducts: z.number().int().min(0),
+      }),
+    )
+    .max(50),
+  nextBefore: z.string().regex(UUID).nullable(),
+});
+export type OrderList = z.infer<typeof orderListSchema>;
+
+export async function listOrders(
+  request: Request,
+  context: Context,
+  before: string | null,
+) {
+  const query = new URLSearchParams({ limit: String(ORDERS_PER_PAGE) });
+  if (before !== null) {
+    if (!UUID.test(before)) {
+      throw new Error('A page of orders continues after an order’s own ID');
+    }
+    query.set('before', before);
+  }
+  return askAsCustomer(
+    request,
+    context,
+    { method: 'GET', path: `me/orders?${query.toString()}` },
+    orderListSchema,
+  );
+}
+
 // Paying for an order on Razorpay's own page (ADR 0042): what the page
 // needs, from the API. Asking again answers the same Razorpay order.
 export const paymentStartSchema = z.object({
@@ -244,3 +287,13 @@ const TIME_IN_INDIA = new Intl.DateTimeFormat('en-IN', {
 });
 export const timeInIndia = (iso: string): string =>
   TIME_IN_INDIA.format(new Date(iso));
+
+// A day as the customer reads it, in India: 7 Nov 2026.
+const DATE_IN_INDIA = new Intl.DateTimeFormat('en-IN', {
+  day: 'numeric',
+  month: 'short',
+  year: 'numeric',
+  timeZone: 'Asia/Kolkata',
+});
+export const dateInIndia = (iso: string): string =>
+  DATE_IN_INDIA.format(new Date(iso));
