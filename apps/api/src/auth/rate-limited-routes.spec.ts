@@ -111,6 +111,7 @@ describe('rate-limited routes', () => {
     // its own, unlike the shop's.
     expect(routeLimits(StaffProductsController)).toStrictEqual({
       list: undefined,
+      listOrder: undefined,
       findOne: undefined,
       reorder: undefined,
       create: undefined,

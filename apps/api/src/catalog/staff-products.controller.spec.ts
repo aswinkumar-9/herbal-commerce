@@ -19,6 +19,7 @@ function setup() {
     remove: jest.fn().mockResolvedValue(undefined),
     findForStaff: jest.fn().mockResolvedValue({ id: ID }),
     reorder: jest.fn().mockResolvedValue({ products: [] }),
+    listOrder: jest.fn().mockResolvedValue({ products: [] }),
   };
   const controller = new StaffProductsController(
     products as unknown as ProductsService,
@@ -62,6 +63,15 @@ describe('StaffProductsController', () => {
     expect(products.findForStaff).toHaveBeenCalledWith(ID);
   });
 
+  it('lists every product shown in a category, in order', async () => {
+    const { controller, products } = setup();
+
+    await expect(
+      controller.listOrder({ categoryId: CATEGORY }),
+    ).resolves.toEqual({ products: [] });
+    expect(products.listOrder).toHaveBeenCalledWith({ categoryId: CATEGORY });
+  });
+
   it("puts a category's products in a new order, recording who did it", async () => {
     const { controller, products } = setup();
     const input = { categoryId: CATEGORY, ids: [ID] };
@@ -101,5 +111,15 @@ describe('StaffProductsController routes', () => {
       RequestMethod.PUT,
       'order',
     ]);
+  });
+
+  it('serves the order at GET /v1/staff/products/order, declared before :id so "order" is not taken for an ID', () => {
+    expect(route('listOrder')).toEqual([RequestMethod.GET, 'order']);
+    const handlers = Object.getOwnPropertyNames(
+      StaffProductsController.prototype,
+    );
+    expect(handlers.indexOf('listOrder')).toBeLessThan(
+      handlers.indexOf('findOne'),
+    );
   });
 });

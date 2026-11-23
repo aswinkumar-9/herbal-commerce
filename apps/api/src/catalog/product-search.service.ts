@@ -90,6 +90,23 @@ function byName(a: SearchCard, b: SearchCard): number {
 // misspelt, and filtered by category, type and lowest price. Products in
 // stock come first, then by the order asked for, then by name. The search
 // words are never stored or logged.
+// The products in a category: those whose main category it is, and those
+// also shown in it while it is shown (part 15A). A top category finds its
+// subcategories' products too.
+function inCategory(slug: string): Prisma.ProductWhereInput {
+  const category = { OR: [{ slug }, { parent: { slug } }] };
+  return {
+    OR: [
+      { category },
+      {
+        otherCategories: {
+          some: { category: { AND: [SHOWN_CATEGORY, category] } },
+        },
+      },
+    ],
+  };
+}
+
 @Injectable()
 export class ProductSearchService {
   constructor(
@@ -157,22 +174,8 @@ export class ProductSearchService {
         : await this.prisma.product.findMany({
             where: {
               isActive: true,
-              // A top category finds its subcategories' products too.
-              category: {
-                AND: [
-                  SHOWN_CATEGORY,
-                  ...(query.category
-                    ? [
-                        {
-                          OR: [
-                            { slug: query.category },
-                            { parent: { slug: query.category } },
-                          ],
-                        },
-                      ]
-                    : []),
-                ],
-              },
+              category: SHOWN_CATEGORY,
+              ...(query.category ? inCategory(query.category) : {}),
               ...(query.type ? { type: query.type } : {}),
               ...(scores ? { id: { in: [...scores.keys()] } } : {}),
             },

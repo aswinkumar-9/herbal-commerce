@@ -1,5 +1,6 @@
 import {
   productListQuerySchema,
+  productOrderQuerySchema,
   productOrderSchema,
   productSchema,
   productUpdateSchema,
@@ -367,5 +368,69 @@ describe('productOrderSchema', () => {
       (_, n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
     );
     expect(refused({ categoryId: CATEGORY, ids })).toEqual([['ids', 'At most 1000 products']]);
+  });
+});
+
+describe('the other categories a product is also shown in', () => {
+  const A = '1d4f7a2c-8b3e-4c6d-9e0f-2a5b8c1d4e7f';
+  const B = '6e9b2c5f-1a4d-4e7b-8c0f-3d6a9b2c5e8f';
+  const issues = (otherCategoryIds: unknown) =>
+    productUpdateSchema
+      .safeParse({ otherCategoryIds })
+      .error?.issues.map((issue) => [issue.path.join('.'), issue.message]);
+
+  it('are optional on a new product, and given by their IDs', () => {
+    expect(productSchema.parse(draft)).not.toHaveProperty('otherCategoryIds');
+    expect(
+      productSchema.parse({ ...draft, otherCategoryIds: [A, B] })
+        .otherCategoryIds,
+    ).toEqual([A, B]);
+  });
+
+  it('are replaced by a change, and an empty list takes them all away', () => {
+    expect(productUpdateSchema.parse({ otherCategoryIds: [B] })).toEqual({
+      otherCategoryIds: [B],
+    });
+    expect(productUpdateSchema.parse({ otherCategoryIds: [] })).toEqual({
+      otherCategoryIds: [],
+    });
+  });
+
+  it('are kept in small letters, so one ID is never taken for two', () => {
+    expect(
+      productUpdateSchema.parse({ otherCategoryIds: [A.toUpperCase()] }),
+    ).toEqual({ otherCategoryIds: [A] });
+    expect(issues([A, A.toUpperCase()])).toEqual([
+      ['otherCategoryIds', 'List each category once'],
+    ]);
+  });
+
+  it('refuses a category by name, an ID twice, and more than 5', () => {
+    expect(issues(['hair-care'])).toEqual([
+      ['otherCategoryIds.0', 'Choose each category by its ID'],
+    ]);
+    expect(issues([A, B, A])).toEqual([
+      ['otherCategoryIds', 'List each category once'],
+    ]);
+    const six = Array.from(
+      { length: 6 },
+      (_, n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    );
+    expect(issues(six)).toEqual([
+      ['otherCategoryIds', 'At most 5 other categories'],
+    ]);
+    expect(issues(null)).toHaveLength(1);
+  });
+});
+
+describe('productOrderQuerySchema', () => {
+  it('takes the category by its ID, and nothing else', () => {
+    expect(
+      productOrderQuerySchema.parse({ categoryId: CATEGORY, limit: '5' }),
+    ).toEqual({ categoryId: CATEGORY });
+    expect(productOrderQuerySchema.safeParse({}).success).toBe(false);
+    expect(
+      productOrderQuerySchema.safeParse({ categoryId: 'hair-care' }).success,
+    ).toBe(false);
   });
 });

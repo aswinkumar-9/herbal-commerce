@@ -21,6 +21,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { CatalogChanged } from './catalog-changed.interceptor';
 import {
   productListQuerySchema,
+  productOrderQuerySchema,
   productOrderSchema,
   productSchema,
   productUpdateSchema,
@@ -29,6 +30,7 @@ import type {
   ProductInput,
   ProductListQuery,
   ProductOrderInput,
+  ProductOrderQuery,
   ProductUpdateInput,
 } from './products.schemas';
 import { ProductsService } from './products.service';
@@ -52,13 +54,24 @@ export class StaffProductsController {
     return this.products.list(query);
   }
 
+  // Every product shown in a category, drafts too, in order: what staff
+  // drag into a new order. Before :id, so "order" is not taken for an ID.
+  @Get('order')
+  listOrder(
+    @Query(new ZodValidationPipe(productOrderQuerySchema))
+    query: ProductOrderQuery,
+  ) {
+    return this.products.listOrder(query);
+  }
+
   // One product, drafts too, for its page in the admin console.
   @Get(':id')
   findOne(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.products.findForStaff(id);
   }
 
-  // A new order for a category's products: all of them, first to last.
+  // A new order for a category's products: all of them, first to last,
+  // those also shown in it too.
   @Put('order')
   reorder(
     @Body(new ZodValidationPipe(productOrderSchema)) body: ProductOrderInput,

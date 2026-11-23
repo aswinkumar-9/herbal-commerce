@@ -72,6 +72,8 @@ function setup(categories: object[] = []) {
       update: jest.fn().mockResolvedValue(stored({ isActive: true })),
       delete: jest.fn().mockResolvedValue({ id: ID }),
     },
+    // No product from another category is shown in it.
+    productCategory: { findFirst: jest.fn().mockResolvedValue(null) },
   };
   const prisma = {
     category: { findMany: jest.fn().mockResolvedValue(categories) },
@@ -387,6 +389,29 @@ describe('CategoriesService.remove, with subcategories', () => {
     });
     expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
       tx.category.findFirst.mock.invocationCallOrder[0],
+    );
+    expect(tx.category.delete).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+    expect(logger.info).not.toHaveBeenCalled();
+  });
+});
+
+describe('CategoriesService.remove, showing products from other categories (part 15A)', () => {
+  it('answers 409 while it still shows a product whose main category is another, and deletes nothing', async () => {
+    const { service, tx, audit, logger } = setup();
+    tx.productCategory.findFirst.mockResolvedValue({ productId: OTHER });
+
+    await expect(service.remove(ID, context)).rejects.toThrow(
+      new ConflictException(
+        'This category still shows products from other categories. Take it off their other categories first.',
+      ),
+    );
+    expect(tx.productCategory.findFirst).toHaveBeenCalledWith({
+      where: { categoryId: ID },
+      select: { productId: true },
+    });
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.productCategory.findFirst.mock.invocationCallOrder[0],
     );
     expect(tx.category.delete).not.toHaveBeenCalled();
     expect(audit.record).not.toHaveBeenCalled();

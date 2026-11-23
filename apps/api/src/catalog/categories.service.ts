@@ -29,6 +29,8 @@ export const CATEGORIES_CHANGED =
   'The categories changed while you were ordering them. Reload and try again.';
 export const CATEGORY_HAS_SUBCATEGORIES =
   'This category still has subcategories. Move them to another category or delete them first.';
+export const CATEGORY_SHOWS_OTHER_PRODUCTS =
+  'This category still shows products from other categories. Take it off their other categories first.';
 // Only two levels (part 15A): a category sits inside a top category, or in
 // none.
 const NO_SUCH_PARENT = {
@@ -316,8 +318,9 @@ export class CategoriesService {
 
   // Deletes a category for good. Only Super Users may: the route is
   // @SuperUserOnly(). The audit entry keeps what the category was. While the
-  // category has subcategories, or products, which the database refuses
-  // (ON DELETE RESTRICT), the answer is 409.
+  // category has subcategories, shows products from other categories, or
+  // has products, which the database refuses (ON DELETE RESTRICT), the
+  // answer is 409.
   async remove(id: string, context: AuditContext): Promise<void> {
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -325,6 +328,14 @@ export class CategoriesService {
         // Locked, so none can be put inside it meanwhile.
         if (await this.hasSubcategories(tx, id)) {
           throw new ConflictException(CATEGORY_HAS_SUBCATEGORIES);
+        }
+        // Locked too: a product being shown in it waits for the lock.
+        const shown = await tx.productCategory.findFirst({
+          where: { categoryId: id },
+          select: { productId: true },
+        });
+        if (shown) {
+          throw new ConflictException(CATEGORY_SHOWS_OTHER_PRODUCTS);
         }
         await tx.category.delete({ where: { id }, select: { id: true } });
         await this.audit.record(tx, {

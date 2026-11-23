@@ -7,6 +7,15 @@ import { slugSchema as slug, slugify } from './slug';
 const categoryId = z.uuid('Choose a category by its ID');
 // A product may have no brand (part 15A): null takes it away.
 const brandId = z.uuid('Choose a brand by its ID').nullable();
+// The other categories it is also shown in (part 15A), each once. Its main
+// category stays categoryId. A change replaces the whole list, and an empty
+// list shows it in its main category only. In small letters, as the
+// database gives IDs back, so the same ID is never taken for another.
+const otherCategoryIds = z
+  .array(z.uuid('Choose each category by its ID'))
+  .max(5, 'At most 5 other categories')
+  .transform((ids) => ids.map((id) => id.toLowerCase()))
+  .refine((ids) => new Set(ids).size === ids.length, 'List each category once');
 const name = z.string().trim().min(1, 'Name is required').max(100);
 // Optional text: empty, or null in a change, means none.
 const optionalText = (max: number) =>
@@ -69,6 +78,7 @@ const position = z.number().int().min(0).max(9999);
 // product may be saved as a draft and completed later.
 const details = {
   brandId: brandId.optional(),
+  otherCategoryIds: otherCategoryIds.optional(),
   summary: optionalText(160).optional(),
   description: optionalText(5000).optional(),
   ingredients: optionalText(2000).optional(),
@@ -163,8 +173,13 @@ export const productListQuerySchema = z
   });
 export type ProductListQuery = z.infer<typeof productListQuerySchema>;
 
-// A new order for a category's products: every one of its products, drafts
-// too, each once, first to last (ADR 0032).
+// Which category's order of products staff ask for.
+export const productOrderQuerySchema = z.object({ categoryId });
+export type ProductOrderQuery = z.infer<typeof productOrderQuerySchema>;
+
+// A new order for a category's products: every product shown in it, drafts
+// too, each once, first to last (ADR 0032). Those whose main category it
+// is, and those also shown in it (part 15A).
 export const productOrderSchema = z.object({
   categoryId,
   ids: z

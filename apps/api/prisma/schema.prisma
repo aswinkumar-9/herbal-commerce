@@ -214,6 +214,8 @@ model Category {
   products Product[]
   parent Category? @relation("Subcategories", fields: [parentId], references: [id], onDelete: Restrict)
   subcategories Category[] @relation("Subcategories")
+  // The products whose main category is another, also shown here.
+  otherProducts ProductCategory[]
 
   @@index([parentId])
   @@map("categories")
@@ -283,6 +285,8 @@ model Product {
   brand    Brand?           @relation(fields: [brandId], references: [id], onDelete: Restrict)
   variants ProductVariant[]
   images   ProductImage[]
+  // The other categories it is also shown in (part 15A).
+  otherCategories ProductCategory[]
 
   @@index([categoryId])
   @@index([brandId])
@@ -293,6 +297,25 @@ model Product {
   @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_summary_trgm_idx")
   @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_description_trgm_idx")
   @@map("products")
+}
+
+// A product also shown in a category other than its main one (part 15A).
+// Its main category stays Product.categoryId: reports count each sale
+// once, there. Deleting the product takes these with it; a category that
+// still shows other products can't be deleted.
+model ProductCategory {
+  productId  String   @db.Uuid
+  categoryId String   @db.Uuid
+  // Its place among the category's products, like Product.position.
+  position   Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@id([productId, categoryId])
+  @@index([categoryId])
+  @@map("product_categories")
 }
 
 

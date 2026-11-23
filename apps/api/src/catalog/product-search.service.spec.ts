@@ -78,12 +78,8 @@ describe('ProductSearchService.search', () => {
       where: {
         isActive: true,
         category: {
-          AND: [
-            {
-              isActive: true,
-              OR: [{ parentId: null }, { parent: { isActive: true } }],
-            },
-          ],
+          isActive: true,
+          OR: [{ parentId: null }, { parent: { isActive: true } }],
         },
       },
       orderBy: [{ name: 'asc' }, { id: 'asc' }],
@@ -112,7 +108,7 @@ describe('ProductSearchService.search', () => {
     ]);
   });
 
-  it('filters by a category, with its subcategories, and a product type', async () => {
+  it('filters by a category, with its subcategories and the products also shown in them, and a product type', async () => {
     const { service, prisma } = setup([]);
 
     await service.search(
@@ -122,16 +118,38 @@ describe('ProductSearchService.search', () => {
     expect(prisma.product.findMany.mock.calls[0][0].where).toStrictEqual({
       isActive: true,
       category: {
-        AND: [
-          {
-            isActive: true,
-            OR: [{ parentId: null }, { parent: { isActive: true } }],
-          },
-          {
+        isActive: true,
+        OR: [{ parentId: null }, { parent: { isActive: true } }],
+      },
+      // Its main category, or another it is also shown in while that one is
+      // shown (part 15A).
+      OR: [
+        {
+          category: {
             OR: [{ slug: 'herbal-teas' }, { parent: { slug: 'herbal-teas' } }],
           },
-        ],
-      },
+        },
+        {
+          otherCategories: {
+            some: {
+              category: {
+                AND: [
+                  {
+                    isActive: true,
+                    OR: [{ parentId: null }, { parent: { isActive: true } }],
+                  },
+                  {
+                    OR: [
+                      { slug: 'herbal-teas' },
+                      { parent: { slug: 'herbal-teas' } },
+                    ],
+                  },
+                ],
+              },
+            },
+          },
+        },
+      ],
       type: 'AYURVEDIC_MEDICINE',
     });
   });

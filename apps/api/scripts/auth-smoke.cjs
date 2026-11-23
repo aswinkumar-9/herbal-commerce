@@ -1018,6 +1018,7 @@ async function main() {
     ['GET', '/v1/staff/products'],
     ['GET', '/v1/staff/products?q=ashwa'],
     ['GET', `/v1/staff/products/${anyId}`],
+    ['GET', `/v1/staff/products/order?categoryId=${anyId}`],
     ['PUT', '/v1/staff/products/order', { categoryId: anyId, ids: [anyId] }],
     ['POST', '/v1/staff/products', { categoryId: anyId, name: 'Smoke Product' }],
     ['PATCH', `/v1/staff/products/${anyId}`, { name: 'Smoke Product' }],
