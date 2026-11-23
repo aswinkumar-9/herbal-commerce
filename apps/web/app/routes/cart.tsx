@@ -14,7 +14,11 @@ import { getConfig } from '../config.server.ts';
 import { BusyButton } from '../components/BusyButton.tsx';
 import { EmptyState } from '../components/EmptyState.tsx';
 import { FormAlert } from '../components/FormPage.tsx';
-import { GOLD_PILL, OUTLINE_PILL } from '../components/pills.ts';
+import {
+  GOLD_PILL,
+  GOLD_PILL_LARGE,
+  OUTLINE_PILL,
+} from '../components/pills.ts';
 import { given } from '../form-checks.server.ts';
 import { pageTitle } from '../page-title.ts';
 import { MOST_PACKS, packName } from '../packs.ts';
@@ -211,6 +215,7 @@ export default function CartPage({
             packs={cart.packs}
             subtotal={cart.subtotalRupees}
             mrpTotal={cart.mrpTotalRupees}
+            ready={cart.items.every((line) => line.status === 'AVAILABLE')}
           />
         </div>
       )}
@@ -346,10 +351,13 @@ function Summary({
   packs,
   subtotal,
   mrpTotal,
+  ready,
 }: {
   packs: number;
   subtotal: number;
   mrpTotal: number;
+  // Every line can be bought: the API orders the whole cart, or nothing.
+  ready: boolean;
 }) {
   const saving = mrpTotal - subtotal;
   return (
@@ -383,6 +391,17 @@ function Summary({
       </dl>
       <p className="caption-2 text-ink-muted">{words.summary.delivery}</p>
       <p className="caption-2 text-ink-muted">{words.summary.gst}</p>
+      {ready ? (
+        <Link
+          prefetch="intent"
+          to="/checkout"
+          className={`${GOLD_PILL_LARGE} w-full`}
+        >
+          {words.summary.checkout}
+        </Link>
+      ) : (
+        <p className="body-5 text-ink">{words.summary.fixFirst}</p>
+      )}
     </section>
   );
 }

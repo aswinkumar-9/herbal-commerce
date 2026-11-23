@@ -284,6 +284,10 @@ export const text = {
       delivery:
         'Delivery is free on orders of ₹499 or more, and ₹49 below that. Checkout adds it.',
       gst: 'Prices include GST.',
+      checkout: 'Go to checkout',
+      // While a line can't be bought: the API would refuse the order.
+      fixFirst:
+        'Remove the packs that can’t be bought now, and you can check out.',
     },
     saved: {
       packs: (which: string, packs: string) => `${which}: now ${packs}.`,
@@ -296,6 +300,68 @@ export const text = {
       resting:
         'We could not change your cart just now. Please try again in a minute.',
     },
+  },
+  // Checkout (part 14C, ADR 0042): where it goes, what it costs as the API
+  // prices it, and placing the order.
+  checkout: {
+    title: 'Checkout',
+    description: 'Choose where your order goes, and place it.',
+    address: {
+      title: 'Delivery address',
+      add: 'Add an address',
+      none: 'Add a delivery address, and your order can go there.',
+      phone: (phone: string) => `Phone ${phone}`,
+    },
+    order: {
+      title: 'Your order',
+      packs: (count: number, price: string) =>
+        count === 1 ? `1 pack at ${price}` : `${count} packs at ${price} each`,
+      items: 'Items',
+      delivery: 'Delivery',
+      free: 'Free',
+      total: 'Total',
+      gst: (amount: string) =>
+        `Prices include GST: ${amount} of the items is GST.`,
+    },
+    place: 'Place order',
+    placing: 'Placing your order',
+    hold: 'Placing it holds your packs for 15 minutes while you pay.',
+    back: 'Back to your cart',
+    backToCheckout: 'Back to checkout',
+    problems: {
+      empty: 'Your cart is empty, so there is nothing to order.',
+      unavailable:
+        'Some packs in your cart can’t be ordered now. Change or remove them in your cart first.',
+      changed:
+        'The total has changed since this page opened. Please check the new total, then place your order again.',
+      tooMany:
+        'You have 3 orders waiting for payment. Pay for one first, or wait: an order not paid within 15 minutes ends by itself.',
+      stock:
+        'Some packs ran out while you were here. Please change them in your cart.',
+      address: 'That address is no longer saved. Please choose another.',
+      resting:
+        'We could not place your order just now. Please try again in a minute.',
+    },
+  },
+  // One of the customer's orders (part 14C). Its history, the list of all
+  // of them and cancelling come with part 14D.
+  order: {
+    title: (reference: string) => `Order ${reference}`,
+    description: 'Your Herbal Commerce order.',
+    reference: 'Quote this reference if you contact us.',
+    status: {
+      PENDING_PAYMENT: (until: string) =>
+        `Waiting for payment. Your packs are held until ${until}.`,
+      PAID: 'Paid. We will pack it next.',
+      PACKED: 'Packed, and ready for the courier.',
+      SHIPPED: 'On its way with the courier.',
+      DELIVERED: 'Delivered.',
+      CANCELLED: 'Cancelled.',
+      EXPIRED:
+        'Not paid in time, so it was not sent. Its packs went back on sale.',
+    },
+    items: 'What you ordered',
+    deliverTo: 'Delivering to',
   },
   // Signing in (part 14B, ADR 0041). One answer for a wrong email or
   // password, as the API gives (ADR 0007).

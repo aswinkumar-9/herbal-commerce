@@ -18,6 +18,7 @@ export async function askAsCustomer<T>(
     method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE';
     path: string;
     body?: unknown;
+    idempotencyKey?: string;
   },
   schema: z.ZodType<T>,
 ): Promise<ApiAnswer<T>> {

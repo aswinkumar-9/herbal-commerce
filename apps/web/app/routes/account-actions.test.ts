@@ -408,7 +408,11 @@ describe('adding an address', () => {
   it('knows how many there are, for the first one and the tenth', async () => {
     fetchMock.mockResolvedValue(answer(200, { addresses: [HOME, OFFICE] }));
     const { result } = call(newLoader as Run, '/account/addresses/new');
-    expect((await result).data).toEqual({ count: 2, origin: SITE });
+    expect((await result).data).toEqual({
+      count: 2,
+      fromCheckout: false,
+      origin: SITE,
+    });
   });
 
   it('sends the address as the API keeps it, and goes back to the account', async () => {

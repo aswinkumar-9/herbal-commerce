@@ -1,6 +1,7 @@
 import { Link, data, redirect } from 'react-router';
 import { z } from 'zod';
 import {
+  ADDRESS_ID,
   addressesSchema,
   askAsCustomer,
   dataOrUnavailable,
@@ -28,9 +29,14 @@ import { text } from '../text/en.ts';
 import type { Route } from './+types/address-new';
 
 // Adding a delivery address (part 14B). The first one is the default; a
-// later one when the customer ticks it. The API keeps at most 10.
+// later one when the customer ticks it. The API keeps at most 10. From
+// checkout (?then=checkout, part 14C), it goes back there with the new
+// address chosen.
 const words = text.address;
 const MOST = 10;
+const fromCheckout = (request: Request): boolean =>
+  new URL(request.url).searchParams.get('then') === 'checkout';
+const savedSchema = z.object({ id: z.string().regex(ADDRESS_ID) });
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const addresses = dataOrUnavailable(
@@ -41,7 +47,11 @@ export async function loader({ request, context }: Route.LoaderArgs) {
       addressesSchema,
     ),
   );
-  return { count: addresses.length, origin: getConfig().origin };
+  return {
+    count: addresses.length,
+    fromCheckout: fromCheckout(request),
+    origin: getConfig().origin,
+  };
 }
 
 export async function action({ request, context }: Route.ActionArgs) {
@@ -60,10 +70,14 @@ export async function action({ request, context }: Route.ActionArgs) {
       path: 'me/addresses',
       body: { ...forApi(typed), ...(isDefault ? { isDefault: true } : {}) },
     },
-    z.unknown(),
+    savedSchema,
   );
   if (answer.ok) {
-    throw redirect('/account?saved=added');
+    throw redirect(
+      fromCheckout(request)
+        ? `/checkout?address=${answer.data.id}`
+        : '/account?saved=added',
+    );
   }
   if (answer.status === 409) {
     return refuse(typed, isDefault, { form: words.full }, 409);
@@ -125,8 +139,12 @@ export default function NewAddress({
         />
       )}
       <p className="body-6">
-        <Link prefetch="intent" to="/account" className={TEXT_LINK}>
-          {words.back}
+        <Link
+          prefetch="intent"
+          to={loaderData.fromCheckout ? '/checkout' : '/account'}
+          className={TEXT_LINK}
+        >
+          {loaderData.fromCheckout ? text.checkout.backToCheckout : words.back}
         </Link>
       </p>
     </FormPage>
