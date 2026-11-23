@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.29.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.30.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -952,6 +952,11 @@ Customers pay through Razorpay (ADR 0027). These two endpoints need a **customer
    - `currency`: `INR`.
 3. **When the page says the customer paid,** it gives `razorpay_payment_id`, `razorpay_order_id` and `razorpay_signature`. Send the first and the last to `POST /v1/me/orders/:id/payment/confirm`. The answer is the order as it is now.
 4. **If the app closes before confirming,** nothing is lost: Razorpay tells the API with a webhook, and the API also asks Razorpay before an order expires. Show the order again (`GET /v1/me/orders/:id`) when the customer comes back.
+
+**On a website, Razorpay's own page** (its Hosted Checkout) can take the place of `checkout.js`, as the customer website does (ADR 0042):
+- **The page sends a form** to `https://api.razorpay.com/v1/checkout/embedded` (`POST`) with `key_id` (`razorpayKeyId`), `order_id` (`razorpayOrderId`), `amount` (**`totalRupees` × 100**), `currency` (`INR`), `name`, `prefill[email]`, `prefill[contact]`, `callback_url` and, if wanted, `description` and `cancel_url`.
+- **Razorpay sends the customer back** to `callback_url` with a form of its own: `razorpay_payment_id`, `razorpay_order_id` and `razorpay_signature` when paid, its error fields when not. Send the first and the last to `POST /v1/me/orders/:id/payment/confirm`, as in step 3. Leaving Razorpay's page goes to `cancel_url`, with a plain `GET`.
+- **That form comes from Razorpay's site,** so a `SameSite` cookie doesn't come with it: confirm from the page the browser opens next, with the customer's session.
 
 **The API decides only on Razorpay's word.** It asks Razorpay about every payment, and only a captured payment for the order's amount counts:
 
