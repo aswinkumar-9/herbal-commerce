@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import type { Address } from '../address.ts';
 import type { Cart } from '../cart.server.ts';
+import { historyOf } from '../orders.server.ts';
 import type { Checkout, Order } from '../orders.server.ts';
 import { renderPage } from '../test/render.tsx';
 import CartPage from './cart.tsx';
@@ -215,6 +216,7 @@ function openOrder(order: Order = ORDER) {
     Component: OrderPage as never,
     loader: () => ({
       order,
+      history: historyOf(order),
       holdUntil: '8:27 pm',
       origin: 'https://shop.example.com',
     }),

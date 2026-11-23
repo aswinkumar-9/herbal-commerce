@@ -1,6 +1,7 @@
 import { act, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, describe, expect, it } from 'vitest';
+import { historyOf } from '../orders.server.ts';
 import type { Order } from '../orders.server.ts';
 import { checkoutFields } from '../razorpay.ts';
 import { renderPage } from '../test/render.tsx';
@@ -78,6 +79,7 @@ function openOrder(
     Component: OrderPage as never,
     loader: () => ({
       order: ORDER,
+      history: historyOf(given.order ?? ORDER),
       holdUntil: '8:27 pm',
       pay: PAY,
       payProblem: null,

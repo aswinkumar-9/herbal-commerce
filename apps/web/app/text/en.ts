@@ -396,6 +396,30 @@ export const text = {
     },
     items: 'What you ordered',
     deliverTo: 'Delivering to',
+    // Its history, step by step (part 14D), and the courier once shipped.
+    history: {
+      heading: 'History',
+      steps: {
+        placed: 'Placed',
+        paid: 'Paid',
+        packed: 'Packed',
+        shipped: 'Shipped',
+        delivered: 'Delivered',
+        cancelled: 'Cancelled',
+        expired: 'Not paid in time',
+      },
+      notYet: 'Not yet',
+      courier: 'Courier',
+      tracking: 'Tracking number',
+      trackingHint: 'Use it on the courier’s website to follow your parcel.',
+      copy: 'Copy',
+      copied: 'Copied',
+      // The button read out, starting with the word it shows.
+      copyFull: 'Copy tracking number',
+      copiedFull: 'Copied tracking number',
+      saidCopied: 'Tracking number copied.',
+      notCopied: 'Could not copy it. Select the number to copy it yourself.',
+    },
     // Paying on Razorpay's own page (ADR 0042).
     pay: {
       button: (amount: string) => `Pay ${amount}`,

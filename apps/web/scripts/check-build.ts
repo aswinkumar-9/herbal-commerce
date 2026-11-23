@@ -623,6 +623,15 @@ async function checkPaying(session: string): Promise<void> {
       problems.push(`${where} the order's page has no ${field}`);
     }
   }
+  // Its history (part 14D): placed, with when, then the steps to come.
+  if (
+    !html.includes('id="history-heading"') ||
+    !html.includes(`<time dateTime="${ORDER.createdAt}"`) ||
+    !html.includes('7 Nov 2026, 8:12 pm') ||
+    !html.includes('Not yet')
+  ) {
+    problems.push(`${where} the order's page has no history`);
+  }
   if (!policy.includes("form-action 'self' https://api.razorpay.com;")) {
     problems.push(
       `${where} the page's policy keeps forms from Razorpay's page`,

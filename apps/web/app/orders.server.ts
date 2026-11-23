@@ -297,3 +297,69 @@ const DATE_IN_INDIA = new Intl.DateTimeFormat('en-IN', {
 });
 export const dateInIndia = (iso: string): string =>
   DATE_IN_INDIA.format(new Date(iso));
+
+// Both: 7 Nov 2026, 3:12 pm.
+export const whenInIndia = (iso: string): string =>
+  `${dateInIndia(iso)}, ${timeInIndia(iso)}`;
+
+// An order's history (part 14D): each step it has taken, with when, then
+// those still to come. An order that ended, cancelled or not paid in time,
+// shows the steps it took before, then how it ended. The API keeps no time
+// for a cancel, so that step has none (owner, 2026-11-23).
+export type StepName =
+  | 'placed'
+  | 'paid'
+  | 'packed'
+  | 'shipped'
+  | 'delivered'
+  | 'cancelled'
+  | 'expired';
+export type HistoryStep = {
+  step: StepName;
+  done: boolean;
+  at: string | null;
+  when: string | null;
+};
+
+const ON_ITS_WAY = [
+  'PENDING_PAYMENT',
+  'PAID',
+  'PACKED',
+  'SHIPPED',
+  'DELIVERED',
+];
+
+export function historyOf(order: Order): HistoryStep[] {
+  const paidAt = order.payment?.paidAt ?? null;
+  // A step is done once it has a time, or the order is past it.
+  const reached = ON_ITS_WAY.indexOf(order.status);
+  const step = (
+    name: StepName,
+    at: string | null,
+    rank = Number.POSITIVE_INFINITY,
+  ): HistoryStep => ({
+    step: name,
+    done: at !== null || reached >= rank,
+    at,
+    when: at === null ? null : whenInIndia(at),
+  });
+  const placed = step('placed', order.createdAt);
+  if (order.status === 'CANCELLED' || order.status === 'EXPIRED') {
+    const before = [
+      step('paid', paidAt),
+      step('packed', order.packedAt),
+    ].filter((taken) => taken.done);
+    const end =
+      order.status === 'CANCELLED'
+        ? { step: 'cancelled' as const, done: true, at: null, when: null }
+        : step('expired', order.holdExpiresAt);
+    return [placed, ...before, end];
+  }
+  return [
+    placed,
+    step('paid', paidAt, 1),
+    step('packed', order.packedAt, 2),
+    step('shipped', order.shippedAt, 3),
+    step('delivered', order.deliveredAt, 4),
+  ];
+}
