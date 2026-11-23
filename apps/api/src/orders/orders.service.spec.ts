@@ -484,7 +484,7 @@ describe('OrdersService.view', () => {
 });
 
 describe('OrdersService.list', () => {
-  const summary = (id: string) => ({
+  const fields = (id: string) => ({
     id,
     reference: '7KQ2M9XDPA',
     status: 'PENDING_PAYMENT',
@@ -492,13 +492,22 @@ describe('OrdersService.list', () => {
     holdExpiresAt: NOW,
     createdAt: NOW,
   });
+  const row = (id: string, ...products: string[]) => ({
+    ...fields(id),
+    items: products.map((productName) => ({ productName })),
+  });
+  const summary = (
+    id: string,
+    firstProductName: string | null = 'Ashwagandha Capsules',
+    moreProducts = 0,
+  ) => ({ ...fields(id), firstProductName, moreProducts });
 
   it("lists the customer's own orders, the newest first, one page at a time", async () => {
     const { orders, prisma } = setup();
     prisma.order.findMany.mockResolvedValue([
-      summary('o-3'),
-      summary('o-2'),
-      summary('o-1'),
+      row('o-3', 'Ashwagandha Capsules'),
+      row('o-2', 'Ashwagandha Capsules'),
+      row('o-1', 'Ashwagandha Capsules'),
     ]);
 
     await expect(
@@ -520,15 +529,35 @@ describe('OrdersService.list', () => {
         totalRupees: true,
         holdExpiresAt: true,
         createdAt: true,
+        items: { orderBy: { position: 'asc' }, select: { productName: true } },
       },
     });
 
-    prisma.order.findMany.mockResolvedValue([summary('o-1')]);
+    prisma.order.findMany.mockResolvedValue([row('o-1', 'Tulsi Drops')]);
     await expect(orders.list(USER, { limit: 20 })).resolves.toEqual({
-      orders: [summary('o-1')],
+      orders: [summary('o-1', 'Tulsi Drops')],
       nextBefore: null,
     });
     expect(prisma.order.findMany.mock.calls[1][0]).not.toHaveProperty('cursor');
+  });
+
+  it("names the first line's product and counts the other products, two sizes of one product as one", async () => {
+    const { orders, prisma } = setup();
+    prisma.order.findMany.mockResolvedValue([
+      row(
+        'o-2',
+        'Tulsi Drops',
+        'Ashwagandha Capsules',
+        'Tulsi Drops',
+        'Neem Soap',
+      ),
+      row('o-1'),
+    ]);
+
+    await expect(orders.list(USER, { limit: 20 })).resolves.toEqual({
+      orders: [summary('o-2', 'Tulsi Drops', 2), summary('o-1', null, 0)],
+      nextBefore: null,
+    });
   });
 });
 
