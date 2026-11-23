@@ -193,7 +193,7 @@ describe('a policy page in the console', () => {
     await user.click(await screen.findByRole('button', { name: 'Publish' }));
     expect(dialog()).toHaveTextContent('Publish the privacy policy?');
     expect(dialog()).toHaveTextContent(
-      'Customers see the saved draft at once, as version 3.',
+      'Customers see the saved draft within a minute, as version 3.',
     );
     expect(dialog()).toHaveTextContent(
       'Version 2, on the website now, stays in the list of versions.',

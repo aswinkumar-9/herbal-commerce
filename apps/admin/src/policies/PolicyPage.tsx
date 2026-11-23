@@ -371,7 +371,8 @@ function PolicyEditor({
         description={
           <>
             <p>
-              Customers see the saved draft at once, as version {nextVersion}.
+              Customers see the saved draft within a minute, as version{' '}
+              {nextVersion}.
             </p>
             {detail.published ? (
               <p>
