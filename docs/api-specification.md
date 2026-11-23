@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.28.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.29.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -601,6 +601,33 @@ Errors: `404 Product not found` (no live product with this slug: unknown, a draf
 - `Cross-Origin-Resource-Policy: cross-origin`: other sites, such as the shop's website, may show the files.
 - Files only. A folder, a hidden file, a path that leads out of the folder, or a file that does not exist answers `404`. Like every address outside `/v1`, that `404` is a plain HTML page, not JSON.
 - No rate limit on a laptop: these files are served before the API's guards. A CDN takes this job before production.
+
+## Policy pages
+
+### GET `/v1/policies/:page`
+
+**Public.** A policy page as the website shows it: the newest version a Super User published (ADR 0040). `:page` is `privacy`, `terms`, `refunds`, `shipping` or `contact`.
+
+Response `200`:
+```json
+{
+  "page": "privacy",
+  "version": 3,
+  "body": "We keep only what we need to send your order.\n\n## What we keep\n\n- Your name and email address\n- Your delivery addresses",
+  "publishedAt": "2026-11-21T10:42:07.512Z"
+}
+```
+- `body` is plain text, never HTML. Read it with its three marks: a blank line between paragraphs (a single line break stays one), a line starting `## ` is a heading, and a line starting `- ` or `• ` is an item of a list. Anything else, `<b>` too, is text to show as written. `packages/design/src/text-marks.ts` reads it.
+- At most 30,000 characters, with Unix line ends.
+- Who published it is not shown.
+
+Errors:
+
+| Status | `message` | When |
+|---|---|---|
+| `404` | `This page has not been published yet` | A known page with no version yet. The website says it is still being written |
+| `404` | `Policy page not found` | Any other word |
+| `429` | | The 600 per minute limit |
 
 ## Cart
 
@@ -2519,7 +2546,7 @@ Query parameters, all optional:
 | `limit` | Whole number, 1 to 100, default 50 | Entries per page |
 | `before` | UUID | The `nextBefore` of the previous page: continue just after it |
 | `action` | Like `thing.verb`, for example `admin.removed` | Only this action |
-| `kind` | `accounts`, `sign_ins`, `orders`, `catalog` or `stock`, else `Use accounts, sign_ins, orders, catalog or stock` | Only one kind of change (since part 12G, ADR 0038): `accounts` is every `admin.` action, `super_user.created` and `staff.mfa_set_up`; `sign_ins` is `staff.signed_in`; `orders` every `order.` action; `catalog` every `category.`, `product.`, `variant.` and `image.` action; `stock` every `batch.` and `stock.` action |
+| `kind` | `accounts`, `sign_ins`, `orders`, `catalog`, `stock` or `policies`, else `Use accounts, sign_ins, orders, catalog, stock or policies` | Only one kind of change (since part 12G, ADR 0038): `accounts` is every `admin.` action, `super_user.created` and `staff.mfa_set_up`; `sign_ins` is `staff.signed_in`; `orders` every `order.` action; `catalog` every `category.`, `product.`, `variant.` and `image.` action; `stock` every `batch.` and `stock.` action; since part 14B, `policies` every `policy.` action |
 | `actorId` | UUID | Only what this account did |
 | `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's, a category's, a product's, a pack's, an image's, a batch's or an order's ID |
 
@@ -2554,7 +2581,7 @@ Response `200`:
 - `before` and `after`: the relevant fields before and after the change, never a password, secret or token.
 - `nextBefore`: send it as `?before=` to get the next, older page. It is `null` on the last page.
 
-Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way, since part 4C `variant.created`, `variant.updated` and `variant.deleted` for pack sizes, since part 4D `image.created`, `image.updated` and `image.deleted` for product images, since part 5 `batch.received`, `batch.updated` and `stock.changed` for stock (with the quantity before and after, the change, the reason and the note), and since part 9 `order.packed`, `order.shipped` (with the courier and tracking number), `order.delivered`, `order.shipment_corrected` (with only the fields that changed) and `order.cancelled` (with the status before, and the refund's ID for a paid order) for orders, and since part 12G `admin.authenticator_reset` (with when the new link ends) and `order.refund_given_back` (on the order, with the refund's ID, the amount, the time and the note). Since part 12G, an Admin who sets up their app from an emailed link writes `staff.mfa_set_up` as the actor. A price change is a `variant.updated` with the old and new price. A `product.deleted` entry also keeps the product's packs and images, in `before.variants` and `before.images`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
+Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way, since part 4C `variant.created`, `variant.updated` and `variant.deleted` for pack sizes, since part 4D `image.created`, `image.updated` and `image.deleted` for product images, since part 5 `batch.received`, `batch.updated` and `stock.changed` for stock (with the quantity before and after, the change, the reason and the note), and since part 9 `order.packed`, `order.shipped` (with the courier and tracking number), `order.delivered`, `order.shipment_corrected` (with only the fields that changed) and `order.cancelled` (with the status before, and the refund's ID for a paid order) for orders, and since part 12G `admin.authenticator_reset` (with when the new link ends) and `order.refund_given_back` (on the order, with the refund's ID, the amount, the time and the note), and since part 14B `policy.draft_saved`, `policy.draft_discarded` and `policy.published` (see "Policy pages (Super Users only)"). Since part 12G, an Admin who sets up their app from an emailed link writes `staff.mfa_set_up` as the actor. A price change is a `variant.updated` with the old and new price. A `product.deleted` entry also keeps the product's packs and images, in `before.variants` and `before.images`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
 
 Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` and `403` (as for the Admin endpoints); `429` (the 600 per minute limit).
 
@@ -2562,6 +2589,97 @@ Rules for clients:
 - **Page with `nextBefore`, never by counting.** New entries arrive at the top all the time, and the cursor keeps the pages stable.
 - An unknown `before` gives an empty page.
 
+## Policy pages (Super Users only)
+
+Super Users write the five policy pages in the console: a draft only they see, then Publish, which adds a version customers see (ADR 0040). Every endpoint needs a **Super User's** staff access token: an Admin gets `403 Only a Super User may do this.` `:page` is `privacy`, `terms`, `refunds`, `shipping` or `contact`; any other word answers `404 Policy page not found`.
+
+**The revision.** Each page has a `revision`, 0 until its first change, which goes up by one with every save, discard and publish. Each change names the revision it was made on. If the page changed meanwhile, the API answers `409 This page was saved, published or discarded since you opened it. Open it again to see the newest text.` and changes nothing, so a Super User never overwrites another's work unseen.
+
+### GET `/v1/staff/policies`
+
+The five pages, in the website's order, without their texts.
+
+Response `200`:
+```json
+{
+  "pages": [
+    {
+      "page": "privacy",
+      "revision": 4,
+      "draft": { "updatedAt": "2026-11-21T11:02:44.091Z", "updatedBy": { "id": "5d1e8c2a-7b3f-4e9a-a1c6-2f8d0b4e7a93", "fullName": "Dev Super One" } },
+      "published": { "version": 1, "publishedAt": "2026-11-21T10:42:07.512Z", "publishedBy": { "id": "5d1e8c2a-7b3f-4e9a-a1c6-2f8d0b4e7a93", "fullName": "Dev Super One" } }
+    }
+  ]
+}
+```
+`draft` and `published` are `null` when the page has none.
+
+### GET `/v1/staff/policies/:page`
+
+One page, with both texts: `{ "page", "revision", "draft": { "body", "updatedAt", "updatedBy" } | null, "published": { "version", "body", "publishedAt", "publishedBy" } | null }`.
+
+### PUT `/v1/staff/policies/:page/draft`
+
+Saves the draft.
+
+Request:
+```json
+{ "body": "We keep only what we need…", "revision": 4 }
+```
+Rules:
+- `body`: line ends made Unix ones, spaces and blank lines trimmed from both ends. Then 1 to 30,000 characters, else `Write the page first` or `A page holds at most 30,000 characters`. No control characters other than tab and line end, else `The text has hidden control characters: paste it as plain text`.
+- `revision`: the page's revision when the text was opened, a whole number from 0.
+
+Response `200`: the page, as `GET /v1/staff/policies/:page`, with its new revision. Saving the same text again changes nothing, not even the revision.
+
+### DELETE `/v1/staff/policies/:page/draft?revision=5`
+
+Discards the draft. The text on the website stays. Response `200`: the page, with `draft: null`.
+
+### POST `/v1/staff/policies/:page/publish`
+
+Puts the saved draft on the website as the next version, numbered 1, 2, 3 … with no gaps, and clears the draft.
+
+Request:
+```json
+{ "revision": 5 }
+```
+The revision the Super User previewed, so exactly that text goes live. Response `200`: the page, with the new version in `published` and `draft: null`.
+
+- `409 There is no draft to publish.` without a draft.
+- `409 Nothing to publish: the draft is the same as the text on the website.`
+- The website keeps the API's answers for up to a minute (ADR 0039): customers see the new version within a minute.
+
+### GET `/v1/staff/policies/:page/versions`
+
+The versions customers were shown, **newest first, one page at a time** (since part 14B), without their texts.
+
+Query parameters, both optional:
+
+| Parameter | Rules | Meaning |
+|---|---|---|
+| `limit` | Whole number, 1 to 100, default 20 | Versions per page |
+| `before` | Whole number from 1 | The `nextBefore` of the previous page: continue with the versions below it |
+
+Response `200`:
+```json
+{
+  "versions": [
+    { "version": 3, "publishedAt": "2026-11-22T09:15:30.004Z", "publishedBy": { "id": "5d1e8c2a-7b3f-4e9a-a1c6-2f8d0b4e7a93", "fullName": "Dev Super One" } }
+  ],
+  "nextBefore": null
+}
+```
+`nextBefore` is `null` on the last page. Any other parameter is ignored.
+
+### GET `/v1/staff/policies/:page/versions/:version`
+
+One version, with its text: `{ "page", "version", "body", "publishedAt", "publishedBy" }`. `404 Version not found` for one that doesn't exist; a version that isn't a whole number from 1 is `400`.
+
+**The audit log** gets `policy.draft_saved`, `policy.draft_discarded` and `policy.published`, about the page (`targetType` `policy_page`, `targetId` the page's word), with the revision before and after, the version, and the number of characters, never the text. Reading is not audited. **The database holds the rules too:** only a Super User saves or publishes, a revision only goes forward, and a version is never changed or deleted.
+
+Errors for all of them: `400 Validation failed` (a bad body or parameter, named in `errors`); `401`; `403 Only a Super User may do this.`; `404 Policy page not found`; `409` as above; `429` (the 600 per minute limit).
+
 ## Not yet implemented
 
-Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of the catalog: search. Of orders: GST invoices, emails about them and their payments, returns and their refunds, and a courier integration. Of stock: a list of batches near their expiry. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0028 and `docs/security.md`.
+Changing the email address, a verified phone number, deleting an account, a list of active sessions, and staff password changes. Of orders: GST invoices, emails about them and their payments, returns and their refunds, and a courier integration. Of stock: a list of batches near their expiry. Image files from object storage behind a CDN, before production. See `docs/requirements.md`, ADR 0007, ADR 0014 to ADR 0028 and `docs/security.md`.

@@ -96,9 +96,20 @@ What a customer searches for in this shop may tell of their health, such as "pil
 - the request log writes the address with `q=[REDACTED]` (`withoutSearchWords` in `logging/logger.config.ts`), and the parsed query's `q` is redacted too;
 - the search never stores the words, and its errors never repeat them.
 
+### Searches kept for a minute (since part 14B)
+
+Every page, sort and price filter of a search asked steps 1 and 2 again: the trigram matches and up to 500 products with their packs and photos, the costliest reads in the shop. So since part 14B (`catalog/search-cache.ts`):
+- **What is kept:** only the matches and the products read for a search's words, category and type, for at most 60 seconds, the 100 asked most recently. The stock (step 3) is asked again for every request, so "in stock" is never stale. The price filter, the order and the page are worked out each time from what was kept.
+- **Forgotten at once when staff change the catalog:** any change through the staff routes for categories, products, pack sizes or images forgets every kept search (`CatalogChanged`), even a change that failed. A search that began before a change is not kept.
+- **Asked once:** two customers making the same search at the same moment share one read.
+- **Never a failure:** a read that failed is not kept, and the next request asks again.
+- **The words stay in the API's memory, for a minute at most:** they are never written anywhere, as above.
+- **In this process only.** One API process runs today. With more, each would keep its own searches, and a change made through one would be forgotten only there, so another might answer from the old catalog for up to a minute. Moving it to Valkey fixes that, when a second process comes.
+
 ## Alternatives considered
 
 - **PostgreSQL full-text search** (`tsvector`), as the requirements first said. Rejected for now: it finds whole words and their stems, such as "teas" for "tea", but neither parts of words nor typos, which the owner chose. It could be added beside trigrams later, if stems are missed.
+- **Keeping searches in Valkey** rather than in the API's memory (part 14B): shared by every API process, but each kept search written out and read back, and the words written to another service. Not while one process runs.
 - **A search engine,** such as Meilisearch, Typesense or OpenSearch. Not now: it would be another service to run, secure and keep in step with the database, and the requirements defer it. Revisit when the catalog or the traffic outgrows PostgreSQL.
 - **Searching the ingredients, the usage or the maker.** Not chosen by the owner.
 - **An "in stock only" filter, or hiding out-of-stock products.** Not chosen by the owner: they come last, marked.
@@ -127,6 +138,7 @@ What a customer searches for in this shop may tell of their health, such as "pil
     Each new check was broken on purpose too, and failed.
   - **By hand, on 2026-11-11,** on the development API: "ashwa" found Ashwagandha Capsules, and a 1-letter search, relevance without words, and a lowest price above the highest were each refused with their message. That the log hides the words is checked by the unit tests.
 - **Results can shift between pages** if stock or prices change between two requests. That is acceptable for a search.
+- **Since part 14B, a search is kept for up to a minute** (above): a change made outside the staff routes, such as a migration or a fix in the database by hand, shows in searches only after that minute. The tests: 6 more for the search, 2 for the kept searches, and 4 for forgetting them on all four staff routes; 3 deliberate breaks, all caught.
 - **Up to 500 products are weighed per search,** so a shop with more live products than that needs this revisited first.
 - **`pg_trgm` must be available** on the production database. It ships with PostgreSQL, and is "trusted", so the database's owner can add it without being a superuser.
 - **Lessons:**
@@ -138,5 +150,5 @@ What a customer searches for in this shop may tell of their health, such as "pil
   - Hindi and other scripts, accents and synonyms;
   - suggestions as the customer types, and "did you mean";
   - searching inside a category's page, and showing the category on each search card;
-  - the website and apps that use the search;
+  - the apps that use the search (the website does since part 14A, ADR 0039);
   - a search engine, when the catalog grows.
