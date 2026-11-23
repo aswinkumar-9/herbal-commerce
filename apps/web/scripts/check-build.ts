@@ -181,6 +181,16 @@ const answers: Record<string, unknown> = {
   },
   '/v1/me/orders': ORDER,
   [`/v1/me/orders/${ORDER_ID}`]: ORDER,
+  // Paying on Razorpay's page: the Razorpay order the API made, and the
+  // order once the payment is confirmed.
+  [`/v1/me/orders/${ORDER_ID}/payment`]: {
+    reference: ORDER.reference,
+    totalRupees: 489,
+    holdExpiresAt: ORDER.holdExpiresAt,
+    razorpayKeyId: 'rzp_test_ABCDEFGHijkl01',
+    razorpayOrderId: 'order_RB58MiP5SPFYyM',
+  },
+  [`/v1/me/orders/${ORDER_ID}/payment/confirm`]: { ...ORDER, status: 'PAID' },
   '/v1/auth/register': { message: 'If this email address can be used…' },
   // Only the privacy policy is published; the rest answer 404.
   '/v1/policies/privacy': {
@@ -194,17 +204,26 @@ const answers: Record<string, unknown> = {
 const asked: string[] = [];
 // The Idempotency-Key each order was placed with.
 const orderKeys: string[] = [];
+// What each payment confirmation sent.
+const confirmations: string[] = [];
 const api = createServer((request, response) => {
-  const path = new URL(request.url ?? '/', 'http://x').pathname;
-  asked.push(`${request.method} ${path}`);
-  if (request.method === 'POST' && path === '/v1/me/orders') {
-    orderKeys.push(String(request.headers['idempotency-key'] ?? ''));
-  }
-  const body = answers[path];
-  response.writeHead(busy ? 503 : body ? 200 : 404, {
-    'content-type': 'application/json',
+  const chunks: Buffer[] = [];
+  request.on('data', (chunk: Buffer) => chunks.push(chunk));
+  request.on('end', () => {
+    const path = new URL(request.url ?? '/', 'http://x').pathname;
+    asked.push(`${request.method} ${path}`);
+    if (request.method === 'POST' && path === '/v1/me/orders') {
+      orderKeys.push(String(request.headers['idempotency-key'] ?? ''));
+    }
+    if (request.method === 'POST' && path.endsWith('/payment/confirm')) {
+      confirmations.push(Buffer.concat(chunks).toString());
+    }
+    const body = answers[path];
+    response.writeHead(busy ? 503 : body ? 200 : 404, {
+      'content-type': 'application/json',
+    });
+    response.end(JSON.stringify(busy || !body ? { message: 'x' } : body));
   });
-  response.end(JSON.stringify(busy || !body ? { message: 'x' } : body));
 });
 await new Promise<void>((resolve) => api.listen(0, '127.0.0.1', resolve));
 const apiAt = api.address();
@@ -540,6 +559,76 @@ async function checkSigningIn(): Promise<void> {
         `${where} placing an order did not go as it should (${placed.status}, key ${orderKeys.at(-1) === key ? 'sent' : 'not sent'})`,
       );
     }
+  }
+  await checkPaying(session);
+}
+
+// Paying (part 14C, ADR 0042): the order's page sends a plain form to
+// Razorpay's page, which every page's policy allows. Razorpay's answer
+// comes back as a form from its own site, without the customer's cookie;
+// the website sends it on, and the customer's own session confirms it
+// with the API, then the order shows.
+async function checkPaying(session: string): Promise<void> {
+  const where = 'paying:';
+  const page = await fetch(`${base}/orders/${ORDER_ID}`, {
+    headers: { cookie: session },
+  });
+  const html = await page.text();
+  const policy = page.headers.get('content-security-policy') ?? '';
+  for (const field of [
+    'action="https://api.razorpay.com/v1/checkout/embedded"',
+    'name="key_id" value="rzp_test_ABCDEFGHijkl01"',
+    'name="order_id" value="order_RB58MiP5SPFYyM"',
+    'name="amount" value="48900"',
+    'name="prefill[email]" value="asha@example.com"',
+    `name="callback_url" value="${base}/orders/${ORDER_ID}/payment"`,
+  ]) {
+    if (!html.includes(field)) {
+      problems.push(`${where} the order's page has no ${field}`);
+    }
+  }
+  if (!policy.includes("form-action 'self' https://api.razorpay.com;")) {
+    problems.push(
+      `${where} the page's policy keeps forms from Razorpay's page`,
+    );
+  }
+  const payment = 'pay_G3P9vcIhRs3NV4';
+  const signature = 'ab'.repeat(32);
+  const back = await fetch(`${base}/orders/${ORDER_ID}/payment`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: {
+      origin: 'https://api.razorpay.com',
+      'sec-fetch-site': 'cross-site',
+    },
+    body: new URLSearchParams({
+      razorpay_payment_id: payment,
+      razorpay_order_id: 'order_RB58MiP5SPFYyM',
+      razorpay_signature: signature,
+    }),
+  });
+  const next = back.headers.get('location') ?? '';
+  if (back.status !== 303 || !next.startsWith(`/orders/${ORDER_ID}/payment?`)) {
+    problems.push(`${where} Razorpay's answer was not taken (${back.status})`);
+    return;
+  }
+  const confirmed = await fetch(`${base}${next}`, {
+    redirect: 'manual',
+    headers: { cookie: session },
+  });
+  if (
+    confirmed.status !== 302 ||
+    confirmed.headers.get('location') !== `/orders/${ORDER_ID}` ||
+    confirmed.headers.get('cache-control') !== 'private, no-store' ||
+    confirmations.at(-1) !==
+      JSON.stringify({
+        razorpayPaymentId: payment,
+        razorpaySignature: signature,
+      })
+  ) {
+    problems.push(
+      `${where} the payment was not confirmed as it should be (${confirmed.status}, ${confirmed.headers.get('location')})`,
+    );
   }
 }
 

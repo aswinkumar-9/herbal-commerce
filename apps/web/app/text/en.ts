@@ -362,6 +362,47 @@ export const text = {
     },
     items: 'What you ordered',
     deliverTo: 'Delivering to',
+    // Paying on Razorpay's own page (ADR 0042).
+    pay: {
+      button: (amount: string) => `Pay ${amount}`,
+      opening: 'Opening Razorpay',
+      how: 'You pay on Razorpay’s page, then come back here.',
+      over: 'The time to pay for this order is over, so its packs are going back on sale. You can order them again.',
+      shop: 'Go to the shop',
+      problems: {
+        changed:
+          'This order changed a moment ago. Refresh the page to see where it stands.',
+        resting:
+          'Payments are not available right now. Please try again in a minute.',
+      },
+    },
+    // Back from Razorpay's page, when the order alone doesn't say what
+    // happened.
+    returned: {
+      cancelled: 'You left Razorpay’s page before paying. You can pay below.',
+      failed: 'The payment did not go through. You can try again below.',
+      checking:
+        'Razorpay has not confirmed your payment yet. Look at this page again in a minute, before paying again.',
+      unverified:
+        'We could not verify that payment. If it went through, this page will show it once Razorpay tells us.',
+    },
+    // A payment going back to the customer, always in full.
+    refunds: {
+      heading: 'Money going back',
+      reason: {
+        ORDER_EXPIRED:
+          'Your payment came after the time to pay was over, when there was no longer enough stock.',
+        ORDER_CANCELLED: 'Your payment came after the order was cancelled.',
+        ALREADY_PAID:
+          'This order was paid twice, so the second payment goes back.',
+        CANCELLED_BY_CUSTOMER: 'You cancelled the order.',
+        CANCELLED_BY_STAFF: 'We cancelled the order.',
+      } as Record<string, string>,
+      coming: (amount: string) => `${amount} is on its way back to you.`,
+      back: (amount: string) => `${amount} is back with you.`,
+      byHand: (amount: string) =>
+        `${amount} could not be given back by itself. Our team has been told, and gives it back by hand.`,
+    },
   },
   // Signing in (part 14B, ADR 0041). One answer for a wrong email or
   // password, as the API gives (ADR 0007).

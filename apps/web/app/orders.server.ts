@@ -6,6 +6,12 @@ import { z } from 'zod';
 import { askAsCustomer } from './account.server.ts';
 import { segment } from './api.server.ts';
 import { PACK_UNITS } from './catalog.server.ts';
+import {
+  RAZORPAY_KEY_ID,
+  RAZORPAY_ORDER_ID,
+  RAZORPAY_PAYMENT_ID,
+  RAZORPAY_SIGNATURE,
+} from './razorpay.ts';
 
 type Context = Readonly<RouterContextProvider>;
 
@@ -48,10 +54,11 @@ export const ORDER_STATUSES = [
 export type OrderStatus = (typeof ORDER_STATUSES)[number];
 
 const when = z.iso.datetime();
+// 10 letters and digits, without I, O, 0 or 1.
+const reference = z.string().regex(/^[A-HJ-NP-Z2-9]{10}$/);
 export const orderSchema = z.object({
   id: z.string().regex(UUID),
-  // 10 letters and digits, without I, O, 0 or 1.
-  reference: z.string().regex(/^[A-HJ-NP-Z2-9]{10}$/),
+  reference,
   status: z.enum(ORDER_STATUSES),
   holdExpiresAt: when,
   createdAt: when,
@@ -83,6 +90,8 @@ export const orderSchema = z.object({
           reason: z.string().max(40),
           status: z.string().max(20),
           createdAt: when,
+          // A refund Razorpay could not make, made by staff by hand.
+          givenBackAt: when.nullable().optional(),
         }),
       ),
     })
@@ -164,6 +173,64 @@ export async function readOrder(
     request,
     context,
     { method: 'GET', path: `me/orders/${segment(id)}` },
+    orderSchema,
+  );
+}
+
+// Paying for an order on Razorpay's own page (ADR 0042): what the page
+// needs, from the API. Asking again answers the same Razorpay order.
+export const paymentStartSchema = z.object({
+  reference,
+  totalRupees: z.number().int().min(1),
+  holdExpiresAt: when,
+  razorpayKeyId: z.string().regex(RAZORPAY_KEY_ID),
+  razorpayOrderId: z.string().regex(RAZORPAY_ORDER_ID),
+});
+export type PaymentStart = z.infer<typeof paymentStartSchema>;
+
+// The API's words when the time to pay is over, even before the order
+// has expired (apps/api/src/orders/order-rules.ts; a test compares them).
+export const API_HOLD_OVER =
+  'The time to pay for this order is over. Please order again.';
+
+export async function startPayment(
+  request: Request,
+  context: Context,
+  id: string,
+) {
+  return askAsCustomer(
+    request,
+    context,
+    { method: 'POST', path: `me/orders/${segment(id)}/payment` },
+    paymentStartSchema,
+  );
+}
+
+// What Razorpay's page said of a payment, for the API to check: the
+// signature against the Razorpay order it made, then Razorpay itself. The
+// answer is the order as it is now.
+export async function confirmPayment(
+  request: Request,
+  context: Context,
+  id: string,
+  { paymentId, signature }: { paymentId: string; signature: string },
+) {
+  if (
+    !RAZORPAY_PAYMENT_ID.test(paymentId) ||
+    !RAZORPAY_SIGNATURE.test(signature)
+  ) {
+    throw new Error(
+      'A payment to confirm needs Razorpay’s own ID and signature',
+    );
+  }
+  return askAsCustomer(
+    request,
+    context,
+    {
+      method: 'POST',
+      path: `me/orders/${segment(id)}/payment/confirm`,
+      body: { razorpayPaymentId: paymentId, razorpaySignature: signature },
+    },
     orderSchema,
   );
 }

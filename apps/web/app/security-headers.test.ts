@@ -55,8 +55,8 @@ describe('a page’s security policy', () => {
     expect(policy.get('trusted-types')).toBe("'none'");
   });
 
-  it('sends forms only to the website, and can’t be framed', () => {
-    expect(policy.get('form-action')).toBe("'self'");
+  it('sends forms only to the website and Razorpay’s payment page, and can’t be framed', () => {
+    expect(policy.get('form-action')).toBe("'self' https://api.razorpay.com");
     expect(policy.get('frame-ancestors')).toBe("'none'");
   });
 
