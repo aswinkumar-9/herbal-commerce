@@ -19,6 +19,8 @@ export const categorySchema = z.object({
   description: z.string().nullable(),
   isActive: z.boolean(),
   position: z.number().int(),
+  // The top category it sits in (part 15A); null for a top category.
+  parentId: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -92,6 +94,8 @@ export interface CategoryFields {
   slug?: string;
   description?: string | null;
   isActive?: boolean;
+  // null: a top category.
+  parentId?: string | null;
 }
 export interface BrandFields {
   name: string;
@@ -168,11 +172,15 @@ export async function deleteCategory(id: string) {
   return apiRequest(idInPath(CATEGORIES, id), { method: 'DELETE' });
 }
 
-// Every category, first to last.
-export async function reorderCategories(ids: string[]) {
+// One level, first to last: the top categories, or the subcategories of
+// the top category parentId (part 15A). Answers every category.
+export async function reorderCategories(
+  ids: string[],
+  parentId: string | null = null,
+) {
   const { categories } = await apiRequest(`${CATEGORIES}/order`, {
     method: 'PUT',
-    body: { ids },
+    body: parentId ? { parentId, ids } : { ids },
     schema: categoryListSchema,
   });
   return categories;
@@ -271,6 +279,20 @@ export async function nextProductPosition(categoryId: string) {
     after = page.nextAfter ?? undefined;
   } while (after);
   return Math.min(MAX_POSITION, last + 1);
+}
+
+// Every product shown in one category, drafts too, first to last (part
+// 15A): those whose main category it is, and those also shown in it.
+export async function listProductOrder(
+  categoryId: string,
+  signal?: AbortSignal,
+) {
+  const search = new URLSearchParams({ categoryId }).toString();
+  const { products } = await apiRequest(`${PRODUCTS}/order?${search}`, {
+    schema: productListSchema,
+    signal,
+  });
+  return products;
 }
 
 // Every product of one category, first to last.

@@ -31,6 +31,7 @@ import type {
   ProductType,
 } from '../catalog-api';
 import { catalogKeys } from '../catalog-queries';
+import { categoryLabel, isShown } from '../category-tree';
 import { SLUG_MAX, slugify } from '../slug';
 import { DeleteProductDialog } from './DeleteProductDialog';
 import { ImagesSection } from './ImagesSection';
@@ -262,9 +263,9 @@ export function ProductForm({
             <option value="">Choose a category</option>
             {categories.map((category) => (
               <option key={category.id} value={category.id}>
-                {category.isActive
-                  ? category.name
-                  : `${category.name} (hidden)`}
+                {isShown(categories, category)
+                  ? categoryLabel(categories, category)
+                  : `${categoryLabel(categories, category)} (hidden)`}
               </option>
             ))}
           </SelectField>

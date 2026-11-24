@@ -8,33 +8,40 @@ import type { FormEvent } from 'react';
 import { fieldProblems, problemMessage } from '../../api/problems';
 import { Button } from '../../components/Button';
 import { Dialog, DialogActions } from '../../components/Dialog';
-import { Field, TextAreaField } from '../../components/Field';
+import { Field, SelectField, TextAreaField } from '../../components/Field';
 import { Switch } from '../../components/Switch';
 import { useToasts } from '../../components/toast-context';
 import { useUnsavedChanges } from '../../components/unsaved-changes';
 import { createCategory, updateCategory } from '../catalog-api';
 import type { Category, CategoryFields } from '../catalog-api';
 import { catalogKeys, putCategory } from '../catalog-queries';
+import { inLevel, nextPositionIn } from '../category-tree';
 import { SLUG_PATTERN, slugify } from '../slug';
 
 const SAVING = ['category-form'] as const;
 export const NAME_MAX = 60;
 export const DESCRIPTION_MAX = 500;
 
-type FieldName = 'name' | 'slug' | 'description';
+type FieldName = 'name' | 'slug' | 'description' | 'parentId';
+const FIELDS = ['name', 'slug', 'description', 'parentId'] as const;
 interface Values {
   name: string;
   slug: string;
   description: string;
   isActive: boolean;
+  // The top category it sits in; empty for a top category.
+  parentId: string;
 }
+// What a save sends: a new category, or only what changed.
+type CategoryInput = Partial<CategoryFields> & { position?: number };
 
 interface EditorProps {
   open: boolean;
   // null: a new category.
   category: Category | null;
-  // Where a new category goes: after the last one.
-  nextPosition: number;
+  // Every category: the top ones it may sit in, and where it goes in its
+  // level, after the last one.
+  categories: Category[];
   onClose: () => void;
 }
 
@@ -42,7 +49,7 @@ interface EditorProps {
 export function CategoryEditor({
   open,
   category,
-  nextPosition,
+  categories,
   onClose,
 }: EditorProps) {
   const saving = useIsMutating({ mutationKey: SAVING }) > 0;
@@ -56,7 +63,7 @@ export function CategoryEditor({
     >
       <CategoryForm
         category={category}
-        nextPosition={nextPosition}
+        categories={categories}
         onDone={onClose}
       />
     </Dialog>
@@ -69,6 +76,7 @@ function startingValues(category: Category | null): Values {
     slug: category?.slug ?? '',
     description: category?.description ?? '',
     isActive: category?.isActive ?? false,
+    parentId: category?.parentId ?? '',
   };
 }
 
@@ -91,9 +99,14 @@ function check(values: Values, category: Category | null) {
   return errors;
 }
 
-// What a change sends: only the fields that changed.
-function changes(values: Values, category: Category): Partial<CategoryFields> {
-  const changed: Partial<CategoryFields> = {};
+// What a change sends: only the fields that changed. A category moved
+// into another level goes after the last one there.
+function changes(
+  values: Values,
+  category: Category,
+  categories: Category[],
+): CategoryInput {
+  const changed: CategoryInput = {};
   const name = values.name.trim();
   const slug = values.slug.trim();
   const description = values.description.trim() || null;
@@ -109,16 +122,21 @@ function changes(values: Values, category: Category): Partial<CategoryFields> {
   if (values.isActive !== category.isActive) {
     changed.isActive = values.isActive;
   }
+  const parentId = values.parentId || null;
+  if (parentId !== category.parentId) {
+    changed.parentId = parentId;
+    changed.position = nextPositionIn(categories, parentId);
+  }
   return changed;
 }
 
 function CategoryForm({
   category,
-  nextPosition,
+  categories,
   onDone,
 }: {
   category: Category | null;
-  nextPosition: number;
+  categories: Category[];
   onDone: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -136,13 +154,19 @@ function CategoryForm({
 
   const save = useMutation({
     mutationKey: SAVING,
-    mutationFn: (input: Partial<CategoryFields> & { position?: number }) =>
+    mutationFn: (input: CategoryInput) =>
       category
         ? updateCategory(category.id, input)
         : createCategory(input as CategoryFields),
-    onSuccess: (saved) => {
+    onSuccess: (saved, input) => {
       if (category) {
         putCategory(queryClient, saved);
+        // Moved to another level: the list is read again in its new order.
+        if ('parentId' in input) {
+          void queryClient.invalidateQueries({
+            queryKey: catalogKeys.categories(),
+          });
+        }
         toasts.show(`${saved.name} saved`);
       } else {
         void queryClient.invalidateQueries({
@@ -155,7 +179,7 @@ function CategoryForm({
     onError: (error) => {
       const fields = fieldProblems(error);
       const shown: Partial<Record<FieldName, string>> = {};
-      for (const name of ['name', 'slug', 'description'] as const) {
+      for (const name of FIELDS) {
         if (fields[name]) {
           shown[name] = fields[name];
         }
@@ -167,9 +191,7 @@ function CategoryForm({
   });
 
   function focusFirst(found: Partial<Record<FieldName, string>>) {
-    const first = (['name', 'slug', 'description'] as const).find(
-      (name) => found[name],
-    );
+    const first = FIELDS.find((name) => found[name]);
     if (first) {
       boxes.current[first]?.focus();
     }
@@ -195,7 +217,7 @@ function CategoryForm({
       return;
     }
     if (category) {
-      const changed = changes(values, category);
+      const changed = changes(values, category, categories);
       if (Object.keys(changed).length === 0) {
         onDone();
         return;
@@ -208,9 +230,19 @@ function CategoryForm({
       ...(values.slug.trim() ? { slug: values.slug.trim() } : {}),
       description: values.description.trim() || null,
       isActive: values.isActive,
-      position: nextPosition,
+      ...(values.parentId ? { parentId: values.parentId } : {}),
+      position: nextPositionIn(categories, values.parentId || null),
     });
   }
+
+  // Only two levels: it may sit inside a top category other than itself,
+  // and not while subcategories sit inside it.
+  const parents = inLevel(categories, null).filter(
+    (other) => other.id !== category?.id,
+  );
+  const holdsOthers = category
+    ? inLevel(categories, category.id).length > 0
+    : false;
 
   const madeSlug = slugify(values.name);
   const slugHint = category
@@ -266,6 +298,30 @@ function CategoryForm({
         hint="Optional."
         error={errors.description}
       />
+      {parents.length > 0 || values.parentId ? (
+        <SelectField
+          ref={(box: HTMLSelectElement | null) => {
+            boxes.current.parentId = box;
+          }}
+          label="Inside"
+          value={values.parentId}
+          onChange={(event) => set('parentId', event.target.value)}
+          disabled={holdsOthers}
+          hint={
+            holdsOthers
+              ? 'It has subcategories, so it stays a top category: there are only two levels.'
+              : 'A subcategory sits inside a top category, and holds only products.'
+          }
+          error={errors.parentId}
+        >
+          <option value="">None: it is a top category</option>
+          {parents.map((other) => (
+            <option key={other.id} value={other.id}>
+              {other.isActive ? other.name : `${other.name} (hidden)`}
+            </option>
+          ))}
+        </SelectField>
+      ) : null}
       <Switch
         label="Customers see it"
         hint={

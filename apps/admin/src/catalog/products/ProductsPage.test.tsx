@@ -285,6 +285,37 @@ describe('the products list', () => {
     expect(router.state.location.search).toBe('?status=live');
   });
 
+  it('names a subcategory with the category it sits in (part 15A)', async () => {
+    const HAIR_OILS = {
+      ...HAIR,
+      id: '2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e',
+      name: 'Hair Oils',
+      slug: 'hair-oils',
+      parentId: HAIR.id,
+    };
+    await openList({
+      answers: {
+        [CATEGORIES]: categoriesOf([HAIR, HAIR_OILS, SKIN]),
+        [ALL_PRODUCTS]: productsOf([{ ...SHAMPOO, categoryId: HAIR_OILS.id }]),
+      },
+    });
+    await rows();
+
+    expect(
+      within(screen.getByLabelText('Category'))
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual([
+      'All categories',
+      'Hair Care',
+      'Hair Care › Hair Oils',
+      'Skin Care',
+    ]);
+    expect(
+      screen.getByRole('link', { name: 'Amla Shampoo' }).closest('li'),
+    ).toHaveTextContent('Hair Care › Hair Oils · Cosmetic · /amla-shampoo');
+  });
+
   it('ignores a category in the address that is not an ID', async () => {
     const { api } = await openList({}, '/catalog/products?category=../x');
 

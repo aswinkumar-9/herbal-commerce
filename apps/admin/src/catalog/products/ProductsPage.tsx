@@ -23,6 +23,7 @@ import {
   useCategories,
   useProductPages,
 } from '../catalog-queries';
+import { categoryLabel, labelOf } from '../category-tree';
 import { EmptyList, ListLoading, LoadFailed } from '../list-states';
 import { DragHandle, OrderBar, useReorder } from '../reorder';
 import { missingToGoLive } from './product-form';
@@ -124,7 +125,7 @@ export function ProductsPage() {
           <option value="">All categories</option>
           {categories.data?.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name}
+              {categoryLabel(categories.data, c)}
             </option>
           ))}
         </SelectField>
@@ -225,9 +226,7 @@ export function ProductsPage() {
                   categoryName={
                     categoryId
                       ? undefined
-                      : categories.data?.find(
-                          (c) => c.id === product.categoryId,
-                        )?.name
+                      : labelOf(categories.data ?? [], product.categoryId)
                   }
                   listSearch={params.toString()}
                 />

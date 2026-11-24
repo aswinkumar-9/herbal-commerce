@@ -11,6 +11,7 @@ export const HAIR = {
   description: null,
   isActive: true,
   position: 0,
+  parentId: null,
   createdAt: at,
   updatedAt: at,
 };

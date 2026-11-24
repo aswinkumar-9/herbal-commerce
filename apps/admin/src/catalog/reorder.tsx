@@ -19,6 +19,9 @@ interface Options<T extends Named> {
   send: (ids: string[]) => Promise<T[]>;
   onSaved: (items: T[]) => void;
   onFailed: (error: unknown) => void;
+  // Read out with each move when the page has more than one list: "in Hair
+  // Care".
+  listName?: string | undefined;
 }
 
 export interface Reordering<T extends Named> {
@@ -46,6 +49,7 @@ export function useReorder<T extends Named>({
   send,
   onSaved,
   onFailed,
+  listName,
 }: Options<T>): Reordering<T> {
   const [announcement, setAnnouncement] = useState('');
   const [savedNote, setSavedNote] = useState(false);
@@ -84,7 +88,10 @@ export function useReorder<T extends Named>({
 
   function announceMove(item: T, ids: string[]) {
     const at = ids.indexOf(item.id) + 1;
-    setAnnouncement(`${item.name} moved to position ${at} of ${ids.length}.`);
+    const where = listName ? ` in ${listName}` : '';
+    setAnnouncement(
+      `${item.name} moved to position ${at} of ${ids.length}${where}.`,
+    );
   }
 
   // The handle keeps the focus as its row moves: React puts it back after

@@ -382,6 +382,7 @@ const FIELD_NAMES: Record<string, string> = {
   isActive: 'Shown to customers',
   position: 'Place in the list',
   categoryId: 'Category',
+  parentId: 'Inside',
   brandId: 'Brand',
   productId: 'Product',
   variantId: 'Pack size',

@@ -17,6 +17,7 @@ import {
   listBrands,
   listCategories,
   listImages,
+  listProductOrder,
   listProducts,
   listVariants,
   nextProductPosition,
@@ -43,6 +44,7 @@ const HAIR_CARE = {
   description: null,
   isActive: true,
   position: 0,
+  parentId: null,
   createdAt: '2026-11-01T09:00:00.000Z',
   updatedAt: '2026-11-01T09:00:00.000Z',
 };
@@ -120,6 +122,35 @@ describe('the categories', () => {
       HAIR_CARE,
     ]);
     expect(api.sent[0]?.body).toEqual({ ids: [OTHER_ID, CATEGORY_ID] });
+  });
+
+  it('sends a new order of one top category’s subcategories (part 15A)', async () => {
+    signedIn();
+    const api = fakeApi({
+      'PUT /v1/staff/categories/order': () =>
+        json(200, { categories: [HAIR_CARE] }),
+    });
+
+    await reorderCategories([OTHER_ID], CATEGORY_ID);
+
+    expect(api.sent[0]?.body).toEqual({
+      parentId: CATEGORY_ID,
+      ids: [OTHER_ID],
+    });
+  });
+
+  it('reads where a category sits', async () => {
+    signedIn();
+    fakeApi({
+      'GET /v1/staff/categories': () =>
+        json(200, {
+          categories: [{ ...HAIR_CARE, parentId: OTHER_ID }],
+        }),
+    });
+
+    const [category] = await listCategories();
+
+    expect(category?.parentId).toBe(OTHER_ID);
   });
 
   it('turns an answer of the wrong shape into an error', async () => {
@@ -237,6 +268,17 @@ describe('the products', () => {
       limit: 25,
     });
 
+    expect(api.unexpected).toEqual([]);
+  });
+
+  it('lists every product shown in a category, for its order (part 15A)', async () => {
+    signedIn();
+    const api = fakeApi({
+      [`GET /v1/staff/products/order?categoryId=${CATEGORY_ID}`]: () =>
+        json(200, { products: [OIL] }),
+    });
+
+    await expect(listProductOrder(CATEGORY_ID)).resolves.toEqual([OIL]);
     expect(api.unexpected).toEqual([]);
   });
 

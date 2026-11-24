@@ -264,6 +264,19 @@ describe('the audit log in sentences', () => {
     ).toEqual([{ key: 'brandId', label: 'Brand', before: '—', after: 'b' }]);
   });
 
+  it('names where a category sits (part 15A)', () => {
+    expect(
+      changedFields(
+        entryOf({
+          targetType: 'category',
+          action: 'category.updated',
+          before: { parentId: null },
+          after: { parentId: 'c' },
+        }),
+      ),
+    ).toEqual([{ key: 'parentId', label: 'Inside', before: '—', after: 'c' }]);
+  });
+
   it('names something deleted from what the entry kept, with no link', () => {
     const gone = {
       targetType: 'product',

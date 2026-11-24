@@ -36,10 +36,10 @@ export const catalogKeys = {
     ['catalog', 'product', productId, 'variants'] as const,
   images: (productId: string) =>
     ['catalog', 'product', productId, 'images'] as const,
-  // Whether a category has any product, drafts too (under productLists, so
-  // a product change refreshes it).
-  categoryHasProducts: (categoryId: string) =>
-    ['catalog', 'products', 'any', categoryId] as const,
+  // Every product shown in a category, drafts too: its own and those also
+  // shown in it (under productLists, so a product change refreshes it).
+  productOrder: (categoryId: string) =>
+    ['catalog', 'products', 'order', categoryId] as const,
   // The same for a brand (part 15A).
   brandHasProducts: (brandId: string) =>
     ['catalog', 'products', 'any-of-brand', brandId] as const,

@@ -148,6 +148,38 @@ describe('a new product', () => {
     ).toBeInTheDocument();
   });
 
+  it('names a subcategory with the category it sits in, hidden with it (part 15A)', async () => {
+    const OILS = {
+      ...HAIR,
+      id: '2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e',
+      name: 'Hair Oils',
+      slug: 'hair-oils',
+      parentId: HAIR.id,
+    };
+    const SOAPS = {
+      ...HAIR,
+      id: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b',
+      name: 'Herbal Soaps',
+      slug: 'herbal-soaps',
+      parentId: SKIN.id,
+    };
+    await openNew({
+      answers: { [CATEGORIES]: categoriesOf([HAIR, OILS, SKIN, SOAPS]) },
+    });
+
+    expect(
+      within(screen.getByLabelText('Category'))
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual([
+      'Choose a category',
+      'Hair Care',
+      'Hair Care › Hair Oils',
+      'Skin Care (hidden)',
+      'Skin Care › Herbal Soaps (hidden)',
+    ]);
+  });
+
   it('is checked before it is sent', async () => {
     const { user, api } = await openNew();
 
