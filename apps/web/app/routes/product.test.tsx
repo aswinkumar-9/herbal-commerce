@@ -27,7 +27,7 @@ const ASHWAGANDHA: Product = {
   manufacturerName: 'Herbal Works Pvt Ltd',
   manufacturerAddress: '12, Industrial Area,\nMysuru 570016',
   countryOfOrigin: 'India',
-  category: { name: 'Wellness', slug: 'wellness' },
+  category: { name: 'Wellness', slug: 'wellness', parent: null },
   variants: [
     {
       sku: 'ASH-CAP-60',
@@ -107,6 +107,28 @@ describe('a product’s page', () => {
       'aria-current',
       'page',
     );
+  });
+
+  it('passes through the top category, when its own is a subcategory (part 15B)', async () => {
+    await renderProduct({
+      ...ASHWAGANDHA,
+      category: {
+        name: 'Immunity',
+        slug: 'immunity',
+        parent: { name: 'Wellness', slug: 'wellness' },
+      },
+    });
+    const trail = screen.getByRole('navigation', { name: 'You are here' });
+    expect(
+      within(trail)
+        .getAllByRole('link')
+        .map((link) => [link.textContent, link.getAttribute('href')]),
+    ).toEqual([
+      ['Home', '/'],
+      ['Shop', '/shop'],
+      ['Wellness', '/categories/wellness'],
+      ['Immunity', '/categories/immunity'],
+    ]);
   });
 });
 

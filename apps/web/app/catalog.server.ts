@@ -2,7 +2,7 @@
 // (docs/api-specification.md, "Categories" and "Products"). Answers are
 // checked against these before a page uses them.
 import { z } from 'zod';
-import { apiGet, segment } from './api.server.ts';
+import { apiFind, apiGet, segment } from './api.server.ts';
 import { getConfig } from './config.server.ts';
 import { mediaSource } from './security-headers.ts';
 import { PAGE_SIZE, apiQuery } from './shop-search.ts';
@@ -17,7 +17,17 @@ export const categorySchema = z.object({
 });
 export type Category = z.infer<typeof categorySchema>;
 
-const categoriesSchema = z.object({ categories: z.array(categorySchema) });
+// A top category with its subcategories (part 15B): two levels, no more.
+const topCategorySchema = categorySchema.extend({
+  subcategories: z.array(categorySchema),
+});
+export type TopCategory = z.infer<typeof topCategorySchema>;
+
+const categoriesSchema = z.object({ categories: z.array(topCategorySchema) });
+
+// Another category, as a page names it to link to it: the top category a
+// subcategory sits in, say.
+const categoryLink = z.object({ name: z.string().min(1), slug });
 
 // A product as a list shows it: its name, a line about it, its lowest
 // price on sale (none when no pack is), and its main photo, small.
@@ -47,12 +57,28 @@ const searchSchema = z.object({
 });
 export type SearchPage = z.infer<typeof searchSchema>;
 
+// A category's page: a subcategory names the top category it sits in, a
+// top category lists its subcategories (part 15B).
 const categoryPageSchema = z.object({
-  category: categorySchema,
+  category: categorySchema.extend({
+    parent: categoryLink.nullable(),
+    subcategories: z.array(categorySchema),
+  }),
   products: z.array(z.object(cardFields)),
   nextAfter: slug.nullable(),
 });
 export type CategoryPage = z.infer<typeof categoryPageSchema>;
+
+// A subcategory's first few products, as its top category's page shows
+// them.
+export interface CategoryPreview {
+  category: Category;
+  products: ProductCard[];
+}
+
+// How many products of each subcategory a top category's page shows: one
+// row on a wide screen.
+export const PREVIEW_SIZE = 4;
 
 // A product's own page: what it is, its packs on sale with their prices
 // and whether each can be bought, its photos, and the licence and maker
@@ -81,7 +107,8 @@ const productSchema = z.object({
   manufacturerName: z.string().min(1),
   manufacturerAddress: z.string().min(1),
   countryOfOrigin: z.string().min(1),
-  category: z.object({ name: z.string().min(1), slug }),
+  // A subcategory names its top category (part 15B), for the trail.
+  category: categoryLink.extend({ parent: categoryLink.nullable() }),
   variants: z.array(
     z.object({
       sku: z.string().min(1),
@@ -122,8 +149,9 @@ function fromMedia<T extends { imageUrl: string | null }>(card: T): T {
     : { ...card, imageUrl: onMedia(card.imageUrl) };
 }
 
-// The categories customers see, in the order staff chose.
-export async function listCategories(request: Request): Promise<Category[]> {
+// The categories customers see, each top one with its subcategories, in
+// the order staff chose.
+export async function listCategories(request: Request): Promise<TopCategory[]> {
   const { categories } = await apiGet(request, 'categories', categoriesSchema);
   return categories;
 }
@@ -160,6 +188,32 @@ export async function listCategoryProducts(
     query,
   );
   return { ...page, products: page.products.map(fromMedia) };
+}
+
+// The first few products of each of a top category's subcategories, for
+// its page (part 15B), all asked at once. One hidden or emptied meanwhile
+// is left out: its own page would have nothing to show.
+export async function previewSubcategories(
+  request: Request,
+  subcategories: readonly Category[],
+): Promise<CategoryPreview[]> {
+  const query = new URLSearchParams({ limit: String(PREVIEW_SIZE) });
+  const pages = await Promise.all(
+    subcategories.map((subcategory) =>
+      apiFind(
+        request,
+        `categories/${segment(subcategory.slug)}/products`,
+        categoryPageSchema,
+        query,
+      ),
+    ),
+  );
+  return subcategories.flatMap((category, index) => {
+    const page = pages[index];
+    return page && page.products.length > 0
+      ? [{ category, products: page.products.map(fromMedia) }]
+      : [];
+  });
 }
 
 // A live product's own page. An unknown, draft or hidden one is "not

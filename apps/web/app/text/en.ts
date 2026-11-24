@@ -232,6 +232,10 @@ export const text = {
     shown: (count: number) =>
       count === 1 ? '1 more product shown' : `${count} more products shown`,
     start: 'Back to the start',
+    // A top category's page (part 15B): the links to its subcategories,
+    // and the way from a few of one's products to all of them.
+    subcategories: (name: string) => `Sections of ${name}`,
+    seeAll: (name: string) => `See all ${name}`,
   },
   // What every account form says about its fields (part 14B). The API
   // checks them again; these say it beside the field first.

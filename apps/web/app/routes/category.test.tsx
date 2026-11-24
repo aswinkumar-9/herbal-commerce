@@ -5,10 +5,19 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import { renderPage } from '../test/render.tsx';
 import CategoryPage, { meta } from './category.tsx';
 
-const HAIR = {
+interface Shown {
+  name: string;
+  slug: string;
+  description: string | null;
+  parent: { name: string; slug: string } | null;
+  subcategories: { name: string; slug: string; description: string | null }[];
+}
+const HAIR: Shown = {
   name: 'Hair Care',
   slug: 'hair-care',
   description: 'Oils and powders for the hair',
+  parent: null,
+  subcategories: [],
 };
 const product = (slug: string) => ({
   name: slug,
@@ -37,11 +46,16 @@ beforeEach(() => {
   asked = [];
 });
 
+interface Preview {
+  category: { name: string; slug: string; description: string | null };
+  products: ReturnType<typeof product>[];
+}
+
 async function renderCategory(
   url = '/categories/hair-care',
-  category:
-    typeof HAIR | { name: string; slug: string; description: null } = HAIR,
+  category: Shown = HAIR,
   pages = PAGES,
+  previews: Preview[] = [],
 ) {
   renderPage({
     path: '/categories/:slug',
@@ -54,6 +68,7 @@ async function renderCategory(
       return {
         category,
         ...(pages[after ?? ''] ?? { products: [], nextAfter: null }),
+        previews: after ? [] : previews,
         after,
         origin: 'https://shop.example.com',
       };
@@ -62,9 +77,11 @@ async function renderCategory(
   return screen.findByRole('heading', { level: 1 });
 }
 
+// The category's own products: a subcategory's are in a section below.
 const names = () =>
   screen
     .getAllByRole('article')
+    .filter((card) => !card.closest('section'))
     .map((card) => card.querySelector('h2')?.textContent);
 
 describe('a category’s page', () => {
@@ -102,6 +119,7 @@ describe('a category’s page', () => {
 
   it('leaves out a description staff didn’t give', async () => {
     await renderCategory('/categories/wellness', {
+      ...HAIR,
       name: 'Wellness',
       slug: 'wellness',
       description: null,
@@ -119,6 +137,161 @@ describe('a category’s page', () => {
     expect(
       screen.getByRole('link', { name: 'See all products' }),
     ).toHaveAttribute('href', '/shop');
+  });
+});
+
+describe('a top category with subcategories (part 15B)', () => {
+  const sub = (slug: string, name: string) => ({
+    name,
+    slug,
+    description: null,
+  });
+  const TOP: Shown = {
+    ...HAIR,
+    subcategories: [
+      sub('hair-oils', 'Hair Oils'),
+      sub('hair-powders', 'Hair Powders'),
+    ],
+  };
+  const PREVIEWS: Preview[] = [
+    {
+      category: sub('hair-oils', 'Hair Oils'),
+      products: [product('bhringraj-oil'), product('brahmi-oil')],
+    },
+    {
+      category: sub('hair-powders', 'Hair Powders'),
+      products: [product('shikakai-powder')],
+    },
+  ];
+  const sections = () =>
+    screen.getAllByRole('region').map((section) => [
+      within(section).getByRole('heading', { level: 2 }).textContent,
+      within(section)
+        .getAllByRole('heading', { level: 3 })
+        .map((name) => name.textContent),
+      within(section)
+        .getByRole('link', { name: /^See all/ })
+        .getAttribute('href'),
+    ]);
+
+  it('links to each of its subcategories, in the order staff chose', async () => {
+    await renderCategory('/categories/hair-care', TOP, PAGES, PREVIEWS);
+    const links = screen.getByRole('navigation', {
+      name: 'Sections of Hair Care',
+    });
+    expect(
+      within(links)
+        .getAllByRole('link')
+        .map((link) => [link.textContent, link.getAttribute('href')]),
+    ).toEqual([
+      ['Hair Oils', '/categories/hair-oils'],
+      ['Hair Powders', '/categories/hair-powders'],
+    ]);
+  });
+
+  it('links to a lone subcategory too', async () => {
+    await renderCategory('/categories/hair-care', {
+      ...TOP,
+      subcategories: [sub('hair-oils', 'Hair Oils')],
+    });
+    expect(
+      within(
+        screen.getByRole('navigation', { name: 'Sections of Hair Care' }),
+      ).getByRole('link'),
+    ).toHaveAttribute('href', '/categories/hair-oils');
+  });
+
+  it('has no links when it has no subcategories', async () => {
+    await renderCategory();
+    expect(
+      screen.queryByRole('navigation', { name: 'Sections of Hair Care' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('shows its own products first, then a few of each subcategory’s, with the way to all', async () => {
+    await renderCategory('/categories/hair-care', TOP, PAGES, PREVIEWS);
+    expect(names()).toEqual(['amla-oil', 'bhringraj-oil']);
+    expect(sections()).toEqual([
+      ['Hair Oils', ['bhringraj-oil', 'brahmi-oil'], '/categories/hair-oils'],
+      ['Hair Powders', ['shikakai-powder'], '/categories/hair-powders'],
+    ]);
+    expect(
+      screen.getByRole('link', { name: 'See all Hair Powders' }),
+    ).toBeInTheDocument();
+    // Its own come before the first subcategory's.
+    const own = screen.getAllByRole('article')[0] as HTMLElement;
+    const first = screen.getAllByRole('region')[0] as HTMLElement;
+    expect(
+      own.compareDocumentPosition(first) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it('goes straight to its subcategories’ products when it has none of its own', async () => {
+    await renderCategory(
+      '/categories/hair-care',
+      TOP,
+      { '': { products: [], nextAfter: null } },
+      PREVIEWS,
+    );
+    expect(
+      screen.queryByText('Nothing here yet. Please come back soon.'),
+    ).not.toBeInTheDocument();
+    expect(sections()).toHaveLength(2);
+  });
+
+  it('says so when neither it nor its subcategories have anything yet', async () => {
+    await renderCategory('/categories/hair-care', TOP, {
+      '': { products: [], nextAfter: null },
+    });
+    expect(
+      screen.getByText('Nothing here yet. Please come back soon.'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows its own products only on a later page, with the links still', async () => {
+    await renderCategory(
+      '/categories/hair-care?after=bhringraj-oil',
+      TOP,
+      PAGES,
+      PREVIEWS,
+    );
+    expect(names()).toEqual(['hibiscus-powder', 'neem-comb']);
+    expect(screen.queryAllByRole('region')).toEqual([]);
+    expect(
+      screen.getByRole('navigation', { name: 'Sections of Hair Care' }),
+    ).toBeInTheDocument();
+  });
+
+  it('keeps the subcategories’ products below its own when showing more', async () => {
+    await renderCategory('/categories/hair-care', TOP, PAGES, PREVIEWS);
+    await userEvent.click(screen.getByRole('link', { name: 'Show more' }));
+    await waitFor(() => expect(names()).toHaveLength(4));
+    expect(sections()).toHaveLength(2);
+  });
+});
+
+describe('a subcategory', () => {
+  it('shows the way back through its top category', async () => {
+    await renderCategory('/categories/hair-oils', {
+      ...HAIR,
+      name: 'Hair Oils',
+      slug: 'hair-oils',
+      parent: { name: 'Hair Care', slug: 'hair-care' },
+    });
+    const trail = screen.getByRole('navigation', { name: 'You are here' });
+    expect(
+      within(trail)
+        .getAllByRole('link')
+        .map((link) => [link.textContent, link.getAttribute('href')]),
+    ).toEqual([
+      ['Home', '/'],
+      ['Shop', '/shop'],
+      ['Hair Care', '/categories/hair-care'],
+    ]);
+    expect(within(trail).getByText('Hair Oils')).toHaveAttribute(
+      'aria-current',
+      'page',
+    );
   });
 });
 
