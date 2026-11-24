@@ -280,15 +280,21 @@ export class ProductsService {
     const product = await this.saving(() =>
       this.prisma.$transaction(async (tx) => {
         await this.brandKept(tx, fields.brandId);
-        const others = await this.othersAdded(
+        // Without a place, it goes last in its category.
+        const { position, others } = await this.placed(
           tx,
           fields.categoryId,
+          fields.position === undefined,
           otherCategoryIds,
           [],
         );
         const created = staffProduct(
           await tx.product.create({
-            data: { ...fields, otherCategories: { create: others } },
+            data: {
+              ...fields,
+              ...(position === undefined ? {} : { position }),
+              otherCategories: { create: others },
+            },
             select: PRODUCT_FIELDS,
           }),
         );
@@ -313,6 +319,7 @@ export class ProductsService {
   // Changes only the fields given, and only if the product as it will be
   // still follows the rules: removing the licence of a live product, for
   // example, is refused. A request with no real change is not audited. A
+  // product put into another category without a place goes last there. A
   // list of other categories replaces the old one: those kept keep their
   // place, and those added go last in their category.
   async update(
@@ -334,6 +341,18 @@ export class ProductsService {
           return { product: current, changed: false };
         }
         const changes = pick(rest, fields);
+        await this.brandKept(tx, changes.brandId);
+        const { position, others: added } = await this.placed(
+          tx,
+          changes.categoryId ?? current.categoryId,
+          fields.includes('categoryId') && rest.position === undefined,
+          others ?? current.otherCategoryIds,
+          current.otherCategoryIds,
+        );
+        if (position !== undefined && position !== current.position) {
+          changes.position = position;
+          fields.push('position');
+        }
         const before = {
           ...pick(current, fields),
           ...(others ? { otherCategoryIds: current.otherCategoryIds } : {}),
@@ -342,13 +361,6 @@ export class ProductsService {
           ...changes,
           ...(others ? { otherCategoryIds: others } : {}),
         };
-        await this.brandKept(tx, changes.brandId);
-        const added = await this.othersAdded(
-          tx,
-          changes.categoryId ?? current.categoryId,
-          others ?? current.otherCategoryIds,
-          current.otherCategoryIds,
-        );
         // Going live needs an image too. Counted while the product is
         // locked, so an image deleted at the same moment cannot slip by.
         const imageCount = await tx.productImage.count({
@@ -736,22 +748,30 @@ export class ProductsService {
     );
   }
 
-  // The other categories a product is to be shown in (part 15A): never its
-  // main one, and each must exist. Those added to its list are locked
-  // (KEY SHARE: their deletion waits) and go last among their category's
-  // products. Gives what to save for each one added.
-  private async othersAdded(
+  // Where a product goes in the categories it is put into (part 15A): last
+  // among the products shown there, its own and those also shown in it.
+  // That is its main category when it is put into one without a place
+  // (placeMain), and each other category added to its list, which never
+  // holds the main one. All of them are locked in one go, in the order of
+  // their IDs (KEY SHARE: their deletion waits), and each must exist.
+  // Gives the main category's place, and what to save for each one added.
+  private async placed(
     tx: Prisma.TransactionClient,
     mainId: string,
+    placeMain: boolean,
     otherIds: string[],
     currentIds: string[],
-  ): Promise<{ categoryId: string; position: number }[]> {
+  ): Promise<{
+    position: number | undefined;
+    others: { categoryId: string; position: number }[];
+  }> {
     if (otherIds.includes(mainId)) {
       throw validationFailed([MAIN_IS_OTHER]);
     }
     const added = otherIds.filter((id) => !currentIds.includes(id));
-    if (added.length === 0) {
-      return [];
+    const ids = placeMain ? [mainId, ...added] : added;
+    if (ids.length === 0) {
+      return { position: undefined, others: [] };
     }
     const rows = await tx.$queryRaw<{ id: string; position: number }[]>`
       SELECT c."id", (LEAST(9998, COALESCE(GREATEST(
@@ -761,13 +781,22 @@ export class ProductsService {
                  WHERE o."categoryId" = c."id")
              ), -1)) + 1)::int AS "position"
         FROM "categories" c
-       WHERE c."id" = ANY(${added}::uuid[])
+       WHERE c."id" = ANY(${ids}::uuid[])
        ORDER BY c."id"
          FOR KEY SHARE OF c`;
-    if (rows.length !== added.length) {
+    const place = new Map(rows.map((row) => [row.id, row.position]));
+    if (placeMain && !place.has(mainId)) {
+      throw validationFailed([NO_SUCH_CATEGORY]);
+    }
+    if (added.some((id) => !place.has(id))) {
       throw validationFailed([NO_SUCH_OTHER_CATEGORY]);
     }
-    return rows.map((row) => ({ categoryId: row.id, position: row.position }));
+    return {
+      position: placeMain ? place.get(mainId) : undefined,
+      others: rows
+        .filter((row) => added.includes(row.id))
+        .map((row) => ({ categoryId: row.id, position: row.position })),
+    };
   }
 
   // A product's brand must exist, and stay while the product is saved with

@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.34.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.35.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -1730,7 +1730,7 @@ The rules for each field:
 | `hsnCode` | Optional for a draft. 4, 6 or 8 digits, which classify the goods for GST. Spaces are dropped: `3004 90` is stored as `300490`. |
 | `gstRate` | Optional for a draft. In percent: `0`, `5`, `18` or `40`, the rates since GST 2.0. A chartered accountant confirms the rate for each HSN code. |
 | `isActive` | `true` makes it live. Default `false` (a draft). |
-| `position` | A whole number from 0 to 9999, the order within its main category. Default `0`. Its place in each other category is set by ordering that category. |
+| `position` | A whole number from 0 to 9999, the order within its main category. Its place in each other category is set by ordering that category. Without one, the product goes **last** in its category: one more than the highest place there, among its own products and those also shown in it (at most 9999). Until part 15A the default was `0`. |
 
 An empty text, or `null` in a change, means none.
 
@@ -1822,7 +1822,7 @@ Errors:
 
 Changes a product. Send only the fields that change:
 - `{ "isActive": false }` takes it out of the shop;
-- `{ "categoryId": "..." }` moves it to another category.
+- `{ "categoryId": "..." }` moves it to another category, where it goes last, as a new product does, unless the change gives a `position` too.
 - `{ "brandId": "..." }` gives it a brand, and `{ "brandId": null }` takes it away.
 - `{ "otherCategoryIds": [...] }` sets the other categories it is also shown in. A category kept on the list keeps the product's place there; one added puts it last there. To make one of them its main category, send both: `{ "categoryId": "<it>", "otherCategoryIds": [...without it] }`.
 

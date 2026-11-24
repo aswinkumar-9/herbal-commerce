@@ -4,7 +4,11 @@ import { searchWords } from './product-search.schemas';
 import { GST_RATES, HSN_CODE, productIssues } from './product-rules';
 import { slugSchema as slug, slugify } from './slug';
 
-const categoryId = z.uuid('Choose a category by its ID');
+// In small letters, as the database gives IDs back, so the same category
+// is never taken for another one.
+const categoryId = z
+  .uuid('Choose a category by its ID')
+  .transform((id) => id.toLowerCase());
 // A product may have no brand (part 15A): null takes it away.
 const brandId = z.uuid('Choose a brand by its ID').nullable();
 // The other categories it is also shown in (part 15A), each once. Its main

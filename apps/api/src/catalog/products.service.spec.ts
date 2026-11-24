@@ -209,15 +209,26 @@ describe('ProductsService.list', () => {
 });
 
 describe('ProductsService.create', () => {
-  it('saves the product and records everything staff set, in the same transaction', async () => {
+  it('saves the product last in its category, and records everything staff set, in the same transaction', async () => {
     const { service, tx, audit, logger } = setup();
+    tx.$queryRaw.mockResolvedValue([{ id: CATEGORY, position: 3 }]);
     const input = { categoryId: CATEGORY, name: 'Ashwagandha Capsules', slug: 'ashwagandha-capsules' };
 
     await expect(service.create(input, context)).resolves.toEqual(stored());
 
+    // Last among its own products and those also shown there (part 15A),
+    // with the category kept while the product is saved.
+    const { sql, values } = rawCall(tx.$queryRaw);
+    expect(sql).toMatch(
+      /FROM "categories" c\s+WHERE c\."id" = ANY\(\?::uuid\[\]\)\s+ORDER BY c\."id"\s+FOR KEY SHARE OF c/,
+    );
+    expect(values).toEqual([[CATEGORY]]);
+    expect(tx.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      tx.product.create.mock.invocationCallOrder[0],
+    );
     expect(tx.product.create).toHaveBeenCalledWith(
       expect.objectContaining({
-        data: { ...input, otherCategories: { create: [] } },
+        data: { ...input, position: 3, otherCategories: { create: [] } },
       }),
     );
     expect(audit.record).toHaveBeenCalledWith(tx, {
@@ -233,12 +244,58 @@ describe('ProductsService.create', () => {
     );
   });
 
+  it('keeps the place given, asking nothing about the category', async () => {
+    const { service, tx } = setup();
+    const input = {
+      categoryId: CATEGORY,
+      name: 'Tulsi Tea',
+      slug: 'tulsi-tea',
+      position: 0,
+    };
+
+    await service.create(input, context);
+
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
+    expect(tx.product.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { ...input, otherCategories: { create: [] } },
+      }),
+    );
+  });
+
+  it('answers 400 on categoryId when the category to put it last in does not exist', async () => {
+    const { service, tx, audit } = setup();
+    tx.$queryRaw.mockResolvedValue([]);
+
+    await expect(
+      refusal(
+        service.create(
+          { categoryId: CATEGORY, name: 'Tulsi Tea', slug: 'tulsi-tea' },
+          context,
+        ),
+      ),
+    ).resolves.toEqual({
+      message: 'Validation failed',
+      errors: [{ field: 'categoryId', message: 'No category with this ID' }],
+    });
+    expect(tx.product.create).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
+  });
+
   it('answers 409 when another product has the slug', async () => {
     const { service, tx, audit } = setup();
     tx.product.create.mockRejectedValue(withCode('P2002'));
 
     await expect(
-      service.create({ categoryId: CATEGORY, name: 'Tulsi Tea', slug: 'tulsi-tea' }, context),
+      service.create(
+        {
+          categoryId: CATEGORY,
+          name: 'Tulsi Tea',
+          slug: 'tulsi-tea',
+          position: 0,
+        },
+        context,
+      ),
     ).rejects.toThrow(
       new ConflictException(
         'Another product already has this slug. Choose a different one.',
@@ -253,7 +310,15 @@ describe('ProductsService.create', () => {
 
     await expect(
       refusal(
-        service.create({ categoryId: CATEGORY, name: 'Tulsi Tea', slug: 'tulsi-tea' }, context),
+        service.create(
+          {
+            categoryId: CATEGORY,
+            name: 'Tulsi Tea',
+            slug: 'tulsi-tea',
+            position: 0,
+          },
+          context,
+        ),
       ),
     ).resolves.toEqual({
       message: 'Validation failed',
@@ -268,7 +333,15 @@ describe('ProductsService.create', () => {
     tx.product.create.mockRejectedValue(broken);
 
     await expect(
-      service.create({ categoryId: CATEGORY, name: 'Tulsi Tea', slug: 'tulsi-tea' }, context),
+      service.create(
+        {
+          categoryId: CATEGORY,
+          name: 'Tulsi Tea',
+          slug: 'tulsi-tea',
+          position: 0,
+        },
+        context,
+      ),
     ).rejects.toBe(broken);
   });
 });
@@ -439,7 +512,11 @@ describe('ProductsService.update', () => {
     tx.product.update.mockRejectedValueOnce(withCode('P2003'));
     await expect(
       refusal(
-        service.update(ID, { categoryId: '00000000-0000-4000-8000-000000000000' }, context),
+        service.update(
+          ID,
+          { categoryId: '00000000-0000-4000-8000-000000000000', position: 0 },
+          context,
+        ),
       ),
     ).resolves.toMatchObject({
       errors: [{ field: 'categoryId', message: 'No category with this ID' }],
@@ -1231,6 +1308,7 @@ describe('ProductsService brands', () => {
       brandId: BRAND,
       name: 'Ashwagandha Capsules',
       slug: 'ashwagandha-capsules',
+      position: 0,
     };
 
     await service.create(input, context);
@@ -1267,6 +1345,7 @@ describe('ProductsService brands', () => {
             brandId: BRAND,
             name: 'Tulsi Tea',
             slug: 'tulsi-tea',
+            position: 0,
           },
           context,
         ),
@@ -1283,7 +1362,12 @@ describe('ProductsService brands', () => {
     const { service, tx } = setup();
 
     await service.create(
-      { categoryId: CATEGORY, name: 'Tulsi Tea', slug: 'tulsi-tea' },
+      {
+        categoryId: CATEGORY,
+        name: 'Tulsi Tea',
+        slug: 'tulsi-tea',
+        position: 0,
+      },
       context,
     );
 
@@ -1397,7 +1481,12 @@ describe('ProductsService other categories', () => {
     message: 'Validation failed',
     errors: [{ field: 'otherCategoryIds', message }],
   });
-  const draft = { categoryId: CATEGORY, name: 'Tulsi Tea', slug: 'tulsi-tea' };
+  const draft = {
+    categoryId: CATEGORY,
+    name: 'Tulsi Tea',
+    slug: 'tulsi-tea',
+    position: 0,
+  };
 
   it('saves a new product shown in other categories that exist, each going last there, and records them', async () => {
     const { service, tx, audit } = setup();
@@ -1438,6 +1527,32 @@ describe('ProductsService other categories', () => {
         after: expect.objectContaining({
           otherCategoryIds: [OTHER_A, OTHER_B],
         }) as object,
+      }),
+    );
+  });
+
+  it('puts a new product last in its main category and in each other one, locking them all in one go', async () => {
+    const { service, tx } = setup();
+    // In the order of their IDs.
+    tx.$queryRaw.mockResolvedValue([
+      { id: OTHER_A, position: 1 },
+      { id: CATEGORY, position: 3 },
+    ]);
+    const { position: _given, ...unplaced } = draft;
+
+    await service.create({ ...unplaced, otherCategoryIds: [OTHER_A] }, context);
+
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    const { sql, values } = rawCall(tx.$queryRaw);
+    expect(sql).toMatch(placesCheck);
+    expect(values).toEqual([[CATEGORY, OTHER_A]]);
+    expect(tx.product.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: {
+          ...unplaced,
+          position: 3,
+          otherCategories: { create: [{ categoryId: OTHER_A, position: 1 }] },
+        },
       }),
     );
   });
@@ -1655,6 +1770,9 @@ describe('ProductsService other categories', () => {
     tx.product.findUniqueOrThrow.mockResolvedValue(
       storedRow({ otherCategories: others(OTHER_A) }),
     );
+    tx.$queryRaw
+      .mockResolvedValueOnce([{ id: ID }])
+      .mockResolvedValueOnce([{ id: OTHER_A, position: 5 }]);
 
     await service.update(
       ID,
@@ -1662,10 +1780,12 @@ describe('ProductsService other categories', () => {
       context,
     );
 
+    expect(rawCall(tx.$queryRaw, 1).values).toEqual([[OTHER_A]]);
     expect(tx.product.update).toHaveBeenCalledWith(
       expect.objectContaining({
         data: {
           categoryId: OTHER_A,
+          position: 5,
           otherCategories: {
             deleteMany: { categoryId: { notIn: [] } },
             create: [],
@@ -1673,5 +1793,77 @@ describe('ProductsService other categories', () => {
         },
       }),
     );
+  });
+
+  it('puts a product moved into another category last there, and records its new place', async () => {
+    const { service, tx, audit } = setup();
+    tx.$queryRaw
+      .mockResolvedValueOnce([{ id: ID }])
+      .mockResolvedValueOnce([{ id: OTHER_B, position: 6 }]);
+
+    await service.update(ID, { categoryId: OTHER_B }, context);
+
+    const { sql, values } = rawCall(tx.$queryRaw, 1);
+    expect(sql).toMatch(placesCheck);
+    expect(values).toEqual([[OTHER_B]]);
+    expect(tx.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { categoryId: OTHER_B, position: 6 },
+      }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        before: { categoryId: CATEGORY, position: 0 },
+        after: { categoryId: OTHER_B, position: 6 },
+      }),
+    );
+  });
+
+  it('keeps its place when the last place in the new category is the one it has', async () => {
+    const { service, tx, audit } = setup();
+    tx.$queryRaw
+      .mockResolvedValueOnce([{ id: ID }])
+      .mockResolvedValueOnce([{ id: OTHER_B, position: 0 }]);
+
+    await service.update(ID, { categoryId: OTHER_B }, context);
+
+    expect(tx.product.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { categoryId: OTHER_B } }),
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        before: { categoryId: CATEGORY },
+        after: { categoryId: OTHER_B },
+      }),
+    );
+  });
+
+  it('keeps the place given with a move, and asks nothing about places without one', async () => {
+    const { service, tx } = setup();
+
+    await service.update(ID, { categoryId: OTHER_B, position: 2 }, context);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(tx.product.update).toHaveBeenLastCalledWith(
+      expect.objectContaining({ data: { categoryId: OTHER_B, position: 2 } }),
+    );
+
+    await service.update(ID, { name: 'Renamed' }, context);
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+  });
+
+  it('answers 400 on categoryId when the category it moves to does not exist', async () => {
+    const { service, tx, audit } = setup();
+    tx.$queryRaw.mockResolvedValueOnce([{ id: ID }]).mockResolvedValueOnce([]);
+
+    await expect(
+      refusal(service.update(ID, { categoryId: OTHER_B }, context)),
+    ).resolves.toEqual({
+      message: 'Validation failed',
+      errors: [{ field: 'categoryId', message: 'No category with this ID' }],
+    });
+    expect(tx.product.update).not.toHaveBeenCalled();
+    expect(audit.record).not.toHaveBeenCalled();
   });
 });

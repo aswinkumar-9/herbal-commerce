@@ -405,6 +405,16 @@ describe('the other categories a product is also shown in', () => {
     ]);
   });
 
+  it('keep the main category in small letters too, so it is never taken for another', () => {
+    expect(
+      productSchema.parse({ ...draft, categoryId: CATEGORY.toUpperCase() })
+        .categoryId,
+    ).toBe(CATEGORY);
+    expect(
+      productUpdateSchema.parse({ categoryId: CATEGORY.toUpperCase() }),
+    ).toEqual({ categoryId: CATEGORY });
+  });
+
   it('refuses a category by name, an ID twice, and more than 5', () => {
     expect(issues(['hair-care'])).toEqual([
       ['otherCategoryIds.0', 'Choose each category by its ID'],
