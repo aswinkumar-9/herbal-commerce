@@ -349,6 +349,8 @@ describe('deleting a brand (Super Users)', () => {
               {
                 id: '3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f',
                 categoryId: '7c9e6679-7425-40de-944b-e07fc1f90ae7',
+                otherCategoryIds: [],
+                brandId: DABUR.id,
                 name: 'Chyawanprash',
                 slug: 'chyawanprash',
                 summary: null,

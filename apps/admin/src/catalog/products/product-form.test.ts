@@ -8,6 +8,7 @@ import {
   check,
   missingToGoLive,
   newProduct,
+  sameValue,
   startingValues,
   toFields,
 } from './product-form';
@@ -117,6 +118,57 @@ describe('the product form', () => {
     });
   });
 
+  it('keeps its brand and the other categories it is shown in, in the order of their IDs (part 15A)', () => {
+    const A = '1d4f7a2c-8b3e-4c6d-9e0f-2a5b8c1d4e7f';
+    const B = '6e9b2c5f-1a4d-4e7b-8c0f-3d6a9b2c5e8f';
+    const shown = { ...oil, otherCategoryIds: [B, A], brandId: A };
+
+    expect(startingValues(shown)).toMatchObject({
+      otherCategoryIds: [A, B],
+      brandId: A,
+    });
+    expect(startingValues(oil)).toMatchObject({
+      otherCategoryIds: [],
+      brandId: '',
+    });
+    expect(
+      toFields({ ...startingValues(oil), otherCategoryIds: [B, A] }),
+    ).toMatchObject({ otherCategoryIds: [A, B], brandId: null });
+  });
+
+  it('sends a list of other categories only when what is in it changed', () => {
+    const A = '1d4f7a2c-8b3e-4c6d-9e0f-2a5b8c1d4e7f';
+    const B = '6e9b2c5f-1a4d-4e7b-8c0f-3d6a9b2c5e8f';
+    const initial = startingValues({ ...oil, otherCategoryIds: [A] });
+
+    expect(changes({ ...initial, otherCategoryIds: [A] }, initial)).toEqual({});
+    expect(changes({ ...initial, otherCategoryIds: [B, A] }, initial)).toEqual({
+      otherCategoryIds: [A, B],
+    });
+    expect(changes({ ...initial, otherCategoryIds: [] }, initial)).toEqual({
+      otherCategoryIds: [],
+    });
+    expect(changes({ ...initial, brandId: B }, initial)).toEqual({
+      brandId: B,
+    });
+    expect(sameValue([A, B], [A, B])).toBe(true);
+    expect(sameValue([A, B], [A])).toBe(false);
+    expect(sameValue([A, B], [B, A])).toBe(false);
+    expect(sameValue('', '')).toBe(true);
+
+    // A list sent while another was being chosen stays as chosen.
+    const sent = { ...initial, otherCategoryIds: [A, B] };
+    const saved = startingValues({ ...oil, otherCategoryIds: [A, B] });
+    expect(
+      afterSave({ ...sent, otherCategoryIds: [B] }, sent, saved)
+        .otherCategoryIds,
+    ).toEqual([B]);
+    expect(
+      afterSave({ ...sent, otherCategoryIds: [A, B] }, sent, saved)
+        .otherCategoryIds,
+    ).toBe(saved.otherCategoryIds);
+  });
+
   it('names what a product still needs to go live', () => {
     expect(missingToGoLive(oil)).toEqual([
       'Type',
@@ -137,6 +189,20 @@ describe('the checks before sending', () => {
 
   it('passes a complete product', () => {
     expect(check(valid, shampoo)).toEqual({});
+  });
+
+  it('takes at most 5 other categories (part 15A)', () => {
+    const ids = Array.from(
+      { length: 6 },
+      (_, n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    );
+
+    expect(
+      check({ ...valid, otherCategoryIds: ids.slice(0, 5) }, shampoo),
+    ).toEqual({});
+    expect(check({ ...valid, otherCategoryIds: ids }, shampoo)).toEqual({
+      otherCategoryIds: 'Choose at most 5 other categories',
+    });
   });
 
   it('needs a name and a category', () => {

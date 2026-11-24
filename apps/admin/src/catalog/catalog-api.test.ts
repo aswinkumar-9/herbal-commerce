@@ -20,7 +20,6 @@ import {
   listProductOrder,
   listProducts,
   listVariants,
-  nextProductPosition,
   reorderCategories,
   reorderImages,
   reorderProducts,
@@ -52,6 +51,8 @@ const HAIR_CARE = {
 const OIL = {
   id: PRODUCT_ID,
   categoryId: CATEGORY_ID,
+  otherCategoryIds: [] as string[],
+  brandId: null as string | null,
   name: 'Bhringraj Hair Oil',
   slug: 'bhringraj-hair-oil',
   summary: null,
@@ -336,40 +337,14 @@ describe('the products', () => {
     });
   });
 
-  it('puts a product after the last one of its category, on any page', async () => {
+  it('reads a product’s brand and the other categories it is also shown in (part 15A)', async () => {
     signedIn();
-    const IN = `GET /v1/staff/products?categoryId=${CATEGORY_ID}&limit=100`;
-    const api = fakeApi({
-      [IN]: () =>
-        json(200, {
-          products: [OIL, { ...OIL, id: OTHER_ID, position: 7 }],
-          nextAfter: OTHER_ID,
-        }),
-      [`GET /v1/staff/products?categoryId=${CATEGORY_ID}&after=${OTHER_ID}&limit=100`]:
-        () =>
-          json(200, { products: [{ ...OIL, position: 12 }], nextAfter: null }),
-    });
-
-    await expect(nextProductPosition(CATEGORY_ID)).resolves.toBe(13);
-    expect(api.sent).toHaveLength(2);
-  });
-
-  it('starts an empty category at 0, and never goes past 9999', async () => {
-    signedIn();
-    const IN = `GET /v1/staff/products?categoryId=${CATEGORY_ID}&limit=100`;
+    const shown = { ...OIL, otherCategoryIds: [OTHER_ID], brandId: OTHER_ID };
     fakeApi({
-      [IN]: [
-        () => json(200, { products: [], nextAfter: null }),
-        () =>
-          json(200, {
-            products: [{ ...OIL, position: 9999 }],
-            nextAfter: null,
-          }),
-      ],
+      [`GET /v1/staff/products/${PRODUCT_ID}`]: () => json(200, shown),
     });
 
-    await expect(nextProductPosition(CATEGORY_ID)).resolves.toBe(0);
-    await expect(nextProductPosition(CATEGORY_ID)).resolves.toBe(9999);
+    await expect(getProduct(PRODUCT_ID)).resolves.toEqual(shown);
   });
 
   it('refuses a product type it does not know', async () => {

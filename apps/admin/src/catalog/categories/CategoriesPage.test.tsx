@@ -46,6 +46,8 @@ const ALL = [HAIR, SKIN, TEAS];
 const OIL = {
   id: '3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f',
   categoryId: HAIR.id,
+  otherCategoryIds: [],
+  brandId: null,
   name: 'Bhringraj Oil',
   slug: 'bhringraj-oil',
   summary: null,

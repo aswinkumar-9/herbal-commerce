@@ -277,6 +277,45 @@ describe('the audit log in sentences', () => {
     ).toEqual([{ key: 'parentId', label: 'Inside', before: '—', after: 'c' }]);
   });
 
+  it('tells a product moved in a category it is also shown in, and its other categories (part 15A)', () => {
+    const moved = {
+      targetType: 'product',
+      targetId: PRODUCT_ID,
+      subject: { name: 'Ashwagandha Capsules', parent: null },
+      action: 'product.updated',
+      before: { otherCategoryPosition: { categoryId: 'c', position: 2 } },
+      after: { otherCategoryPosition: { categoryId: 'c', position: 0 } },
+    };
+    expect(said(moved)).toBe(
+      'Asha Verma moved the product Ashwagandha Capsules',
+    );
+    expect(changedFields(entryOf(moved))).toEqual([
+      {
+        key: 'otherCategoryPosition',
+        label: 'Place in a category it is also shown in',
+        before: '2',
+        after: '0',
+      },
+    ]);
+    expect(
+      changedFields(
+        entryOf({
+          targetType: 'product',
+          action: 'product.updated',
+          before: { otherCategoryIds: ['a'] },
+          after: { otherCategoryIds: ['a', 'b'] },
+        }),
+      ),
+    ).toEqual([
+      {
+        key: 'otherCategoryIds',
+        label: 'Also shown in',
+        before: '1',
+        after: '2',
+      },
+    ]);
+  });
+
   it('names something deleted from what the entry kept, with no link', () => {
     const gone = {
       targetType: 'product',

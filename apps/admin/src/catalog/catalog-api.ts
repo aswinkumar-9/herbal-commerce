@@ -60,7 +60,12 @@ export const GST_RATES = [0, 5, 18, 40] as const;
 
 export const productSchema = z.object({
   id: z.string(),
+  // Its main category: reports count its sales there.
   categoryId: z.string(),
+  // The other categories it is also shown in (part 15A), at most 5.
+  otherCategoryIds: z.array(z.string()),
+  // null: no brand (part 15A).
+  brandId: z.string().nullable(),
   name: z.string(),
   slug: z.string(),
   summary: z.string().nullable(),
@@ -105,8 +110,8 @@ export type ProductFields = Omit<
   Product,
   'id' | 'position' | 'createdAt' | 'updatedAt'
 >;
-// What a product's create or change sends: its fields, and where it goes
-// in its category.
+// What a product's create or change sends: its fields. Without a place,
+// the API puts a product last in the category it is put into.
 export type ProductInput = Partial<ProductFields> & { position?: number };
 
 export interface ProductQuery {
@@ -266,19 +271,6 @@ export async function updateProduct(id: string, changes: ProductInput) {
 // Super Users only; the API refuses Admins.
 export async function deleteProduct(id: string) {
   return apiRequest(idInPath(PRODUCTS, id), { method: 'DELETE' });
-}
-
-// Where a product put into a category goes: after its last one. The list
-// comes first to last, so the last product of the last page is the last.
-export async function nextProductPosition(categoryId: string) {
-  let after: string | undefined;
-  let last = -1;
-  do {
-    const page = await listProducts({ categoryId, after, limit: 100 });
-    last = page.products.at(-1)?.position ?? last;
-    after = page.nextAfter ?? undefined;
-  } while (after);
-  return Math.min(MAX_POSITION, last + 1);
 }
 
 // Every product shown in one category, drafts too, first to last (part

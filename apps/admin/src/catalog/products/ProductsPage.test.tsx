@@ -12,7 +12,7 @@ import {
   HAIR,
   OIL,
   PRODUCT,
-  PRODUCTS_IN,
+  SHOWN_IN,
   SHAMPOO,
   SKIN,
   SOAP,
@@ -328,7 +328,7 @@ describe('the products list', () => {
 describe('ordering one category’s products', () => {
   it('offers the order once one category is chosen', async () => {
     const { user, router } = await openList({
-      answers: { [PRODUCTS_IN(HAIR)]: productsOf([OIL, SHAMPOO]) },
+      answers: { [SHOWN_IN(HAIR)]: orderOf([OIL, SHAMPOO]) },
     });
     await rows();
 
@@ -357,7 +357,7 @@ describe('ordering one category’s products', () => {
     const { user, api } = await openList(
       {
         answers: {
-          [PRODUCTS_IN(HAIR)]: productsOf([OIL, SHAMPOO]),
+          [SHOWN_IN(HAIR)]: orderOf([OIL, SHAMPOO]),
           [ORDER]: orderOf([
             { ...SHAMPOO, position: 0 },
             { ...OIL, position: 1 },
@@ -391,10 +391,10 @@ describe('ordering one category’s products', () => {
     const { user } = await openList(
       {
         answers: {
-          [PRODUCTS_IN(HAIR)]: [
-            productsOf([OIL, SHAMPOO]),
+          [SHOWN_IN(HAIR)]: [
+            orderOf([OIL, SHAMPOO]),
             // Someone added a product meanwhile.
-            productsOf([OIL, SHAMPOO, { ...SOAP, categoryId: HAIR.id }]),
+            orderOf([OIL, SHAMPOO, { ...SOAP, categoryId: HAIR.id }]),
           ],
           [ORDER]: () =>
             json(409, {
@@ -467,8 +467,8 @@ describe('ordering one category’s products', () => {
     const { user } = await openList(
       {
         answers: {
-          [PRODUCTS_IN(HAIR)]: productsOf([OIL, SHAMPOO]),
-          [PRODUCTS_IN(SKIN)]: skin.answer,
+          [SHOWN_IN(HAIR)]: orderOf([OIL, SHAMPOO]),
+          [SHOWN_IN(SKIN)]: skin.answer,
         },
       },
       `/catalog/products?category=${HAIR.id}`,
@@ -482,31 +482,45 @@ describe('ordering one category’s products', () => {
     expect(
       screen.queryByRole('button', { name: /^Move / }),
     ).not.toBeInTheDocument();
-    await act(async () =>
-      skin.release(json(200, { products: [SOAP], nextAfter: null })),
-    );
+    await act(async () => skin.release(json(200, { products: [SOAP] })));
     expect(await orderedRows(SKIN)).toEqual(['Neem Soap']);
   });
 
-  it('is offered once every product of the category is shown', async () => {
-    const { user } = await openList(
+  it('lists the products also shown in the category, with their main one, and orders them all (part 15A)', async () => {
+    const { user, api } = await openList(
       {
         answers: {
-          [PRODUCTS_IN(HAIR)]: productsOf([OIL], OIL.id),
-          [`GET /v1/staff/products?categoryId=${HAIR.id}&after=${OIL.id}&limit=100`]:
-            productsOf([SHAMPOO]),
+          // Neem Soap's main category is Skin Care.
+          [SHOWN_IN(HAIR)]: orderOf([OIL, SOAP]),
+          [ORDER]: orderOf([SOAP, OIL]),
         },
       },
       `/catalog/products?category=${HAIR.id}`,
     );
 
-    expect(await rows()).toEqual(['Bhringraj Oil']);
+    expect(await orderedRows()).toEqual(['Bhringraj Oil', 'Neem Soap']);
+    const soap = screen
+      .getByRole('link', { name: 'Neem Soap' })
+      .closest('li') as HTMLElement;
+    expect(soap).toHaveTextContent('Main category Skin Care');
+    const oil = screen
+      .getByRole('link', { name: 'Bhringraj Oil' })
+      .closest('li') as HTMLElement;
+    expect(oil).not.toHaveTextContent('Main category');
     expect(
-      screen.getByText('Show all of them to change their order.'),
-    ).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: 'Show more' }));
+      screen.queryByRole('button', { name: 'Show more' }),
+    ).not.toBeInTheDocument();
 
-    expect(await orderedRows()).toEqual(['Bhringraj Oil', 'Amla Shampoo']);
+    screen.getByRole('button', { name: 'Move Neem Soap' }).focus();
+    await user.keyboard('{ArrowUp}');
+
+    expect(await screen.findByText('Order saved')).toBeInTheDocument();
+    expect(api.to('PUT', '/v1/staff/products/order')[0]?.body).toEqual({
+      categoryId: HAIR.id,
+      ids: [SOAP.id, OIL.id],
+    });
+    expect(await orderedRows()).toEqual(['Neem Soap', 'Bhringraj Oil']);
+    expect(api.unexpected).toEqual([]);
   });
 });
 
@@ -515,7 +529,7 @@ describe('opening a product from the list', () => {
     const { user, router } = await openList(
       {
         answers: {
-          [PRODUCTS_IN(HAIR)]: productsOf([OIL, SHAMPOO]),
+          [SHOWN_IN(HAIR)]: orderOf([OIL, SHAMPOO]),
           [PRODUCT(OIL)]: () => json(200, OIL),
         },
       },

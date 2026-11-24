@@ -9,6 +9,7 @@ import {
   listBrands,
   listCategories,
   listImages,
+  listProductOrder,
   listProducts,
   listVariants,
 } from './catalog-api';
@@ -16,6 +17,7 @@ import type {
   Brand,
   Category,
   ProductImage,
+  ProductPage,
   ProductQuery,
   Variant,
 } from './catalog-api';
@@ -60,14 +62,31 @@ export function useBrands() {
   });
 }
 
+// One category, with nothing else chosen: the list staff put in order.
+export function isCategoryOrder(query: Omit<ProductQuery, 'after'>): boolean {
+  return (
+    query.categoryId !== undefined &&
+    query.brandId === undefined &&
+    query.isActive === undefined &&
+    query.q === undefined
+  );
+}
+
 // Products one page at a time: each page's nextAfter asks for the next.
-// A search comes back on one page. While another filter loads, the last
+// A search comes back on one page, and so does one category on its own:
+// every product shown in it, its own and those also shown there (part
+// 15A), as its order takes them all. While another filter loads, the last
 // list stays (isPlaceholderData says so).
 export function useProductPages(query: Omit<ProductQuery, 'after'>) {
   return useInfiniteQuery({
     queryKey: catalogKeys.products(query),
-    queryFn: ({ pageParam, signal }) =>
-      listProducts({ ...query, after: pageParam }, signal),
+    queryFn: async ({ pageParam, signal }): Promise<ProductPage> =>
+      query.categoryId && isCategoryOrder(query)
+        ? {
+            products: await listProductOrder(query.categoryId, signal),
+            nextAfter: null,
+          }
+        : listProducts({ ...query, after: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextAfter ?? undefined,
     placeholderData: keepPreviousData,

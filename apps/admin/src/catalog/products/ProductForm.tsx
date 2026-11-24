@@ -21,7 +21,6 @@ import {
   PRODUCT_TYPES,
   PRODUCT_TYPE_NAMES,
   createProduct,
-  nextProductPosition,
   updateProduct,
 } from '../catalog-api';
 import type {
@@ -30,7 +29,7 @@ import type {
   ProductInput,
   ProductType,
 } from '../catalog-api';
-import { catalogKeys } from '../catalog-queries';
+import { catalogKeys, useBrands } from '../catalog-queries';
 import { categoryLabel, isShown } from '../category-tree';
 import { SLUG_MAX, slugify } from '../slug';
 import { DeleteProductDialog } from './DeleteProductDialog';
@@ -39,11 +38,14 @@ import { PackSizesSection } from './PackSizesSection';
 import {
   FIELD_ORDER,
   LIMITS,
+  MAX_OTHER_CATEGORIES,
   afterSave,
   changes,
   check,
   missingToGoLive,
   newProduct,
+  sameValue,
+  sortedIds,
   startingValues,
   toFields,
 } from './product-form';
@@ -89,6 +91,7 @@ export function ProductForm({
   const queryClient = useQueryClient();
   const toasts = useToasts();
   const navigate = useNavigate();
+  const brands = useBrands();
   const [initial, setInitial] = useState(() =>
     startingValues(product, startCategory),
   );
@@ -100,24 +103,15 @@ export function ProductForm({
   const listPath = { pathname: '/catalog/products', search: listSearch };
 
   const dirty = (Object.keys(initial) as (keyof ProductValues)[]).some(
-    (key) => values[key] !== initial[key],
+    (key) => !sameValue(values[key], initial[key]),
   );
   const { prompt, allowLeaving, report } = useUnsavedChanges(dirty);
 
   const save = useMutation({
     mutationKey: SAVING,
-    // A product put into a category goes after its last one.
-    mutationFn: async ({
-      input,
-    }: {
-      input: ProductInput;
-      sent: ProductValues;
-    }) => {
-      const body = input.categoryId
-        ? { ...input, position: await nextProductPosition(input.categoryId) }
-        : input;
-      return product ? updateProduct(product.id, body) : createProduct(body);
-    },
+    // A product put into a category goes last there: the API places it.
+    mutationFn: ({ input }: { input: ProductInput; sent: ProductValues }) =>
+      product ? updateProduct(product.id, input) : createProduct(input),
     onSuccess: (saved, { sent }) => {
       // The lists read it again when they next open.
       queryClient.setQueryData(catalogKeys.product(saved.id), saved);
@@ -170,14 +164,25 @@ export function ProductForm({
   }
 
   function set<K extends keyof ProductValues>(key: K, value: ProductValues[K]) {
-    setValues((current) => ({ ...current, [key]: value }));
+    setValues((current) => {
+      const next = { ...current, [key]: value };
+      // Its main category is never one of its other ones too.
+      if (key === 'categoryId') {
+        next.otherCategoryIds = current.otherCategoryIds.filter(
+          (id) => id !== value,
+        );
+      }
+      return next;
+    });
     // A change clears its mark, and the marks that depend on it.
     const cleared: ProductProblem[] =
       key === 'isActive'
         ? ['images']
         : key === 'type'
           ? ['type', 'licenceNumber']
-          : [key as ProductProblem];
+          : key === 'categoryId'
+            ? ['categoryId', 'otherCategoryIds']
+            : [key as ProductProblem];
     if (cleared.some((name) => errors[name])) {
       setErrors((current) => {
         const next = { ...current };
@@ -269,6 +274,42 @@ export function ProductForm({
               </option>
             ))}
           </SelectField>
+          <SelectField
+            ref={box('brandId')}
+            label="Brand"
+            value={values.brandId}
+            onChange={(event) => set('brandId', event.target.value)}
+            disabled={!brands.data}
+            hint={
+              brands.isError
+                ? 'The brands could not be loaded. Reload the page to choose one.'
+                : 'Who makes it. Add brands on the Brands page.'
+            }
+            error={errors.brandId}
+          >
+            {brands.data ? (
+              <>
+                <option value="">No brand</option>
+                {brands.data.map((brand) => (
+                  <option key={brand.id} value={brand.id}>
+                    {brand.name}
+                  </option>
+                ))}
+              </>
+            ) : (
+              <option value={values.brandId}>
+                {brands.isError ? 'Not loaded' : 'Loading the brands…'}
+              </option>
+            )}
+          </SelectField>
+          <OtherCategories
+            categories={categories}
+            mainId={values.categoryId}
+            chosen={values.otherCategoryIds}
+            error={errors.otherCategoryIds}
+            firstBox={box('otherCategoryIds')}
+            onChange={(ids) => set('otherCategoryIds', ids)}
+          />
           <Field
             ref={box('slug')}
             label="Slug"
@@ -280,6 +321,7 @@ export function ProductForm({
             placeholder={product ? undefined : madeSlug}
             hint={slugHint}
             error={errors.slug}
+            className="sm:col-span-2"
           />
           <TextAreaField
             ref={box('summary')}
@@ -492,6 +534,81 @@ function liveHint(product: Product, live: boolean, missing: string[]): string {
   return missing.length > 0
     ? `Before it can go live: ${missing.join(', ')}, and an image.`
     : 'Before it can go live: an image.';
+}
+
+// The other categories a product is also shown in (part 15A): any but its
+// main one, at most 5.
+function OtherCategories({
+  categories,
+  mainId,
+  chosen,
+  error,
+  firstBox,
+  onChange,
+}: {
+  categories: Category[];
+  mainId: string;
+  chosen: string[];
+  error: string | undefined;
+  // Takes the focus when the list is marked wrong.
+  firstBox: (element: HTMLElement | null) => void;
+  onChange: (ids: string[]) => void;
+}) {
+  const id = useId();
+  const choices = categories.filter((category) => category.id !== mainId);
+  const full = chosen.length >= MAX_OTHER_CATEGORIES;
+  // The first box that can take the focus: once 5 are chosen, the others
+  // can't be chosen.
+  const first = choices.findIndex(
+    (category) => !full || chosen.includes(category.id),
+  );
+  return (
+    <fieldset
+      aria-describedby={error ? `${id}-hint ${id}-error` : `${id}-hint`}
+      className="sm:col-span-2"
+    >
+      <legend className="text-sm font-medium">Also shown in</legend>
+      <p id={`${id}-hint`} className="mt-1.5 text-xs text-ink-muted">
+        {choices.length === 0
+          ? 'There is no other category yet.'
+          : `Customers find it in these too, at most ${MAX_OTHER_CATEGORIES}. The category above stays its main one, where reports count its sales.`}
+      </p>
+      {choices.length > 0 ? (
+        <ul className="mt-2 grid gap-x-4 sm:grid-cols-2">
+          {choices.map((category, index) => {
+            const on = chosen.includes(category.id);
+            const label = categoryLabel(categories, category);
+            return (
+              <li key={category.id}>
+                <label className="flex min-h-11 cursor-pointer items-center gap-3 text-sm has-disabled:cursor-not-allowed has-disabled:text-ink-muted">
+                  <input
+                    ref={index === first ? firstBox : undefined}
+                    type="checkbox"
+                    checked={on}
+                    disabled={!on && full}
+                    onChange={(event) =>
+                      onChange(
+                        event.target.checked
+                          ? sortedIds([...chosen, category.id])
+                          : chosen.filter((other) => other !== category.id),
+                      )
+                    }
+                    className="size-5 cursor-pointer accent-primary disabled:cursor-not-allowed"
+                  />
+                  {isShown(categories, category) ? label : `${label} (hidden)`}
+                </label>
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+      {error ? (
+        <p id={`${id}-error`} className="mt-1.5 text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+    </fieldset>
+  );
 }
 
 function FormSection({
