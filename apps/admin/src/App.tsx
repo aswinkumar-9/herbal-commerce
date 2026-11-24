@@ -9,6 +9,7 @@ import { AuditLogPage } from './audit/AuditLogPage';
 import { SessionProvider } from './auth/SessionProvider';
 import { RequireRole, RequireSession } from './auth/guards';
 import { CatalogLayout } from './catalog/CatalogLayout';
+import { BrandsPage } from './catalog/brands/BrandsPage';
 import { CategoriesPage } from './catalog/categories/CategoriesPage';
 import { ProductPage } from './catalog/products/ProductPage';
 import { ProductsPage } from './catalog/products/ProductsPage';
@@ -74,6 +75,7 @@ export const routes = createRoutesFromElements(
         <Route path="catalog" element={<CatalogLayout />}>
           <Route index element={<Navigate to="categories" replace />} />
           <Route path="categories" element={<CategoriesPage />} />
+          <Route path="brands" element={<BrandsPage />} />
           <Route path="products" element={<ProductsPage />} />
         </Route>
         <Route path="catalog/products/new" element={<ProductPage />} />

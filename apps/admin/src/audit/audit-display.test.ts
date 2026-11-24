@@ -227,6 +227,43 @@ describe('the audit log in sentences', () => {
     ).toBe('Asha Verma changed the category Hair Care');
   });
 
+  it('tells what happened to a brand, linking to the brands while it exists (part 15A)', () => {
+    const brand = {
+      targetType: 'brand',
+      targetId: 'b',
+      subject: { name: 'Himalaya', parent: null },
+    };
+    expect(said({ ...brand, action: 'brand.created' })).toBe(
+      'Asha Verma added the brand Himalaya',
+    );
+    expect(said({ ...brand, action: 'brand.updated' })).toBe(
+      'Asha Verma changed the brand Himalaya',
+    );
+    expect(linkOf({ ...brand, action: 'brand.updated' })?.to).toBe(
+      '/catalog/brands',
+    );
+    const gone = {
+      targetType: 'brand',
+      targetId: 'b',
+      subject: null,
+      action: 'brand.deleted',
+      before: { name: 'Old Brand', slug: 'old-brand' },
+      after: null,
+    };
+    expect(said(gone)).toBe('Asha Verma deleted the brand Old Brand');
+    expect(linkOf(gone)?.to).toBeNull();
+    expect(
+      changedFields(
+        entryOf({
+          targetType: 'product',
+          action: 'product.updated',
+          before: { brandId: null },
+          after: { brandId: 'b' },
+        }),
+      ),
+    ).toEqual([{ key: 'brandId', label: 'Brand', before: '—', after: 'b' }]);
+  });
+
   it('names something deleted from what the entry kept, with no link', () => {
     const gone = {
       targetType: 'product',

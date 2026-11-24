@@ -86,6 +86,8 @@ function pageOf(entry: AuditEntry): string | null {
       return `/catalog/products/${targetId}`;
     case 'category':
       return '/catalog/categories';
+    case 'brand':
+      return '/catalog/brands';
     case 'variant':
     case 'image':
       return subject.parent ? `/catalog/products/${subject.parent.id}` : null;
@@ -224,6 +226,18 @@ export function tell(entry: AuditEntry): Told {
           entry,
           'the category',
           thing(entry, nameOf(entry, 'name', 'a category')),
+          null,
+        ),
+      };
+    case 'brand.created':
+    case 'brand.updated':
+    case 'brand.deleted':
+      return {
+        who,
+        words: catalogWords(
+          entry,
+          'the brand',
+          thing(entry, nameOf(entry, 'name', 'a brand')),
           null,
         ),
       };
@@ -368,6 +382,7 @@ const FIELD_NAMES: Record<string, string> = {
   isActive: 'Shown to customers',
   position: 'Place in the list',
   categoryId: 'Category',
+  brandId: 'Brand',
   productId: 'Product',
   variantId: 'Pack size',
   sku: 'SKU',

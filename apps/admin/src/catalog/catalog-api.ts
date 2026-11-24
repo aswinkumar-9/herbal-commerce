@@ -7,6 +7,7 @@ import { apiRequest, apiUpload } from '../api/client';
 // sends. Every answer is checked against these shapes.
 
 const CATEGORIES = '/v1/staff/categories';
+const BRANDS = '/v1/staff/brands';
 const PRODUCTS = '/v1/staff/products';
 const VARIANTS = '/v1/staff/variants';
 const IMAGES = '/v1/staff/images';
@@ -23,6 +24,23 @@ export const categorySchema = z.object({
 });
 export type Category = z.infer<typeof categorySchema>;
 const categoryListSchema = z.object({ categories: z.array(categorySchema) });
+
+// A brand (part 15A): staff keep the list, and each product may have one.
+// A brand as a create or a change gives it back.
+export const brandSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type SavedBrand = z.infer<typeof brandSchema>;
+// As the list gives it: with how many products have it, drafts too.
+const listedBrandSchema = brandSchema.extend({
+  productCount: z.number().int().min(0),
+});
+export type Brand = z.infer<typeof listedBrandSchema>;
+const brandListSchema = z.object({ brands: z.array(listedBrandSchema) });
 
 export const PRODUCT_TYPES = [
   'AYURVEDIC_MEDICINE',
@@ -75,6 +93,10 @@ export interface CategoryFields {
   description?: string | null;
   isActive?: boolean;
 }
+export interface BrandFields {
+  name: string;
+  slug?: string;
+}
 export type ProductFields = Omit<
   Product,
   'id' | 'position' | 'createdAt' | 'updatedAt'
@@ -85,6 +107,7 @@ export type ProductInput = Partial<ProductFields> & { position?: number };
 
 export interface ProductQuery {
   categoryId?: string | undefined;
+  brandId?: string | undefined;
   isActive?: boolean | undefined;
   // Words in the name; the best matches come back on one page.
   q?: string | undefined;
@@ -155,10 +178,43 @@ export async function reorderCategories(ids: string[]) {
   return categories;
 }
 
+// Every brand, by name, with how many products have each.
+export async function listBrands(signal?: AbortSignal) {
+  const { brands } = await apiRequest(BRANDS, {
+    schema: brandListSchema,
+    signal,
+  });
+  return brands;
+}
+
+export function createBrand(input: BrandFields) {
+  return apiRequest(BRANDS, {
+    method: 'POST',
+    body: input,
+    schema: brandSchema,
+  });
+}
+
+export async function updateBrand(id: string, changes: Partial<BrandFields>) {
+  return apiRequest(idInPath(BRANDS, id), {
+    method: 'PATCH',
+    body: changes,
+    schema: brandSchema,
+  });
+}
+
+// Super Users only; the API refuses Admins.
+export async function deleteBrand(id: string) {
+  return apiRequest(idInPath(BRANDS, id), { method: 'DELETE' });
+}
+
 export function listProducts(query: ProductQuery, signal?: AbortSignal) {
   const params = new URLSearchParams();
   if (query.categoryId) {
     params.set('categoryId', query.categoryId);
+  }
+  if (query.brandId) {
+    params.set('brandId', query.brandId);
   }
   if (query.isActive !== undefined) {
     params.set('isActive', String(query.isActive));

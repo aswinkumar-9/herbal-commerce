@@ -3,15 +3,18 @@ import { setAccessToken } from '../api/access-token';
 import { ApiError } from '../api/api-error';
 import { fakeApi, json } from '../test/fake-api';
 import {
+  createBrand,
   createCategory,
   createProduct,
   createVariant,
+  deleteBrand,
   deleteCategory,
   deleteImage,
   deleteProduct,
   deleteVariant,
   getProduct,
   imageFileProblem,
+  listBrands,
   listCategories,
   listImages,
   listProducts,
@@ -21,6 +24,7 @@ import {
   reorderImages,
   reorderProducts,
   reorderVariants,
+  updateBrand,
   updateCategory,
   updateImage,
   updateProduct,
@@ -128,6 +132,86 @@ describe('the categories', () => {
     await expect(listCategories()).rejects.toThrow(
       'The server sent an answer the console does not understand.',
     );
+  });
+});
+
+describe('the brands (part 15A)', () => {
+  const BRAND_ID = '3f6c1a2e-9b4d-4c7e-8a15-6d2f0e9b7c41';
+  const HIMALAYA = {
+    id: BRAND_ID,
+    name: 'Himalaya',
+    slug: 'himalaya',
+    createdAt: '2026-11-24T09:00:00.000Z',
+    updatedAt: '2026-11-24T09:00:00.000Z',
+  };
+
+  it('lists them with how many products have each', async () => {
+    signedIn();
+    const api = fakeApi({
+      'GET /v1/staff/brands': () =>
+        json(200, { brands: [{ ...HIMALAYA, productCount: 3 }] }),
+    });
+
+    await expect(listBrands()).resolves.toEqual([
+      { ...HIMALAYA, productCount: 3 },
+    ]);
+    expect(api.sent[0]?.authorization).toBe('Bearer t1');
+  });
+
+  it('creates, changes and deletes one', async () => {
+    signedIn();
+    const api = fakeApi({
+      'POST /v1/staff/brands': () => json(201, HIMALAYA),
+      [`PATCH /v1/staff/brands/${BRAND_ID}`]: () =>
+        json(200, { ...HIMALAYA, name: 'Himalaya Wellness' }),
+      [`DELETE /v1/staff/brands/${BRAND_ID}`]: () =>
+        new Response(null, { status: 204 }),
+    });
+
+    await expect(createBrand({ name: 'Himalaya' })).resolves.toEqual(HIMALAYA);
+    await expect(
+      updateBrand(BRAND_ID, { name: 'Himalaya Wellness' }),
+    ).resolves.toMatchObject({ name: 'Himalaya Wellness' });
+    await expect(deleteBrand(BRAND_ID)).resolves.toBeUndefined();
+
+    expect(api.sent.map((request) => request.body)).toEqual([
+      { name: 'Himalaya' },
+      { name: 'Himalaya Wellness' },
+      undefined,
+    ]);
+  });
+
+  it('never puts an ID that is not one into the path', async () => {
+    signedIn();
+    const api = fakeApi({});
+
+    await expect(updateBrand('../admins', { name: 'X' })).rejects.toThrow(
+      'There is no such item.',
+    );
+    await expect(deleteBrand('x?y')).rejects.toThrow('There is no such item.');
+    expect(api.sent).toEqual([]);
+  });
+
+  it('turns a list without product counts into an error', async () => {
+    signedIn();
+    fakeApi({
+      'GET /v1/staff/brands': () => json(200, { brands: [HIMALAYA] }),
+    });
+
+    await expect(listBrands()).rejects.toThrow(
+      'The server sent an answer the console does not understand.',
+    );
+  });
+
+  it('asks for the products of one brand', async () => {
+    signedIn();
+    const api = fakeApi({
+      [`GET /v1/staff/products?brandId=${BRAND_ID}&limit=1`]: () =>
+        json(200, { products: [], nextAfter: null }),
+    });
+
+    await listProducts({ brandId: BRAND_ID, limit: 1 });
+    expect(api.unexpected).toEqual([]);
   });
 });
 

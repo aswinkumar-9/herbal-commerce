@@ -6,12 +6,14 @@ import {
 import type { QueryClient } from '@tanstack/react-query';
 import {
   getProduct,
+  listBrands,
   listCategories,
   listImages,
   listProducts,
   listVariants,
 } from './catalog-api';
 import type {
+  Brand,
   Category,
   ProductImage,
   ProductQuery,
@@ -23,6 +25,7 @@ import type {
 export const catalogKeys = {
   all: ['catalog'] as const,
   categories: () => ['catalog', 'categories'] as const,
+  brands: () => ['catalog', 'brands'] as const,
   productLists: () => ['catalog', 'products'] as const,
   products: (query: Omit<ProductQuery, 'after'>) =>
     ['catalog', 'products', query] as const,
@@ -37,12 +40,23 @@ export const catalogKeys = {
   // a product change refreshes it).
   categoryHasProducts: (categoryId: string) =>
     ['catalog', 'products', 'any', categoryId] as const,
+  // The same for a brand (part 15A).
+  brandHasProducts: (brandId: string) =>
+    ['catalog', 'products', 'any-of-brand', brandId] as const,
 };
 
 export function useCategories() {
   return useQuery({
     queryKey: catalogKeys.categories(),
     queryFn: ({ signal }) => listCategories(signal),
+  });
+}
+
+// Every brand, by name (part 15A).
+export function useBrands() {
+  return useQuery({
+    queryKey: catalogKeys.brands(),
+    queryFn: ({ signal }) => listBrands(signal),
   });
 }
 
@@ -94,6 +108,26 @@ export function putCategory(queryClient: QueryClient, saved: Category): void {
 export function dropCategory(queryClient: QueryClient, id: string): void {
   queryClient.setQueryData<Category[]>(catalogKeys.categories(), (list) =>
     list?.filter((category) => category.id !== id),
+  );
+}
+
+// A brand as the server now has it, in place in the cached list. A change
+// gives no product count back: the one in the list stays.
+export function putBrand(
+  queryClient: QueryClient,
+  saved: Omit<Brand, 'productCount'>,
+): void {
+  queryClient.setQueryData<Brand[]>(catalogKeys.brands(), (list) =>
+    list?.map((brand) =>
+      brand.id === saved.id ? { ...brand, ...saved } : brand,
+    ),
+  );
+}
+
+// A deleted brand, out of the cached list.
+export function dropBrand(queryClient: QueryClient, id: string): void {
+  queryClient.setQueryData<Brand[]>(catalogKeys.brands(), (list) =>
+    list?.filter((brand) => brand.id !== id),
   );
 }
 
