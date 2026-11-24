@@ -152,11 +152,13 @@ export default function ProductPage({
     <div className="mx-auto flex w-full max-w-6xl flex-col gap-8 px-6 pt-24 pb-24">
       <Trail
         steps={[
-          {
-            label: product.category.name,
-            to: `/categories/${product.category.slug}`,
-          },
-        ]}
+          // A subcategory's top category first (part 15B).
+          ...(product.category.parent ? [product.category.parent] : []),
+          product.category,
+        ].map((category) => ({
+          label: category.name,
+          to: `/categories/${category.slug}`,
+        }))}
         here={product.name}
       />
       <article
@@ -184,6 +186,23 @@ export default function ProductPage({
             >
               {product.name}
             </h1>
+            {product.brand ? (
+              <p
+                itemProp="brand"
+                itemScope
+                itemType={`${SCHEMA}Brand`}
+                className="body-5 text-ink-muted"
+              >
+                {words.by}{' '}
+                <Link
+                  prefetch="intent"
+                  to={`/shop?brand=${product.brand.slug}`}
+                  className="text-primary underline underline-offset-4 transition-colors duration-300 ease-settle hover:text-primary-strong"
+                >
+                  <span itemProp="name">{product.brand.name}</span>
+                </Link>
+              </p>
+            ) : null}
             {product.summary ? (
               <p
                 itemProp="description"

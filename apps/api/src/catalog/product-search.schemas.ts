@@ -43,6 +43,7 @@ export const productSearchQuerySchema = z
   .object({
     q: searchWords.optional(),
     category: slugSchema.optional(),
+    brand: slugSchema.optional(),
     type: z
       .enum(
         ProductType,

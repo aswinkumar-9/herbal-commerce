@@ -40,8 +40,9 @@ export async function apiFind<T>(
   request: Request,
   path: string,
   schema: z.ZodType<T>,
+  query?: URLSearchParams,
 ): Promise<T | null> {
-  const found = await ask(request, path, schema);
+  const found = await ask(request, path, schema, query);
   return found === MISSING ? null : found;
 }
 

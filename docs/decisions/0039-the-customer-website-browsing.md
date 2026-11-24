@@ -158,6 +158,16 @@ For a CDN in front of the website, when one is chosen, and for the browser:
 - **"Show more orders"** works like a category's "Show more", without prefetching, as it is a fetcher's request.
 - **The tests:** 541 for the website when part 14D ended.
 
+## Changed in part 15B
+
+- **The catalog's groupings** (ADR 0045):
+  - a top category's page links to its subcategories, and after its own products shows the first 4 of each subcategory's;
+  - the trails of a subcategory and of its products pass through the top category;
+  - the shop filters by subcategory and by brand;
+  - a product's page names its brand, a link to the shop filtered by it.
+- **Nothing changed in the security policy or the caches.** The list of brands and the subcategories' first products are public answers, kept for a minute like the others.
+- **The tests:** 565 for the website when part 15B ended.
+
 ## Consequences
 
 - A link to the shop, a category or a product shows its words and picture in WhatsApp and to Google, and every page works before, or without, its script.

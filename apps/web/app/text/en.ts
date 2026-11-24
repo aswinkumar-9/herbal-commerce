@@ -174,6 +174,10 @@ export const text = {
       inUse: (count: number) => `${count} in use`,
       category: 'Category',
       allCategories: 'All categories',
+      // A top category with subcategories, as the list offers it whole.
+      allIn: (name: string) => `All ${name}`,
+      brand: 'Brand',
+      allBrands: 'All brands',
       type: 'Type',
       allTypes: 'All types',
       min: 'Lowest price in rupees',
@@ -232,6 +236,10 @@ export const text = {
     shown: (count: number) =>
       count === 1 ? '1 more product shown' : `${count} more products shown`,
     start: 'Back to the start',
+    // A top category's page (part 15B): the links to its subcategories,
+    // and the way from a few of one's products to all of them.
+    subcategories: (name: string) => `Sections of ${name}`,
+    seeAll: (name: string) => `See all ${name}`,
   },
   // What every account form says about its fields (part 14B). The API
   // checks them again; these say it beside the field first.
@@ -797,6 +805,8 @@ export const text = {
     description: (name: string) =>
       `${name} at Herbal Commerce. Prices include GST, and delivery is free from ₹499.`,
     photos: 'Photos',
+    // Before the brand's name, which leads to its products in the shop.
+    by: 'By',
     showPhoto: (at: number, of: number) => `Show photo ${at} of ${of}`,
     packs: {
       heading: 'Pack sizes',

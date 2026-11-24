@@ -11,15 +11,16 @@ import {
 const read = (query: string) => readShopSearch(new URLSearchParams(query));
 
 describe('reading the shop’s address', () => {
-  it('reads words, a category, a type, prices, an order and a page', () => {
+  it('reads words, a category, a brand, a type, prices, an order and a page', () => {
     expect(
       read(
-        'q=tulsi&category=hair-care&type=cosmetic&min=100&max=500&sort=price-asc&page=2',
+        'q=tulsi&category=hair-care&brand=himalaya&type=cosmetic&min=100&max=500&sort=price-asc&page=2',
       ),
     ).toEqual({
       search: {
         q: 'tulsi',
         category: 'hair-care',
+        brand: 'himalaya',
         type: 'cosmetic',
         min: 100,
         max: 500,
@@ -32,16 +33,19 @@ describe('reading the shop’s address', () => {
   });
 
   it('asks for nothing when the address holds nothing', () => {
-    expect(read('').search).toEqual({
+    expect(read('').search).toStrictEqual({
       q: undefined,
       category: undefined,
+      brand: undefined,
       type: undefined,
       min: undefined,
       max: undefined,
       sort: undefined,
       page: 1,
     });
-    expect(read('q=&category=&type=&min=&max=&sort=').problems).toEqual({});
+    expect(read('q=&category=&brand=&type=&min=&max=&sort=').problems).toEqual(
+      {},
+    );
   });
 
   it('makes each run of spaces in the words one, as the API does', () => {
@@ -89,13 +93,17 @@ describe('reading the shop’s address', () => {
     });
   });
 
-  it('quietly drops a category, type, order or page no customer could have chosen', () => {
+  it('quietly drops a category, brand, type, order or page no customer could have chosen', () => {
     const { search, problems } = read(
-      'category=Hair_Care&type=TOYS&sort=newest&page=0',
+      'category=Hair_Care&brand=Himalaya!&type=TOYS&sort=newest&page=0',
     );
-    expect(search).toMatchObject({
+    expect(search).toStrictEqual({
+      q: undefined,
       category: undefined,
+      brand: undefined,
       type: undefined,
+      min: undefined,
+      max: undefined,
       sort: undefined,
       page: 1,
     });
@@ -133,11 +141,12 @@ describe('reading the shop’s address', () => {
 describe('asking the API', () => {
   it('asks in the API’s own names, 24 to a page', () => {
     const { search } = read(
-      'q=tulsi&category=wellness&type=food-or-supplement&min=0&max=499&page=3',
+      'q=tulsi&category=wellness&brand=himalaya&type=food-or-supplement&min=0&max=499&page=3',
     );
     expect(Object.fromEntries(apiQuery(search))).toEqual({
       q: 'tulsi',
       category: 'wellness',
+      brand: 'himalaya',
       type: 'FOOD_OR_SUPPLEMENT',
       minPriceRupees: '0',
       maxPriceRupees: '499',
@@ -161,21 +170,24 @@ describe('asking the API', () => {
 
 describe('the shop’s addresses', () => {
   const { search } = read(
-    'q=tulsi&category=wellness&type=cosmetic&min=100&max=500&sort=name&page=4',
+    'q=tulsi&category=wellness&brand=himalaya&type=cosmetic&min=100&max=500&sort=name&page=4',
   );
 
   it('keeps every part, and starts again from the first page on any change', () => {
     expect(shopHref(search)).toBe(
-      '/shop?q=tulsi&category=wellness&type=cosmetic&min=100&max=500&sort=name',
+      '/shop?q=tulsi&category=wellness&brand=himalaya&type=cosmetic&min=100&max=500&sort=name',
     );
     expect(shopHref(search, { type: undefined })).toBe(
-      '/shop?q=tulsi&category=wellness&min=100&max=500&sort=name',
+      '/shop?q=tulsi&category=wellness&brand=himalaya&min=100&max=500&sort=name',
+    );
+    expect(shopHref(search, { brand: undefined })).toBe(
+      '/shop?q=tulsi&category=wellness&type=cosmetic&min=100&max=500&sort=name',
     );
   });
 
   it('goes to another page with everything else kept', () => {
     expect(shopHref(search, { page: 5 })).toBe(
-      '/shop?q=tulsi&category=wellness&type=cosmetic&min=100&max=500&sort=name&page=5',
+      '/shop?q=tulsi&category=wellness&brand=himalaya&type=cosmetic&min=100&max=500&sort=name&page=5',
     );
   });
 
@@ -191,7 +203,8 @@ describe('the shop’s addresses', () => {
   });
 
   it('counts the filters in use, a price range as one', () => {
-    expect(filtersInUse(search)).toBe(3);
+    expect(filtersInUse(search)).toBe(4);
+    expect(filtersInUse(read('brand=himalaya').search)).toBe(1);
     expect(filtersInUse(read('q=tulsi&max=500').search)).toBe(1);
     expect(filtersInUse(read('q=tulsi').search)).toBe(0);
   });

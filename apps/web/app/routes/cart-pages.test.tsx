@@ -22,7 +22,8 @@ const PRODUCT: Product = {
   manufacturerName: 'Herbal Works',
   manufacturerAddress: 'Mysuru',
   countryOfOrigin: 'India',
-  category: { name: 'Wellness', slug: 'wellness' },
+  category: { name: 'Wellness', slug: 'wellness', parent: null },
+  brand: null,
   variants: [
     {
       sku: 'ASH-CAP-30',

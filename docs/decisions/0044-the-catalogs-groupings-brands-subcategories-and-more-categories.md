@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 15A)
 - Date: 2026-11-24
+- Updated: 2026-11-24 (part 15B: the website shows subcategories and brands, `GET /v1/brands` lists the brands to shop by, and subcategories no longer need to stay hidden, see ADR 0045)
 
 ## Context
 

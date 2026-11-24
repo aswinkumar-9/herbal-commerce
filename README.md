@@ -399,9 +399,9 @@ The website shows the shop to anyone, without signing in (ADR 0039). Its pages a
 2. Open http://localhost:3001. It reads the shop from the API at http://127.0.0.1:3000 and leaves the console alone.
 
 - **The home page:** the owner's picture across the first screen (a tall one on a phone held upright), the promises, the fields, the tagline that lights up as you scroll, how buying works, the categories and the usual questions.
-- **The shop** (`/shop`): search by words, partial or misspelt; filter by category, type and price; sort; 24 products to a page, those in stock first. The search and filters stay in the address, to share or come back to.
-- **A category** (`/categories/hair-care`): its products in the order staff chose, with "Show more".
-- **A product** (`/products/ashwagandha-capsules`): its photos, each pack with its price, MRP and stock, what it is and how to use it, and its licence and maker. Signed in, choose a pack size and how many packs (1 to 4), then "Add to cart". Signed out, "Add to cart" asks you to sign in first, and adds the pack as you come back.
+- **The shop** (`/shop`): search by words, partial or misspelt, or by a brand's name; filter by category or subcategory, brand, type and price; sort; 24 products to a page, those in stock first. The search and filters stay in the address, to share or come back to.
+- **A category** (`/categories/hair-care`): its products in the order staff chose, with "Show more". A top category links to its subcategories, and after its own products shows the first 4 of each, with "See all" (ADR 0045).
+- **A product** (`/products/ashwagandha-capsules`): its photos, its brand ("By Himalaya", a link to the shop filtered by it), each pack with its price, MRP and stock, what it is and how to use it, and its licence and maker. Signed in, choose a pack size and how many packs (1 to 4), then "Add to cart". Signed out, "Add to cart" asks you to sign in first, and adds the pack as you come back.
 - **Light and dark** follow the computer, and "Auto", "Light" and "Dark" in the menu bar choose, as in the shop's preview.
 - **Without a script** every page still works: the search form, the sort, "Show more" and a product's thumbnails are plain links and forms, and so does every form of the account.
 - **The policy pages** (`/privacy`, `/terms`, `/refunds`, `/shipping`, `/contact`, in every page's footer), as a Super User publishes them in the console (ADR 0040).
@@ -646,6 +646,10 @@ Admins and Super Users keep the list of brands, and each product may have one. O
 - A product gets its brand with `{"brandId":"<the brand's ID>"}`, and loses it with `{"brandId":null}` (see "Manage products").
 - A brand that a product still has, a draft too, cannot be deleted (`409`): choose another brand, or none, for that product first.
 - Every change is in the audit log: `brand.created`, `brand.updated` (with only what changed) and `brand.deleted` (with what was deleted).
+- **What customers see,** without a token: the brands with a live product, for the shop's filter (ADR 0045). A brand whose products are all drafts or hidden isn't listed:
+  ```powershell
+  (Invoke-RestMethod http://localhost:3000/v1/brands).brands | Format-Table name, slug
+  ```
 
 ## Manage products
 
@@ -908,7 +912,7 @@ Dates are written like `2028-09-30` (year, month, day), and "today" is India's d
 
 ## Search the shop
 
-Anyone may search the shop, signed in or not (ADR 0030). A search looks in each live product's name, summary and description, and forgives part of a word or a typo: "ashwa" and "ashwaganda" both find Ashwagandha. Products in stock come first, and the rest are marked `"inStock": false`.
+Anyone may search the shop, signed in or not (ADR 0030). A search looks in each live product's name, summary and description, and since part 15B its brand's name, and forgives part of a word or a typo: "ashwa" and "ashwaganda" both find Ashwagandha. Products in stock come first, and the rest are marked `"inStock": false`.
 
 ```powershell
 $api = 'http://localhost:3000/v1'
@@ -920,7 +924,8 @@ Add filters and an order, with or without words:
 | Parameter | Example | Meaning |
 |---|---|---|
 | `q` | `q=tulsi tea` | The search words, 2 to 100 characters |
-| `category` | `category=herbal-teas` | One category, by its slug |
+| `category` | `category=herbal-teas` | One category, by its slug. A top category includes its subcategories |
+| `brand` | `brand=himalaya` | One brand, by its slug (since part 15B) |
 | `type` | `type=COSMETIC` | `AYURVEDIC_MEDICINE`, `FOOD_OR_SUPPLEMENT` or `COSMETIC` |
 | `minPriceRupees`, `maxPriceRupees` | `maxPriceRupees=300` | The product's lowest price on sale, in whole rupees |
 | `sort` | `sort=price-asc` | `relevance` (with words only, and their default), `price-asc`, `price-desc` or `name` (the default without words) |

@@ -1,6 +1,7 @@
 import { Reflector } from '@nestjs/core';
 import { AddressesController } from '../addresses/addresses.controller';
 import { CartController } from '../cart/cart.controller';
+import { BrandsController } from '../catalog/brands.controller';
 import { CategoriesController } from '../catalog/categories.controller';
 import { ProductsController } from '../catalog/products.controller';
 import { StaffBrandsController } from '../catalog/staff-brands.controller';
@@ -106,6 +107,8 @@ describe('rate-limited routes', () => {
       list: undefined,
       listProducts: undefined,
     });
+    // The shop's brands (part 15B): one short list, like the categories.
+    expect(routeLimits(BrandsController)).toStrictEqual({ list: undefined });
     // Products too: small writes and paged reads. The staff search (part
     // 12B) weighs only names, for signed-in staff, so it needs no limit of
     // its own, unlike the shop's.

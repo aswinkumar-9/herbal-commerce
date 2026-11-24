@@ -8,8 +8,28 @@ import { renderPage } from '../test/render.tsx';
 import Shop, { meta } from './shop.tsx';
 
 const CATEGORIES = [
-  { name: 'Wellness', slug: 'wellness', description: null },
-  { name: 'Hair Care', slug: 'hair-care', description: null },
+  { name: 'Wellness', slug: 'wellness', description: null, subcategories: [] },
+  {
+    name: 'Hair Care',
+    slug: 'hair-care',
+    description: null,
+    subcategories: [
+      { name: 'Hair Oils', slug: 'hair-oils', description: null },
+      { name: 'Hair Powders', slug: 'hair-powders', description: null },
+    ],
+  },
+  {
+    name: 'Skin Care',
+    slug: 'skin-care',
+    description: null,
+    subcategories: [
+      { name: 'Face Packs', slug: 'face-packs', description: null },
+    ],
+  },
+];
+const BRANDS = [
+  { name: 'Dabur', slug: 'dabur' },
+  { name: 'Himalaya', slug: 'himalaya' },
 ];
 const product = (name: string, slug: string, inStock = true) => ({
   name,
@@ -38,7 +58,11 @@ beforeEach(() => {
   holding = null;
 });
 
-async function renderShop(url = '/shop', found: SearchPage = FOUND) {
+async function renderShop(
+  url = '/shop',
+  found: SearchPage = FOUND,
+  brands: typeof BRANDS = BRANDS,
+) {
   renderPage({
     path: '/shop',
     url,
@@ -52,6 +76,7 @@ async function renderShop(url = '/shop', found: SearchPage = FOUND) {
       return {
         ...readShopSearch(address.searchParams),
         categories: CATEGORIES,
+        brands,
         found,
         origin: 'https://shop.example.com',
       };
@@ -118,6 +143,77 @@ describe('the shop’s search', () => {
         '/shop?q=tulsi&category=hair-care&type=ayurvedic-medicine',
       ),
     );
+  });
+
+  it('offers each top category’s subcategories in a group, the whole of it first (part 15B)', async () => {
+    await renderShop('/shop');
+    const list = screen.getByRole('combobox', { name: 'Category' });
+    const offered = [...list.children].map((child) =>
+      child.tagName === 'OPTGROUP'
+        ? [
+            child.getAttribute('label'),
+            [...child.children].map((option) => [
+              option.textContent,
+              option.getAttribute('value'),
+            ]),
+          ]
+        : [child.textContent, child.getAttribute('value')],
+    );
+    expect(offered).toEqual([
+      ['All categories', ''],
+      ['Wellness', 'wellness'],
+      [
+        'Hair Care',
+        [
+          ['All Hair Care', 'hair-care'],
+          ['Hair Oils', 'hair-oils'],
+          ['Hair Powders', 'hair-powders'],
+        ],
+      ],
+      [
+        'Skin Care',
+        [
+          ['All Skin Care', 'skin-care'],
+          ['Face Packs', 'face-packs'],
+        ],
+      ],
+    ]);
+  });
+
+  it('filters by a subcategory or a brand at once (part 15B)', async () => {
+    await renderShop('/shop?q=tulsi');
+    await openFilters();
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Category' }),
+      'hair-oils',
+    );
+    await waitFor(() =>
+      expect(lastAsked()).toBe('/shop?q=tulsi&category=hair-oils'),
+    );
+    const brand = screen.getByRole('combobox', { name: 'Brand' });
+    expect(
+      [...brand.querySelectorAll('option')].map((option) => [
+        option.textContent,
+        option.getAttribute('value'),
+      ]),
+    ).toEqual([
+      ['All brands', ''],
+      ['Dabur', 'dabur'],
+      ['Himalaya', 'himalaya'],
+    ]);
+    await userEvent.selectOptions(brand, 'himalaya');
+    await waitFor(() =>
+      expect(lastAsked()).toBe(
+        '/shop?q=tulsi&category=hair-oils&brand=himalaya',
+      ),
+    );
+  });
+
+  it('offers no brand list while no brand has a product on sale', async () => {
+    await renderShop('/shop', FOUND, []);
+    expect(
+      screen.queryByRole('combobox', { name: 'Brand' }),
+    ).not.toBeInTheDocument();
   });
 
   it('applies prices with its button, and keeps the keyboard where it was', async () => {
@@ -192,7 +288,7 @@ describe('the shop’s search', () => {
 describe('the filters in use', () => {
   it('each show as a chip that takes it away, and all go at once', async () => {
     await renderShop(
-      '/shop?q=tulsi&category=hair-care&type=cosmetic&min=100&max=500',
+      '/shop?q=tulsi&category=hair-care&brand=himalaya&type=cosmetic&min=100&max=500',
     );
     const chips = within(
       screen.getByRole('list', { name: 'Filters in use' }),
@@ -207,24 +303,42 @@ describe('the filters in use', () => {
       [
         'Hair Care',
         'Remove Hair Care',
-        '/shop?q=tulsi&type=cosmetic&min=100&max=500',
+        '/shop?q=tulsi&brand=himalaya&type=cosmetic&min=100&max=500',
+      ],
+      [
+        'Himalaya',
+        'Remove Himalaya',
+        '/shop?q=tulsi&category=hair-care&type=cosmetic&min=100&max=500',
       ],
       [
         'Cosmetic',
         'Remove Cosmetic',
-        '/shop?q=tulsi&category=hair-care&min=100&max=500',
+        '/shop?q=tulsi&category=hair-care&brand=himalaya&min=100&max=500',
       ],
       [
         '₹100 to ₹500',
         'Remove ₹100 to ₹500',
-        '/shop?q=tulsi&category=hair-care&type=cosmetic',
+        '/shop?q=tulsi&category=hair-care&brand=himalaya&type=cosmetic',
       ],
     ]);
     expect(screen.getByRole('link', { name: 'Clear filters' })).toHaveAttribute(
       'href',
       '/shop?q=tulsi',
     );
-    expect(screen.getByText('3 in use')).toBeInTheDocument();
+    expect(screen.getByText('4 in use')).toBeInTheDocument();
+    expect(screen.getByRole('combobox', { name: 'Brand' })).toHaveValue(
+      'himalaya',
+    );
+  });
+
+  it('name a subcategory by its own name (part 15B)', async () => {
+    await renderShop('/shop?category=hair-oils');
+    expect(
+      screen.getByRole('link', { name: 'Remove Hair Oils' }),
+    ).toHaveAttribute('href', '/shop');
+    expect(screen.getByRole('combobox', { name: 'Category' })).toHaveValue(
+      'hair-oils',
+    );
   });
 
   it('name a price range open at one end', async () => {

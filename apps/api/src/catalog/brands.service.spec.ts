@@ -79,6 +79,30 @@ describe('BrandsService.list', () => {
   });
 });
 
+describe('BrandsService.listShown', () => {
+  it('lists by name only the brands with a live product in a category customers see, without IDs', async () => {
+    const shown = [{ name: 'Himalaya', slug: 'himalaya' }];
+    const { service, prisma } = setup(shown);
+
+    await expect(service.listShown()).resolves.toEqual({ brands: shown });
+    expect(prisma.brand.findMany).toHaveBeenCalledWith({
+      where: {
+        products: {
+          some: {
+            isActive: true,
+            category: {
+              isActive: true,
+              OR: [{ parentId: null }, { parent: { isActive: true } }],
+            },
+          },
+        },
+      },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      select: { name: true, slug: true },
+    });
+  });
+});
+
 describe('BrandsService.create', () => {
   it('saves the brand and records who created it, in the same transaction', async () => {
     const { service, tx, audit, logger } = setup();

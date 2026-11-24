@@ -671,12 +671,18 @@ async function main() {
   // manage them, which is tried by hand with a phone.
   const shop = await call('GET', '/v1/categories');
   check(
-    'GET /v1/categories is public, with only the name, slug and description of each',
+    'GET /v1/categories is public, with only the name, slug, description and subcategories of each',
     shop.status === 200 &&
       Array.isArray(shop.body?.categories) &&
       shop.body.categories.every(
         (category) =>
-          Object.keys(category).sort().join() === 'description,name,slug',
+          Object.keys(category).sort().join() ===
+            'description,name,slug,subcategories' &&
+          category.subcategories.every(
+            (subcategory) =>
+              Object.keys(subcategory).sort().join() ===
+              'description,name,slug',
+          ),
       ),
   );
   const shopSignedIn = await call('GET', '/v1/categories', {
@@ -686,6 +692,16 @@ async function main() {
     'a signed-in customer gets the same category list',
     shopSignedIn.status === 200 &&
       JSON.stringify(shopSignedIn.body) === JSON.stringify(shop.body),
+  );
+  // Brands (part 15B): anyone may read those with a live product.
+  const brandList = await call('GET', '/v1/brands');
+  check(
+    'GET /v1/brands is public, with only the name and slug of each',
+    brandList.status === 200 &&
+      Array.isArray(brandList.body?.brands) &&
+      brandList.body.brands.every(
+        (brand) => Object.keys(brand).sort().join() === 'name,slug',
+      ),
   );
   check(
     'the staff category list without a token answers 401',
@@ -742,11 +758,16 @@ async function main() {
     (await call('GET', `/v1/categories/${missingSlug}/products?limit=51`)).status ===
       400,
   );
-  // Every active category's page, and every product page it links to, show
-  // only what a shop needs: no IDs and no staff fields. With an empty shop
-  // there is nothing to look at; the manual test fills it.
+  // Every active category's page, its subcategories' too (part 15A), and
+  // every product page they link to, show only what a shop needs: no IDs
+  // and no staff fields. With an empty shop there is nothing to look at;
+  // the manual test fills it.
   const categoryPages = [];
-  for (const category of shop.body?.categories ?? []) {
+  const shownCategories = (shop.body?.categories ?? []).flatMap((category) => [
+    category,
+    ...(category.subcategories ?? []),
+  ]);
+  for (const category of shownCategories) {
     categoryPages.push(
       await call('GET', `/v1/categories/${category.slug}/products`),
     );
@@ -758,7 +779,7 @@ async function main() {
         page.status === 200 &&
         Object.keys(page.body).sort().join() === 'category,nextAfter,products' &&
         Object.keys(page.body.category).sort().join() ===
-          'description,name,slug' &&
+          'description,name,parent,slug,subcategories' &&
         page.body.products.every(
           (product) =>
             Object.keys(product).sort().join() ===
@@ -767,9 +788,15 @@ async function main() {
     ),
   );
   // Each card with the page it links to, to compare their prices (part 4C).
+  // A product shown in more than one category (part 15A) is read once.
   const productPages = [];
+  const read = new Set();
   for (const page of categoryPages) {
     for (const card of page.body?.products ?? []) {
+      if (read.has(card.slug)) {
+        continue;
+      }
+      read.add(card.slug);
       productPages.push({
         card,
         page: await call('GET', `/v1/products/${card.slug}`),
@@ -777,6 +804,7 @@ async function main() {
     }
   }
   const PAGE_FIELDS = [
+    'brand',
     'category',
     'countryOfOrigin',
     'description',
@@ -964,8 +992,13 @@ async function main() {
       ((await foundBy(named.word.slice(0, 5))) &&
         (await foundBy(named.word.slice(0, -2) + named.word.slice(-1)))),
   );
-  // The filters: a category, a type, and a price.
-  const filterChecks = [];
+  // The filters: a category, a brand, a type, and a price. A brand no
+  // product has finds nothing, even with an empty shop.
+  const noBrand = await call(
+    'GET',
+    '/v1/products?limit=50&brand=no-such-brand',
+  );
+  const filterChecks = [noBrand.status === 200 && noBrand.body.total === 0];
   const [firstShown] = productPages;
   if (firstShown) {
     const categorySlug = categoryPages.find((page) =>
@@ -989,16 +1022,44 @@ async function main() {
             'GET',
             `/v1/products?limit=50&minPriceRupees=${price}&maxPriceRupees=${price}`,
           );
-    const categoryPage = categoryPages.find(
-      (page) => page.body.category.slug === categorySlug,
+    // The category's page, and for a top category its subcategories'
+    // pages: its filter finds their products too (part 15A).
+    const related = categoryPages.filter(
+      (page) =>
+        page.body.category.slug === categorySlug ||
+        page.body.category.parent?.slug === categorySlug,
     );
+    // A product with a brand (part 15B) is found by the brand, and by the
+    // brand's name in the search words.
+    const brand = firstShown.page.body.brand;
+    const ofBrand = brand
+      ? await call('GET', `/v1/products?limit=50&brand=${brand.slug}`)
+      : null;
+    const byBrandName = brand
+      ? await call(
+          'GET',
+          `/v1/products?limit=50&q=${encodeURIComponent(brand.name)}`,
+        )
+      : null;
     filterChecks.push(
       inCategory.body.products.some((p) => p.slug === firstShown.card.slug) &&
-        inCategory.body.products.every(
-          (p) =>
-            categoryPage.body.products.some((shown) => shown.slug === p.slug) ||
-            categoryPage.body.nextAfter !== null,
-        ),
+        (related.some((page) => page.body.nextAfter !== null) ||
+          inCategory.body.products.every((p) =>
+            related.some((page) =>
+              page.body.products.some((shown) => shown.slug === p.slug),
+            ),
+          )),
+      ofBrand === null ||
+        (brandList.body.brands.some((b) => b.slug === brand.slug) &&
+          ofBrand.body.products.some((p) => p.slug === firstShown.card.slug) &&
+          ofBrand.body.products.every(
+            (p) =>
+              !shopCards.has(p.slug) ||
+              shopCards.get(p.slug).page.body.brand?.slug === brand.slug,
+          )),
+      byBrandName === null ||
+        brand.name.trim().length < 2 ||
+        byBrandName.body.products.some((p) => p.slug === firstShown.card.slug),
       ofType.body.products.some((p) => p.slug === firstShown.card.slug) &&
         ofType.body.products.every(
           (p) =>
@@ -1011,7 +1072,7 @@ async function main() {
     );
   }
   check(
-    "filtering by a product's category, type or from-price finds it, and only products that match",
+    "filtering by a product's category, brand, type or from-price finds it, and only products that match, and its brand's name finds it",
     filterChecks.every(Boolean),
   );
   const productRoutes = [

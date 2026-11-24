@@ -3,6 +3,7 @@
 - Status: Accepted and implemented (part 11)
 - Date: 2026-11-11
 - Updated: 2026-11-24 (part 15A: the `category` filter includes a top category's subcategories and the products shown in it from other categories, see ADR 0044)
+- Updated: 2026-11-24 (part 15B: a `brand` filter, and the words find a product by its brand's name too, counted as much as its own name, see ADR 0045)
 
 ## Context
 

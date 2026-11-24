@@ -9,8 +9,26 @@ import { loader as shopLoader } from './shop.tsx';
 const MEDIA = 'http://127.0.0.1:3000/media/products';
 const CATEGORIES = {
   categories: [
-    { name: 'Wellness', slug: 'wellness', description: null },
-    { name: 'Hair Care', slug: 'hair-care', description: 'For the hair' },
+    {
+      name: 'Wellness',
+      slug: 'wellness',
+      description: null,
+      subcategories: [],
+    },
+    {
+      name: 'Hair Care',
+      slug: 'hair-care',
+      description: 'For the hair',
+      subcategories: [
+        { name: 'Hair Oils', slug: 'hair-oils', description: null },
+      ],
+    },
+  ],
+};
+const BRANDS = {
+  brands: [
+    { name: 'Dabur', slug: 'dabur' },
+    { name: 'Himalaya', slug: 'himalaya' },
   ],
 };
 const card = (
@@ -81,21 +99,24 @@ async function thrownStatus(promise: Promise<unknown>): Promise<number> {
 }
 
 describe('the shop’s loader', () => {
-  it('asks the API for the categories, then for the search in its own names', async () => {
+  it('asks the API for the categories and brands, then for the search in its own names', async () => {
     apiAnswers({
       '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
       '/v1/products': () => answer(200, FOUND),
     });
     const page = await shopAt(
-      '?q=tulsi&category=wellness&type=cosmetic&min=10&max=900&page=2',
+      '?q=tulsi&category=wellness&brand=himalaya&type=cosmetic&min=10&max=900&page=2',
     );
     expect(asked()).toEqual([
       { pathname: '/v1/categories', query: {} },
+      { pathname: '/v1/brands', query: {} },
       {
         pathname: '/v1/products',
         query: {
           q: 'tulsi',
           category: 'wellness',
+          brand: 'himalaya',
           type: 'COSMETIC',
           minPriceRupees: '10',
           maxPriceRupees: '900',
@@ -107,26 +128,53 @@ describe('the shop’s loader', () => {
     ]);
     expect(page.found).toEqual(FOUND);
     expect(page.categories).toEqual(CATEGORIES.categories);
+    expect(page.brands).toEqual(BRANDS.brands);
     expect(page.origin).toBe('http://localhost:3001');
   });
 
-  it('leaves out a category no longer on show', async () => {
+  it('leaves out a category or brand no longer on show', async () => {
     apiAnswers({
       '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
       '/v1/products': () => answer(200, FOUND),
     });
-    const page = await shopAt('?category=old-category');
+    const page = await shopAt('?category=old-category&brand=old-brand');
     expect(page.search.category).toBeUndefined();
-    expect(asked()[1]?.query).not.toHaveProperty('category');
+    expect(page.search.brand).toBeUndefined();
+    expect(asked()[2]?.query).not.toHaveProperty('category');
+    expect(asked()[2]?.query).not.toHaveProperty('brand');
+  });
+
+  it('filters by a subcategory on show (part 15B)', async () => {
+    apiAnswers({
+      '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
+      '/v1/products': () => answer(200, FOUND),
+    });
+    const page = await shopAt('?category=hair-oils');
+    expect(page.search.category).toBe('hair-oils');
+    expect(asked()[2]?.query).toMatchObject({ category: 'hair-oils' });
+  });
+
+  it('says the shop is taking a break when the brands’ answer is not as expected', async () => {
+    for (const odd of [{ name: 'Dabur' }, { name: 'Dabur', slug: '../x' }]) {
+      apiAnswers({
+        '/v1/categories': () => answer(200, CATEGORIES),
+        '/v1/brands': () => answer(200, { brands: [odd] }),
+        '/v1/products': () => answer(200, FOUND),
+      });
+      expect(await thrownStatus(shopAt('')), JSON.stringify(odd)).toBe(503);
+    }
   });
 
   it('never asks what the API would refuse, and passes on what was wrong', async () => {
     apiAnswers({
       '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
       '/v1/products': () => answer(200, FOUND),
     });
     const page = await shopAt('?q=a&min=9.5&sort=relevance&page=900');
-    expect(asked()[1]?.query).toEqual({ sort: 'name', page: '1', limit: '24' });
+    expect(asked()[2]?.query).toEqual({ sort: 'name', page: '1', limit: '24' });
     expect(page.problems).toEqual({
       q: 'Type at least 2 characters to search.',
       min: 'Give a price in whole rupees, like 499.',
@@ -136,6 +184,7 @@ describe('the shop’s loader', () => {
   it('shows no photo from anywhere but the shop’s media address', async () => {
     apiAnswers({
       '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
       '/v1/products': () =>
         answer(200, {
           ...FOUND,
@@ -163,6 +212,7 @@ describe('the shop’s loader', () => {
   it('says the shop is taking a break when the search’s answer is not as expected', async () => {
     apiAnswers({
       '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
       '/v1/products': () =>
         answer(200, { ...FOUND, products: [{ ...card('x'), inStock: 'yes' }] }),
     });
@@ -172,6 +222,7 @@ describe('the shop’s loader', () => {
   it('refuses a photo address that isn’t a web address', async () => {
     apiAnswers({
       '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
       '/v1/products': () =>
         answer(200, {
           ...FOUND,
@@ -184,11 +235,38 @@ describe('the shop’s loader', () => {
 });
 
 describe('a category’s loader', () => {
+  const HAIR = {
+    name: 'Hair Care',
+    slug: 'hair-care',
+    description: 'For the hair',
+  };
   const PAGE = {
-    category: CATEGORIES.categories[1],
+    category: { ...HAIR, parent: null, subcategories: [] },
     products: [card('amla-oil'), card('bhringraj-oil')],
     nextAfter: 'bhringraj-oil',
   };
+  // Hair Care with three subcategories (part 15B).
+  const sub = (slug: string) => ({
+    name: slug,
+    slug,
+    description: null,
+  });
+  const TOP = {
+    ...PAGE,
+    category: {
+      ...PAGE.category,
+      subcategories: [sub('hair-oils'), sub('hair-powders'), sub('combs')],
+    },
+  };
+  const subPage = (slug: string, products: ReturnType<typeof card>[]) => ({
+    category: {
+      ...sub(slug),
+      parent: { name: HAIR.name, slug: HAIR.slug },
+      subcategories: [],
+    },
+    products,
+    nextAfter: null,
+  });
 
   it('asks for the category’s products, 24 at a time', async () => {
     apiAnswers({
@@ -198,7 +276,76 @@ describe('a category’s loader', () => {
     expect(asked()).toEqual([
       { pathname: '/v1/categories/hair-care/products', query: { limit: '24' } },
     ]);
-    expect(page).toMatchObject({ ...PAGE, after: null });
+    expect(page).toMatchObject({ ...PAGE, previews: [], after: null });
+  });
+
+  it('asks for the first few of each subcategory’s products too, at once (part 15B)', async () => {
+    apiAnswers({
+      '/v1/categories/hair-care/products': () => answer(200, TOP),
+      '/v1/categories/hair-oils/products': () =>
+        answer(200, subPage('hair-oils', [card('bhringraj-oil')])),
+      '/v1/categories/hair-powders/products': () =>
+        answer(
+          200,
+          subPage('hair-powders', [
+            card('amla-powder'),
+            card('elsewhere', 'https://evil.example.com/x.webp'),
+          ]),
+        ),
+      '/v1/categories/combs/products': () =>
+        answer(200, subPage('combs', [card('neem-comb')])),
+    });
+    const page = await categoryAt('hair-care');
+    expect(asked()).toEqual([
+      { pathname: '/v1/categories/hair-care/products', query: { limit: '24' } },
+      { pathname: '/v1/categories/hair-oils/products', query: { limit: '4' } },
+      {
+        pathname: '/v1/categories/hair-powders/products',
+        query: { limit: '4' },
+      },
+      { pathname: '/v1/categories/combs/products', query: { limit: '4' } },
+    ]);
+    // In the order staff chose, each with its own products only; and no
+    // photo from anywhere but the shop's media address.
+    expect(page.previews).toEqual([
+      { category: sub('hair-oils'), products: [card('bhringraj-oil')] },
+      {
+        category: sub('hair-powders'),
+        products: [card('amla-powder'), card('elsewhere', null)],
+      },
+      { category: sub('combs'), products: [card('neem-comb')] },
+    ]);
+  });
+
+  it('leaves out a subcategory hidden or emptied meanwhile', async () => {
+    apiAnswers({
+      '/v1/categories/hair-care/products': () => answer(200, TOP),
+      '/v1/categories/hair-oils/products': () =>
+        answer(200, subPage('hair-oils', [])),
+      '/v1/categories/combs/products': () =>
+        answer(200, subPage('combs', [card('neem-comb')])),
+    });
+    const page = await categoryAt('hair-care');
+    expect(page.previews.map((preview) => preview.category.slug)).toEqual([
+      'combs',
+    ]);
+  });
+
+  it('asks only for its own products on a later page', async () => {
+    apiAnswers({
+      '/v1/categories/hair-care/products': () => answer(200, TOP),
+    });
+    const page = await categoryAt('hair-care', '?after=amla-oil');
+    expect(asked()).toHaveLength(1);
+    expect(page.previews).toEqual([]);
+  });
+
+  it('says the shop is taking a break when a subcategory’s answer is not as expected', async () => {
+    apiAnswers({
+      '/v1/categories/hair-care/products': () => answer(200, TOP),
+      '/v1/categories/hair-oils/products': () => answer(200, { products: [] }),
+    });
+    expect(await thrownStatus(categoryAt('hair-care'))).toBe(503);
   });
 
   it('asks for the ones after a product, when the address names one', async () => {
@@ -269,7 +416,8 @@ describe('a product’s loader', () => {
     manufacturerName: 'Herbal Works Pvt Ltd',
     manufacturerAddress: '12, Industrial Area, Mysuru 570016',
     countryOfOrigin: 'India',
-    category: { name: 'Wellness', slug: 'wellness' },
+    category: { name: 'Wellness', slug: 'wellness', parent: null },
+    brand: null,
     variants: [
       {
         sku: 'ASH-60',
@@ -356,6 +504,27 @@ describe('a product’s loader', () => {
         }),
     });
     expect(await thrownStatus(productAt('ashwagandha-capsules'))).toBe(503);
+  });
+
+  it('gives its brand, and refuses one not as expected (part 15B)', async () => {
+    const brand = { name: 'Himalaya', slug: 'himalaya' };
+    apiAnswers({
+      '/v1/products/ashwagandha-capsules': () =>
+        answer(200, { ...PRODUCT, brand }),
+    });
+    expect((await productAt('ashwagandha-capsules')).product.brand).toEqual(
+      brand,
+    );
+    for (const odd of [{ name: 'Himalaya' }, { ...brand, slug: '../x' }]) {
+      apiAnswers({
+        '/v1/products/ashwagandha-capsules': () =>
+          answer(200, { ...PRODUCT, brand: odd }),
+      });
+      expect(
+        await thrownStatus(productAt('ashwagandha-capsules')),
+        JSON.stringify(odd),
+      ).toBe(503);
+    }
   });
 });
 

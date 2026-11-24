@@ -2,6 +2,7 @@ import { Reflector } from '@nestjs/core';
 import { HealthController } from '../health/health.controller';
 import { AddressesController } from '../addresses/addresses.controller';
 import { CartController } from '../cart/cart.controller';
+import { BrandsController } from '../catalog/brands.controller';
 import { CategoriesController } from '../catalog/categories.controller';
 import { ProductsController } from '../catalog/products.controller';
 import { StaffBrandsController } from '../catalog/staff-brands.controller';
@@ -82,6 +83,8 @@ describe('public routes', () => {
       'list',
       'listProducts',
     ]);
+    // Part 15B: customers choose a brand before they sign in too.
+    expect(publicHandlers(BrandsController)).toEqual(['list']);
     // Part 11: customers search the shop before they sign in too.
     expect(publicHandlers(ProductsController)).toEqual(['search', 'detail']);
     // Part 14B: anyone reads the published policy pages; only Super Users

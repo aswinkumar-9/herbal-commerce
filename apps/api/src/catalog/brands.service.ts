@@ -14,6 +14,7 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import type { BrandInput, BrandUpdateInput } from './brands.schemas';
 import { changedFields, pick } from './changes';
+import { SHOWN_CATEGORY } from './shown-categories';
 
 export const BRAND_NOT_FOUND = 'Brand not found';
 export const BRAND_SLUG_TAKEN =
@@ -70,6 +71,20 @@ export class BrandsService {
         productCount: _count.products,
       })),
     };
+  }
+
+  // The brands customers can shop by (part 15B): those with at least one
+  // live product, active in a category customers see. By name, with only
+  // the name and the slug: the shop never shows IDs.
+  async listShown(): Promise<{ brands: { name: string; slug: string }[] }> {
+    const brands = await this.prisma.brand.findMany({
+      where: {
+        products: { some: { isActive: true, category: SHOWN_CATEGORY } },
+      },
+      orderBy: BRAND_ORDER,
+      select: { name: true, slug: true },
+    });
+    return { brands };
   }
 
   async create(input: BrandInput, context: AuditContext): Promise<Brand> {

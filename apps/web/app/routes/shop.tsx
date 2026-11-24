@@ -10,8 +10,12 @@ import { useState } from 'react';
 import type { ChangeEvent, FormEvent, ReactNode } from 'react';
 import { Link, useNavigate, useNavigation } from 'react-router';
 import previewHome from '../art/preview-home.jpg';
-import { listCategories, searchProducts } from '../catalog.server.ts';
-import type { Category, SearchPage } from '../catalog.server.ts';
+import {
+  listBrands,
+  listCategories,
+  searchProducts,
+} from '../catalog.server.ts';
+import type { Brand, SearchPage, TopCategory } from '../catalog.server.ts';
 import { getConfig } from '../config.server.ts';
 import {
   ProductGrid,
@@ -38,7 +42,8 @@ import { text } from '../text/en.ts';
 import type { Route } from './+types/shop';
 
 // The shop (part 14A): every product on sale, searched by words, partial
-// or misspelt, filtered by category, type and price, and sorted; products
+// or misspelt, filtered by category (a top one or a subcategory) and by
+// brand (part 15B), type and price, and sorted; products
 // in stock first. All of it is in the address, so a search can be shared,
 // and the form works without a script. With one, a new choice shows its
 // results at once and the page stays where it is.
@@ -49,18 +54,23 @@ export async function loader({ request }: Route.LoaderArgs) {
   const { search, problems, typed } = readShopSearch(
     new URL(request.url).searchParams,
   );
-  const categories = await listCategories(request);
-  // A category no longer on show is left out, like any other stale part.
-  const asked: ShopSearch = categories.some(
-    (category) => category.slug === search.category,
-  )
-    ? search
-    : { ...search, category: undefined };
+  const [categories, brands] = await Promise.all([
+    listCategories(request),
+    listBrands(request),
+  ]);
+  // A category or brand no longer on show is left out, like any other
+  // stale part.
+  const asked: ShopSearch = {
+    ...search,
+    category: categoryOf(categories, search.category)?.slug,
+    brand: brands.find((brand) => brand.slug === search.brand)?.slug,
+  };
   return {
     search: asked,
     problems,
     typed,
     categories,
+    brands,
     found: await searchProducts(request, asked),
     origin: getConfig().origin,
   };
@@ -87,10 +97,21 @@ export const meta: Route.MetaFunction = ({ loaderData, location }) => {
     : [{ title }];
 };
 
+// A category on show, a top one or a subcategory, by its slug.
+function categoryOf(
+  categories: readonly TopCategory[],
+  slug: string | undefined,
+): { name: string; slug: string } | undefined {
+  return categories
+    .flatMap((category) => [category, ...category.subcategories])
+    .find((category) => category.slug === slug);
+}
+
 // What the form holds, as text: the address's parts, or what was typed.
 interface Fields {
   q: string;
   category: string;
+  brand: string;
   type: string;
   min: string;
   max: string;
@@ -101,6 +122,7 @@ interface Fields {
 const fieldsOf = (search: ShopSearch, typed: Typed): Fields => ({
   q: typed.q,
   category: search.category ?? '',
+  brand: search.brand ?? '',
   type: search.type ?? '',
   min: typed.min,
   max: typed.max,
@@ -119,7 +141,7 @@ function addressOf(fields: Fields): string {
 }
 
 export default function Shop({ loaderData }: Route.ComponentProps) {
-  const { search, problems, typed, categories, found } = loaderData;
+  const { search, problems, typed, categories, brands, found } = loaderData;
   const navigate = useNavigate();
   const navigation = useNavigation();
   const loading =
@@ -208,13 +230,14 @@ export default function Shop({ loaderData }: Route.ComponentProps) {
             problems={problems}
             fields={fields}
             categories={categories}
+            brands={brands}
             onEdit={edit}
             onChoose={choose}
           />
         </form>
       </search>
 
-      <FilterChips search={search} categories={categories} />
+      <FilterChips search={search} categories={categories} brands={brands} />
 
       <section
         aria-labelledby="results-heading"
@@ -268,13 +291,15 @@ function Filters({
   problems,
   fields,
   categories,
+  brands,
   onEdit,
   onChoose,
 }: {
   search: ShopSearch;
   problems: SearchProblems;
   fields: Fields;
-  categories: readonly Category[];
+  categories: readonly TopCategory[];
+  brands: readonly Brand[];
   onEdit: (
     name: keyof Fields,
   ) => (event: ChangeEvent<HTMLInputElement>) => void;
@@ -303,7 +328,7 @@ function Filters({
           className="ml-auto size-5 transition-transform duration-500 group-open:rotate-180 motion-reduce:transition-none"
         />
       </summary>
-      <div className="grid gap-4 px-6 pb-6 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-4 px-6 pb-6 sm:grid-cols-2 lg:grid-cols-3">
         <Choice
           id="category"
           label={shop.filters.category}
@@ -311,12 +336,42 @@ function Filters({
           onChange={onChoose('category')}
         >
           <option value="">{shop.filters.allCategories}</option>
-          {categories.map((category) => (
-            <option key={category.slug} value={category.slug}>
-              {category.name}
-            </option>
-          ))}
+          {categories.map((category) =>
+            // A top category with subcategories: a group, offered whole
+            // first, then each subcategory.
+            category.subcategories.length > 0 ? (
+              <optgroup key={category.slug} label={category.name}>
+                <option value={category.slug}>
+                  {shop.filters.allIn(category.name)}
+                </option>
+                {category.subcategories.map((subcategory) => (
+                  <option key={subcategory.slug} value={subcategory.slug}>
+                    {subcategory.name}
+                  </option>
+                ))}
+              </optgroup>
+            ) : (
+              <option key={category.slug} value={category.slug}>
+                {category.name}
+              </option>
+            ),
+          )}
         </Choice>
+        {brands.length > 0 ? (
+          <Choice
+            id="brand"
+            label={shop.filters.brand}
+            value={fields.brand}
+            onChange={onChoose('brand')}
+          >
+            <option value="">{shop.filters.allBrands}</option>
+            {brands.map((brand) => (
+              <option key={brand.slug} value={brand.slug}>
+                {brand.name}
+              </option>
+            ))}
+          </Choice>
+        ) : null}
         <Choice
           id="type"
           label={shop.filters.type}
@@ -344,7 +399,7 @@ function Filters({
           problem={problems.max}
           onChange={onEdit('max')}
         />
-        <div className="sm:col-span-2 lg:col-span-4">
+        <div className="flex items-end">
           <button type="submit" className={PILL}>
             {shop.filters.apply}
           </button>
@@ -487,16 +542,25 @@ function SortChoice({
 function FilterChips({
   search,
   categories,
+  brands,
 }: {
   search: ShopSearch;
-  categories: readonly Category[];
+  categories: readonly TopCategory[];
+  brands: readonly Brand[];
 }) {
   const chips: { label: string; to: string }[] = [];
-  const category = categories.find((each) => each.slug === search.category);
+  const category = categoryOf(categories, search.category);
   if (category) {
     chips.push({
       label: category.name,
       to: shopHref(search, { category: undefined }),
+    });
+  }
+  const brand = brands.find((each) => each.slug === search.brand);
+  if (brand) {
+    chips.push({
+      label: brand.name,
+      to: shopHref(search, { brand: undefined }),
     });
   }
   if (search.type) {
@@ -539,6 +603,7 @@ function FilterChips({
         prefetch="intent"
         to={shopHref(search, {
           category: undefined,
+          brand: undefined,
           type: undefined,
           min: undefined,
           max: undefined,
