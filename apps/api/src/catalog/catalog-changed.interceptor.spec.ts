@@ -3,6 +3,7 @@ import { INTERCEPTORS_METADATA } from '@nestjs/common/constants';
 import { lastValueFrom, of, throwError } from 'rxjs';
 import { CatalogChanged } from './catalog-changed.interceptor';
 import type { SearchCache } from './search-cache';
+import { StaffBrandsController } from './staff-brands.controller';
 import { StaffCategoriesController } from './staff-categories.controller';
 import { StaffImagesController } from './staff-images.controller';
 import { StaffProductsController } from './staff-products.controller';
@@ -53,6 +54,7 @@ describe('CatalogChanged', () => {
   it('is on every route staff change the catalog by', () => {
     for (const controller of [
       StaffCategoriesController,
+      StaffBrandsController,
       StaffProductsController,
       StaffVariantsController,
       StaffImagesController,

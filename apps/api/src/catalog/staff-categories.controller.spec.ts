@@ -57,7 +57,7 @@ describe('StaffCategoriesController', () => {
 
   it('puts the categories in a new order, recording who did it', async () => {
     const { controller, categories } = setup();
-    const input = { ids: [ID] };
+    const input = { parentId: null, ids: [ID] };
 
     await expect(controller.reorder(input, context)).resolves.toEqual({
       categories: [],

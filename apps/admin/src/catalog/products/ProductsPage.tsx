@@ -20,9 +20,11 @@ import { PRODUCT_TYPE_NAMES, isId, reorderProducts } from '../catalog-api';
 import type { Category, Product, ProductPage } from '../catalog-api';
 import {
   catalogKeys,
+  isCategoryOrder,
   useCategories,
   useProductPages,
 } from '../catalog-queries';
+import { categoryLabel, labelOf } from '../category-tree';
 import { EmptyList, ListLoading, LoadFailed } from '../list-states';
 import { DragHandle, OrderBar, useReorder } from '../reorder';
 import { missingToGoLive } from './product-form';
@@ -34,9 +36,10 @@ const PAGE_SIZE = 100;
 type Status = 'live' | 'draft';
 
 // Every product, drafts too: found by name, or by category and status. With
-// one category chosen and nothing else, staff drag its products into the
-// order customers see. The filters live in the address, so the list comes
-// back as it was after opening a product.
+// one category chosen and nothing else, the list is every product shown in
+// it, those also shown there from another category too (part 15A), and
+// staff drag them into the order customers see. The filters live in the
+// address, so the list comes back as it was after opening a product.
 export function ProductsPage() {
   usePageTitle('Products');
   const [params, setParams] = useSearchParams();
@@ -59,13 +62,9 @@ export function ProductsPage() {
   const filtered = Boolean(categoryId || status || words);
   const loaded = products.data?.pages.flatMap((page) => page.products) ?? [];
   const category = categories.data?.find((c) => c.id === categoryId);
-  // The order can be changed with every product of one category on screen:
-  // the API takes the whole list, drafts too.
-  const ordering =
-    categoryId !== undefined &&
-    status === undefined &&
-    words === undefined &&
-    !products.isPlaceholderData;
+  // The order can be changed with every product of one category on screen,
+  // which comes on one page: the API takes the whole list, drafts too.
+  const ordering = isCategoryOrder(query) && !products.isPlaceholderData;
 
   function setFilter(name: string, value: string | undefined) {
     setParams(
@@ -124,7 +123,7 @@ export function ProductsPage() {
           <option value="">All categories</option>
           {categories.data?.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name}
+              {categoryLabel(categories.data, c)}
             </option>
           ))}
         </SelectField>
@@ -179,10 +178,11 @@ export function ProductsPage() {
             an image are in, and it is made live.
           </EmptyList>
         )
-      ) : ordering && category && !products.hasNextPage ? (
+      ) : ordering && category ? (
         <OrderedProducts
           key={category.id}
           category={category}
+          categories={categories.data ?? []}
           products={loaded}
           query={query}
           listSearch={params.toString()}
@@ -196,9 +196,7 @@ export function ProductsPage() {
                 ? 'Choose a category to change the order of its products.'
                 : status
                   ? 'Choose “Live and drafts” to change the order.'
-                  : products.hasNextPage
-                    ? 'Show all of them to change their order.'
-                    : null}
+                  : null}
           </p>
           <motion.ul
             aria-label="Products"
@@ -225,9 +223,7 @@ export function ProductsPage() {
                   categoryName={
                     categoryId
                       ? undefined
-                      : categories.data?.find(
-                          (c) => c.id === product.categoryId,
-                        )?.name
+                      : labelOf(categories.data ?? [], product.categoryId)
                   }
                   listSearch={params.toString()}
                 />
@@ -312,15 +308,18 @@ function ProductSummary({
   );
 }
 
-// One category's products, in the order customers see them, to drag or
-// move with the keys.
+// Every product shown in one category, in the order customers see them, to
+// drag or move with the keys. Those also shown here from another category
+// say which one is their main category.
 function OrderedProducts({
   category,
+  categories,
   products,
   query,
   listSearch,
 }: {
   category: Category;
+  categories: Category[];
   products: Product[];
   query: Parameters<typeof catalogKeys.products>[0];
   listSearch: string;
@@ -366,6 +365,11 @@ function OrderedProducts({
             <OrderedRow
               key={product.id}
               product={product}
+              mainCategory={
+                product.categoryId === category.id
+                  ? undefined
+                  : labelOf(categories, product.categoryId)
+              }
               index={index}
               helpId={order.helpId}
               listSearch={listSearch}
@@ -382,6 +386,7 @@ function OrderedProducts({
 
 function OrderedRow({
   product,
+  mainCategory,
   index,
   helpId,
   listSearch,
@@ -390,6 +395,8 @@ function OrderedRow({
   onDrop,
 }: {
   product: Product;
+  // For a product also shown here (part 15A): its main category.
+  mainCategory: string | undefined;
   index: number;
   helpId: string;
   listSearch: string;
@@ -425,7 +432,11 @@ function OrderedRow({
         controls={controls}
         onKeyDown={onKeyMove}
       />
-      <ProductSummary product={product} listSearch={listSearch} />
+      <ProductSummary
+        product={product}
+        categoryName={mainCategory && `Main category ${mainCategory}`}
+        listSearch={listSearch}
+      />
     </Reorder.Item>
   );
 }

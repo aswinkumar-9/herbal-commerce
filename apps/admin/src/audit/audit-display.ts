@@ -61,10 +61,14 @@ export function whoActed(entry: AuditEntry): string {
     : 'A developer command';
 }
 
-// Only the position changed: a row was moved up or down its list.
+// Only the position changed: a row was moved up or down its list, or a
+// product in a category it is also shown in (part 15A).
 function onlyMoved(entry: AuditEntry): boolean {
   const keys = Object.keys(entry.after ?? {});
-  return keys.length === 1 && keys[0] === 'position';
+  return (
+    keys.length === 1 &&
+    (keys[0] === 'position' || keys[0] === 'otherCategoryPosition')
+  );
 }
 
 // The page of the thing an entry is about, while it exists.
@@ -86,6 +90,8 @@ function pageOf(entry: AuditEntry): string | null {
       return `/catalog/products/${targetId}`;
     case 'category':
       return '/catalog/categories';
+    case 'brand':
+      return '/catalog/brands';
     case 'variant':
     case 'image':
       return subject.parent ? `/catalog/products/${subject.parent.id}` : null;
@@ -224,6 +230,18 @@ export function tell(entry: AuditEntry): Told {
           entry,
           'the category',
           thing(entry, nameOf(entry, 'name', 'a category')),
+          null,
+        ),
+      };
+    case 'brand.created':
+    case 'brand.updated':
+    case 'brand.deleted':
+      return {
+        who,
+        words: catalogWords(
+          entry,
+          'the brand',
+          thing(entry, nameOf(entry, 'name', 'a brand')),
           null,
         ),
       };
@@ -368,6 +386,10 @@ const FIELD_NAMES: Record<string, string> = {
   isActive: 'Shown to customers',
   position: 'Place in the list',
   categoryId: 'Category',
+  otherCategoryIds: 'Also shown in',
+  otherCategoryPosition: 'Place in a category it is also shown in',
+  parentId: 'Inside',
+  brandId: 'Brand',
   productId: 'Product',
   variantId: 'Pack size',
   sku: 'SKU',
@@ -439,6 +461,10 @@ export function valueText(key: string, value: unknown): string {
   }
   if (Array.isArray(value)) {
     return value.length === 1 ? '1' : value.length.toLocaleString('en-IN');
+  }
+  // { categoryId, position }: the place, as other places are shown.
+  if (key === 'otherCategoryPosition' && typeof value === 'object') {
+    return valueText('position', (value as { position?: unknown }).position);
   }
   return JSON.stringify(value);
 }

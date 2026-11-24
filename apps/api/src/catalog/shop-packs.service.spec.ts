@@ -23,7 +23,7 @@ function row(changes: object = {}, productChanges: object = {}) {
       hsnCode: '300490',
       gstRate: 5,
       isActive: true,
-      category: { isActive: true },
+      category: { isActive: true, parent: null },
       variants: [{ id: V60 }, { id: V120 }],
       images: [{ fileKey: FILE_KEY }],
       ...productChanges,
@@ -71,16 +71,42 @@ describe('ShopPacksService', () => {
     expect(prisma.productVariant.findUnique.mock.calls[0][0].where).toEqual({
       sku: 'ASH-CAP-60',
     });
+    // Whether its category is active, and the top category it sits in.
+    expect(
+      prisma.productVariant.findUnique.mock.calls[0][0].select.product.select
+        .category,
+    ).toEqual({
+      select: { isActive: true, parent: { select: { isActive: true } } },
+    });
   });
 
-  it('is not sold now when the pack is off sale, or its product or category is hidden', async () => {
+  it('is sold in a subcategory while it and its top category are active', async () => {
+    const { packs, prisma } = setup();
+    prisma.productVariant.findUnique.mockResolvedValue(
+      row({}, { category: { isActive: true, parent: { isActive: true } } }),
+    );
+
+    await expect(packs.findBySku('ASH-CAP-60')).resolves.toMatchObject({
+      onSale: true,
+    });
+  });
+
+  it('is not sold now when the pack is off sale, or its product, its category or its top category is hidden', async () => {
     const { packs, prisma } = setup();
     prisma.productVariant.findUnique
       .mockResolvedValueOnce(row({ isActive: false }))
       .mockResolvedValueOnce(row({}, { isActive: false }))
-      .mockResolvedValueOnce(row({}, { category: { isActive: false } }));
+      .mockResolvedValueOnce(
+        row({}, { category: { isActive: false, parent: null } }),
+      )
+      .mockResolvedValueOnce(
+        row({}, { category: { isActive: true, parent: { isActive: false } } }),
+      )
+      .mockResolvedValueOnce(
+        row({}, { category: { isActive: false, parent: { isActive: true } } }),
+      );
 
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 5; i++) {
       await expect(packs.findBySku('ASH-CAP-60')).resolves.toMatchObject({
         onSale: false,
       });

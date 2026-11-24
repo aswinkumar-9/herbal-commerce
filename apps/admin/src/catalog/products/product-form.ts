@@ -24,12 +24,20 @@ export const tidyLicence = (value: string) =>
   value.replace(/\s+/g, '').toUpperCase();
 export const tidyHsn = (value: string) => value.replace(/\s+/g, '');
 
+// The most other categories a product may also be shown in (part 15A).
+export const MAX_OTHER_CATEGORIES = 5;
+
 const LICENCE = /^([A-Z0-9][A-Z0-9/.-]*)?$/;
 const FSSAI_LICENCE = /^\d{14}$/;
 const HSN_CODE = /^(\d{4}|\d{6}|\d{8})$/;
 
 export interface ProductValues {
   categoryId: string;
+  // The categories it is also shown in, by ID, in the order of their IDs
+  // (as the API gives them back).
+  otherCategoryIds: string[];
+  // '' for no brand.
+  brandId: string;
   name: string;
   slug: string;
   summary: string;
@@ -58,6 +66,8 @@ export type ProductErrors = Partial<Record<ProductProblem, string>>;
 export const FIELD_ORDER: ProductProblem[] = [
   'name',
   'categoryId',
+  'brandId',
+  'otherCategoryIds',
   'slug',
   'summary',
   'description',
@@ -95,12 +105,28 @@ export function missingToGoLive(product: Pick<Product, NeededField>): string[] {
   );
 }
 
+// Whether two values of the form are the same: a list by what is in it.
+export function sameValue(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((item, index) => item === b[index]);
+  }
+  return a === b;
+}
+
+// A list of other categories as the form keeps it: in the order of the
+// IDs, so two lists with the same ones are the same.
+export function sortedIds(ids: readonly string[]): string[] {
+  return [...ids].sort();
+}
+
 export function startingValues(
   product: Product | null,
   categoryId = '',
 ): ProductValues {
   return {
     categoryId: product?.categoryId ?? categoryId,
+    otherCategoryIds: sortedIds(product?.otherCategoryIds ?? []),
+    brandId: product?.brandId ?? '',
     name: product?.name ?? '',
     slug: product?.slug ?? '',
     summary: product?.summary ?? '',
@@ -125,6 +151,8 @@ export function toFields(values: ProductValues): ProductFields {
   const rate = Number(values.gstRate);
   return {
     categoryId: values.categoryId,
+    otherCategoryIds: sortedIds(values.otherCategoryIds),
+    brandId: values.brandId || null,
     name: values.name.trim(),
     slug: values.slug.trim(),
     summary: text(values.summary),
@@ -159,6 +187,9 @@ export function check(
   }
   if (!fields.categoryId) {
     errors.categoryId = 'Choose a category';
+  }
+  if (fields.otherCategoryIds.length > MAX_OTHER_CATEGORIES) {
+    errors.otherCategoryIds = `Choose at most ${MAX_OTHER_CATEGORIES} other categories`;
   }
   if (fields.slug && !SLUG_PATTERN.test(fields.slug)) {
     errors.slug =
@@ -212,7 +243,7 @@ export function changes(
   const before = toFields(initial);
   const changed: Record<string, unknown> = {};
   for (const key of Object.keys(now) as (keyof ProductFields)[]) {
-    if (now[key] !== before[key]) {
+    if (!sameValue(now[key], before[key])) {
       changed[key] = now[key];
     }
   }
@@ -228,7 +259,7 @@ export function afterSave(
 ): ProductValues {
   const next = { ...saved };
   for (const key of Object.keys(saved) as (keyof ProductValues)[]) {
-    if (current[key] !== sent[key]) {
+    if (!sameValue(current[key], sent[key])) {
       (next as Record<keyof ProductValues, unknown>)[key] = current[key];
     }
   }

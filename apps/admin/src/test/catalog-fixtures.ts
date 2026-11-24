@@ -11,6 +11,7 @@ export const HAIR = {
   description: null,
   isActive: true,
   position: 0,
+  parentId: null,
   createdAt: at,
   updatedAt: at,
 };
@@ -28,6 +29,8 @@ export const SKIN = {
 export const OIL = {
   id: '3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f',
   categoryId: HAIR.id,
+  otherCategoryIds: [] as string[],
+  brandId: null as string | null,
   name: 'Bhringraj Oil',
   slug: 'bhringraj-oil',
   summary: null,
@@ -69,6 +72,8 @@ export const SOAP = {
   ...SHAMPOO,
   id: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b',
   categoryId: SKIN.id,
+  otherCategoryIds: [] as string[],
+  brandId: null as string | null,
   name: 'Neem Soap',
   slug: 'neem-soap',
   hsnCode: '3401',
@@ -77,8 +82,10 @@ export const SOAP = {
 
 export const CATEGORIES = 'GET /v1/staff/categories';
 export const ALL_PRODUCTS = 'GET /v1/staff/products?limit=100';
-export const PRODUCTS_IN = (category: { id: string }) =>
-  `GET /v1/staff/products?categoryId=${category.id}&limit=100`;
+// Every product shown in a category, its own and those also shown there
+// (part 15A): what the list of one category reads.
+export const SHOWN_IN = (category: { id: string }) =>
+  `GET /v1/staff/products/order?categoryId=${category.id}`;
 export const PRODUCT = (product: { id: string }) =>
   `GET /v1/staff/products/${product.id}`;
 export const PATCH_PRODUCT = (product: { id: string }) =>
@@ -86,6 +93,18 @@ export const PATCH_PRODUCT = (product: { id: string }) =>
 
 export const categoriesOf = (categories: unknown[]) => () =>
   json(200, { categories });
+
+// Brands as the staff list gives them (part 15A).
+export const BRANDS = 'GET /v1/staff/brands';
+export const HIMALAYA = {
+  id: '3f6c1a2e-9b4d-4c7e-8a15-6d2f0e9b7c41',
+  name: 'Himalaya',
+  slug: 'himalaya',
+  createdAt: at,
+  updatedAt: at,
+  productCount: 1,
+};
+export const brandsOf = (brands: unknown[]) => () => json(200, { brands });
 export const productsOf =
   (products: unknown[], nextAfter: string | null = null) =>
   () =>

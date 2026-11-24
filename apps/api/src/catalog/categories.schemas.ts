@@ -12,9 +12,12 @@ const description = z
   .transform((value) => value || null);
 // Customers see lower numbers first.
 const position = z.number().int().min(0).max(9999);
+// The top category it sits in (part 15A); null for a top category.
+const parentId = z.uuid('Choose the category it sits in by its ID').nullable();
 
 // A new category. The slug is made from the name, unless one is given: a
-// name without Latin letters needs one. It starts inactive unless asked.
+// name without Latin letters needs one. It starts inactive unless asked,
+// and as a top category unless it is given one to sit in.
 export const categorySchema = z
   .object({
     name,
@@ -22,6 +25,7 @@ export const categorySchema = z
     description: description.optional(),
     position: position.optional(),
     isActive: z.boolean().optional(),
+    parentId: parentId.optional(),
   })
   .transform(({ slug: given, ...input }) => ({
     ...input,
@@ -35,6 +39,8 @@ export type CategoryInput = z.infer<typeof categorySchema>;
 
 // A change to a category: only the fields that change. Renaming keeps the
 // slug, so links to the category keep working; send a slug to change it.
+// A parentId moves it into that top category, and null makes it a top
+// category.
 export const categoryUpdateSchema = z
   .object({
     name: name.optional(),
@@ -42,6 +48,7 @@ export const categoryUpdateSchema = z
     description: description.optional(),
     position: position.optional(),
     isActive: z.boolean().optional(),
+    parentId: parentId.optional(),
   })
   .refine(
     (input) => Object.values(input).some((value) => value !== undefined),
@@ -49,9 +56,11 @@ export const categoryUpdateSchema = z
   );
 export type CategoryUpdateInput = z.infer<typeof categoryUpdateSchema>;
 
-// A new order for the categories customers see: every category, hidden ones
-// too, each once, first to last (ADR 0032).
+// A new order for the categories customers see, one level at a time (part
+// 15A): every top category, or every subcategory of the top category
+// parentId, hidden ones too, each once, first to last (ADR 0032).
 export const categoryOrderSchema = z.object({
+  parentId: parentId.default(null),
   ids: z
     .array(z.uuid('Each category by its ID'))
     .min(1, 'List the categories')

@@ -14,7 +14,11 @@ import {
   isUniqueViolation,
 } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
-import { CATEGORY_NOT_FOUND } from './categories.service';
+import {
+  CATEGORY_NOT_FOUND,
+  CATEGORY_ORDER,
+  SHOP_CATEGORY_FIELDS,
+} from './categories.service';
 import { changedFields, pick } from './changes';
 import { IMAGE_ORDER, imageFileNames, removeImageFiles } from './image-files';
 import { productIssues } from './product-rules';
@@ -23,9 +27,11 @@ import type {
   ProductInput,
   ProductListQuery,
   ProductOrderInput,
+  ProductOrderQuery,
   ProductUpdateInput,
   ShopProductListQuery,
 } from './products.schemas';
+import { SHOWN_CATEGORY } from './shown-categories';
 import { validationFailed } from './validation-failed';
 import { VARIANT_ORDER } from './variant-order';
 
@@ -40,10 +46,24 @@ const NO_SUCH_CATEGORY: ProductIssue = {
   field: 'categoryId',
   message: 'No category with this ID',
 };
+const NO_SUCH_BRAND: ProductIssue = {
+  field: 'brandId',
+  message: 'No brand with this ID',
+};
+const NO_SUCH_OTHER_CATEGORY: ProductIssue = {
+  field: 'otherCategoryIds',
+  message: 'No category with one of these IDs',
+};
+const MAIN_IS_OTHER: ProductIssue = {
+  field: 'otherCategoryIds',
+  message: 'Its main category cannot be one of its other categories too',
+};
 
 // Everything staff can set: what the audit log keeps of a product.
 const STAFF_FIELDS = [
   'categoryId',
+  'otherCategoryIds',
+  'brandId',
   'name',
   'slug',
   'summary',
@@ -64,6 +84,7 @@ const STAFF_FIELDS = [
 const PRODUCT_FIELDS = {
   id: true,
   categoryId: true,
+  brandId: true,
   name: true,
   slug: true,
   summary: true,
@@ -81,6 +102,10 @@ const PRODUCT_FIELDS = {
   position: true,
   createdAt: true,
   updatedAt: true,
+  otherCategories: {
+    orderBy: { categoryId: 'asc' },
+    select: { categoryId: true },
+  },
 } satisfies Prisma.ProductSelect;
 
 // Staff and customers see products in the same order: by position within
@@ -123,7 +148,14 @@ const SHOP_PAGE_FIELDS = {
   manufacturerName: true,
   manufacturerAddress: true,
   countryOfOrigin: true,
-  category: { select: { name: true, slug: true } },
+  category: {
+    select: {
+      name: true,
+      slug: true,
+      parent: { select: { name: true, slug: true } },
+    },
+  },
+  brand: { select: { name: true, slug: true } },
   variants: {
     where: { isActive: true },
     orderBy: VARIANT_ORDER,
@@ -161,7 +193,26 @@ const DELETED_IMAGE_FIELDS = {
   position: true,
 } satisfies Prisma.ProductImageSelect;
 
-type Product = Prisma.ProductGetPayload<{ select: typeof PRODUCT_FIELDS }>;
+type ProductRow = Prisma.ProductGetPayload<{ select: typeof PRODUCT_FIELDS }>;
+
+// A product as staff see it: with the IDs of the other categories it is
+// also shown in (part 15A).
+type Product = Omit<ProductRow, 'otherCategories'> & {
+  otherCategoryIds: string[];
+};
+
+function staffProduct({ otherCategories, ...product }: ProductRow): Product {
+  return {
+    ...product,
+    otherCategoryIds: otherCategories.map((other) => other.categoryId),
+  };
+}
+
+// Whether two lists hold the same IDs, in any order. Each list holds an ID
+// once.
+function sameIds(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((id) => b.includes(id));
+}
 
 export interface ProductPage {
   products: Product[];
@@ -192,7 +243,11 @@ export class ProductsService {
     }
     const rows = await this.prisma.product.findMany({
       // A filter left out is undefined, and Prisma ignores it.
-      where: { categoryId: query.categoryId, isActive: query.isActive },
+      where: {
+        categoryId: query.categoryId,
+        brandId: query.brandId,
+        isActive: query.isActive,
+      },
       orderBy: PRODUCT_ORDER,
       // One more than asked for, to know whether another page exists.
       take: query.limit + 1,
@@ -200,7 +255,7 @@ export class ProductsService {
       ...(query.after ? { cursor: { id: query.after }, skip: 1 } : {}),
       select: PRODUCT_FIELDS,
     });
-    const products = rows.slice(0, query.limit);
+    const products = rows.slice(0, query.limit).map(staffProduct);
     return {
       products,
       nextAfter:
@@ -217,16 +272,32 @@ export class ProductsService {
     if (!product) {
       throw new NotFoundException(PRODUCT_NOT_FOUND);
     }
-    return product;
+    return staffProduct(product);
   }
 
   async create(input: ProductInput, context: AuditContext): Promise<Product> {
+    const { otherCategoryIds = [], ...fields } = input;
     const product = await this.saving(() =>
       this.prisma.$transaction(async (tx) => {
-        const created = await tx.product.create({
-          data: input,
-          select: PRODUCT_FIELDS,
-        });
+        await this.brandKept(tx, fields.brandId);
+        // Without a place, it goes last in its category.
+        const { position, others } = await this.placed(
+          tx,
+          fields.categoryId,
+          fields.position === undefined,
+          otherCategoryIds,
+          [],
+        );
+        const created = staffProduct(
+          await tx.product.create({
+            data: {
+              ...fields,
+              ...(position === undefined ? {} : { position }),
+              otherCategories: { create: others },
+            },
+            select: PRODUCT_FIELDS,
+          }),
+        );
         // In the same transaction: no product without its audit entry.
         await this.audit.record(tx, {
           ...context,
@@ -247,7 +318,10 @@ export class ProductsService {
 
   // Changes only the fields given, and only if the product as it will be
   // still follows the rules: removing the licence of a live product, for
-  // example, is refused. A request with no real change is not audited.
+  // example, is refused. A request with no real change is not audited. A
+  // product put into another category without a place goes last there. A
+  // list of other categories replaces the old one: those kept keep their
+  // place, and those added go last in their category.
   async update(
     id: string,
     input: ProductUpdateInput,
@@ -256,26 +330,63 @@ export class ProductsService {
     const { product, changed } = await this.saving(() =>
       this.prisma.$transaction(async (tx) => {
         const current = await this.lockedProduct(tx, id);
-        const fields = changedFields(current, input);
-        if (fields.length === 0) {
+        const { otherCategoryIds, ...rest } = input;
+        const fields = changedFields(current, rest);
+        const others =
+          otherCategoryIds === undefined ||
+          sameIds(otherCategoryIds, current.otherCategoryIds)
+            ? undefined
+            : [...otherCategoryIds].sort();
+        if (fields.length === 0 && !others) {
           return { product: current, changed: false };
         }
-        const before = pick(current, fields);
-        const after = pick(input, fields);
+        const changes = pick(rest, fields);
+        await this.brandKept(tx, changes.brandId);
+        const { position, others: added } = await this.placed(
+          tx,
+          changes.categoryId ?? current.categoryId,
+          fields.includes('categoryId') && rest.position === undefined,
+          others ?? current.otherCategoryIds,
+          current.otherCategoryIds,
+        );
+        if (position !== undefined && position !== current.position) {
+          changes.position = position;
+          fields.push('position');
+        }
+        const before = {
+          ...pick(current, fields),
+          ...(others ? { otherCategoryIds: current.otherCategoryIds } : {}),
+        };
+        const after = {
+          ...changes,
+          ...(others ? { otherCategoryIds: others } : {}),
+        };
         // Going live needs an image too. Counted while the product is
         // locked, so an image deleted at the same moment cannot slip by.
         const imageCount = await tx.productImage.count({
           where: { productId: id },
         });
-        const issues = productIssues({ ...current, ...after, imageCount });
+        const issues = productIssues({ ...current, ...changes, imageCount });
         if (issues.length > 0) {
           throw validationFailed(issues);
         }
-        const updated = await tx.product.update({
-          where: { id },
-          data: after,
-          select: PRODUCT_FIELDS,
-        });
+        const updated = staffProduct(
+          await tx.product.update({
+            where: { id },
+            data: {
+              ...changes,
+              ...(others
+                ? {
+                    otherCategories: {
+                      deleteMany: { categoryId: { notIn: others } },
+                      create: added,
+                    },
+                  }
+                : {}),
+            },
+            select: PRODUCT_FIELDS,
+          }),
+        );
         await this.audit.record(tx, {
           ...context,
           action: 'product.updated',
@@ -339,55 +450,97 @@ export class ProductsService {
     );
   }
 
-  // A category's page in the shop: the category and its active products,
-  // one page at a time, each with the lowest price of its packs on sale
-  // (fromPriceRupees, null while none is on sale) and the small file of its
-  // main photo (imageUrl). A hidden category answers 404, like an unknown
-  // one. Pages continue after a product's slug: customers never see product
-  // IDs.
+  // A category's page in the shop: the category, with the top category it
+  // sits in (parent) or its active subcategories (part 15A), and the live
+  // products shown in it, one page at a time, each with the lowest price of its
+  // packs on sale (fromPriceRupees, null while none is on sale) and the
+  // small file of its main photo (imageUrl). A hidden category answers 404,
+  // like an unknown one, and so does a subcategory of a hidden one. Pages
+  // continue after a product's slug: customers never see product IDs.
   async listForShop(categorySlug: string, query: ShopProductListQuery) {
-    const category = await this.prisma.category.findFirst({
-      where: { slug: categorySlug, isActive: true },
-      select: { name: true, slug: true, description: true },
+    const found = await this.prisma.category.findFirst({
+      where: { slug: categorySlug, ...SHOWN_CATEGORY },
+      select: {
+        id: true,
+        ...SHOP_CATEGORY_FIELDS,
+        parent: { select: { name: true, slug: true } },
+        subcategories: {
+          where: { isActive: true },
+          orderBy: CATEGORY_ORDER,
+          select: SHOP_CATEGORY_FIELDS,
+        },
+      },
     });
-    if (!category) {
+    if (!found) {
       throw new NotFoundException(CATEGORY_NOT_FOUND);
     }
+    // The shop never shows IDs.
+    const { id: categoryId, ...category } = found;
+    // Its own live products, and the live ones also shown in it (part 15A),
+    // each at its place here, one more than asked for, to know whether
+    // another page exists. A product shown here from another category is
+    // live while its main category is shown. The values are bound
+    // parameters, never part of the SQL.
+    const listed = await this.prisma.$queryRaw<{ id: string }[]>`
+      WITH listed AS (
+        SELECT p."id", p."slug", p."name", p."position"
+          FROM "products" p
+         WHERE p."categoryId" = ${categoryId}::uuid AND p."isActive"
+        UNION ALL
+        SELECT p."id", p."slug", p."name", o."position"
+          FROM "product_categories" o
+          JOIN "products" p ON p."id" = o."productId"
+          JOIN "categories" c ON c."id" = p."categoryId"
+          LEFT JOIN "categories" top ON top."id" = c."parentId"
+         WHERE o."categoryId" = ${categoryId}::uuid AND p."isActive"
+           AND c."isActive" AND (top."id" IS NULL OR top."isActive")
+      )
+      SELECT "id" FROM listed
+       WHERE ${query.after ?? null}::text IS NULL
+          OR ("position", "name", "id") >
+             (SELECT "position", "name", "id" FROM listed
+               WHERE "slug" = ${query.after ?? null}::text)
+       ORDER BY "position", "name", "id"
+       LIMIT ${query.limit + 1}`;
+    const ids = listed.slice(0, query.limit).map((row) => row.id);
     const rows = await this.prisma.product.findMany({
-      where: {
-        isActive: true,
-        category: { slug: categorySlug, isActive: true },
-      },
-      orderBy: PRODUCT_ORDER,
-      take: query.limit + 1,
-      ...(query.after ? { cursor: { slug: query.after }, skip: 1 } : {}),
-      select: SHOP_LIST_FIELDS,
+      where: { id: { in: ids }, isActive: true },
+      select: { id: true, ...SHOP_LIST_FIELDS },
     });
-    const products = rows
-      .slice(0, query.limit)
-      .map(({ variants, images, ...card }) => ({
-        ...card,
-        fromPriceRupees: variants[0]?.priceRupees ?? null,
-        // A live product always has an image; null only guards the type.
-        imageUrl: images[0]
-          ? this.media.url(imageFileNames(images[0].fileKey).small)
-          : null,
-      }));
+    const cards = new Map(
+      rows.map(({ id, variants, images, ...card }) => [
+        id,
+        {
+          ...card,
+          fromPriceRupees: variants[0]?.priceRupees ?? null,
+          // A live product always has an image; null only guards the type.
+          imageUrl: images[0]
+            ? this.media.url(imageFileNames(images[0].fileKey).small)
+            : null,
+        },
+      ]),
+    );
+    // In the order listed. One hidden or deleted in between is left out.
+    const products = ids.flatMap((id) => {
+      const card = cards.get(id);
+      return card ? [card] : [];
+    });
     return {
       category,
       products,
       nextAfter:
-        rows.length > query.limit ? products[products.length - 1].slug : null,
+        listed.length > query.limit ? (products.at(-1)?.slug ?? null) : null,
     };
   }
 
-  // A product's own page in the shop. Only an active product in an active
-  // category: any other answers 404, like an unknown one. Each image has the
+  // A product's own page in the shop. Only an active product in a category
+  // customers see: any other answers 404, like an unknown one. Its category
+  // comes with the top category it sits in, if any. Each image has the
   // addresses of its two files, its size, and a description: the product's
   // name when staff gave none.
   async findForShop(slug: string) {
     const product = await this.prisma.product.findFirst({
-      where: { slug, isActive: true, category: { isActive: true } },
+      where: { slug, isActive: true, category: SHOWN_CATEGORY },
       select: SHOP_PAGE_FIELDS,
     });
     if (!product) {
@@ -416,10 +569,28 @@ export class ProductsService {
     };
   }
 
+  // Every product shown in a category, drafts too, in the order customers
+  // see them: what staff drag into a new order (ADR 0032). Those whose main
+  // category it is, and those also shown in it (part 15A).
+  async listOrder({
+    categoryId,
+  }: ProductOrderQuery): Promise<{ products: Product[] }> {
+    const category = await this.prisma.category.findUnique({
+      where: { id: categoryId },
+      select: { id: true },
+    });
+    if (!category) {
+      throw validationFailed([NO_SUCH_CATEGORY]);
+    }
+    return { products: await this.shownIn(categoryId) };
+  }
+
   // Puts a category's products in a new order, from the whole list first to
   // last, as staff dragged them (ADR 0032). Each one's position becomes its
-  // place in the list. All of it is saved in one transaction, with an audit
-  // entry for each product that moved.
+  // place in the list: a product whose main category it is gets it as its
+  // position, and one also shown in it (part 15A) as its place there. All
+  // of it is saved in one transaction, with an audit entry for each product
+  // that moved.
   async reorder(
     { categoryId, ids }: ProductOrderInput,
     context: AuditContext,
@@ -431,36 +602,60 @@ export class ProductsService {
       if (category.length === 0) {
         throw validationFailed([NO_SUCH_CATEGORY]);
       }
-      // Its products, locked in the order of their IDs, as everywhere.
-      const current = await tx.$queryRaw<{ id: string; position: number }[]>`
+      // Its own products, then the ones also shown in it, each locked in
+      // the order of their IDs, as everywhere.
+      const own = await tx.$queryRaw<{ id: string; position: number }[]>`
         SELECT id, position FROM products
          WHERE "categoryId" = ${categoryId}::uuid
          ORDER BY id FOR NO KEY UPDATE`;
-      const was = new Map(current.map((row) => [row.id, row.position]));
-      // The list must be every product of the category, drafts too: one
-      // added, moved or deleted since staff loaded the page would otherwise
-      // be left out of the order.
-      if (current.length !== ids.length || ids.some((id) => !was.has(id))) {
+      const shown = await tx.$queryRaw<{ id: string; position: number }[]>`
+        SELECT "productId" AS id, position FROM product_categories
+         WHERE "categoryId" = ${categoryId}::uuid
+         ORDER BY "productId" FOR NO KEY UPDATE`;
+      const was = new Map(own.map((row) => [row.id, row.position]));
+      const wasShown = new Map(shown.map((row) => [row.id, row.position]));
+      // The list must be every product shown in the category, drafts too:
+      // one added, moved or deleted since staff loaded the page would
+      // otherwise be left out of the order.
+      if (
+        own.length + shown.length !== ids.length ||
+        ids.some((id) => !was.has(id) && !wasShown.has(id))
+      ) {
         throw new ConflictException(PRODUCTS_CHANGED);
       }
       let count = 0;
       for (const [position, id] of ids.entries()) {
-        const before = was.get(id);
-        if (before === position) {
+        const mainBefore = was.get(id);
+        const shownBefore = wasShown.get(id);
+        if ((mainBefore ?? shownBefore) === position) {
           continue;
         }
-        await tx.product.update({
-          where: { id },
-          data: { position },
-          select: { id: true },
-        });
+        if (mainBefore !== undefined) {
+          await tx.product.update({
+            where: { id },
+            data: { position },
+            select: { id: true },
+          });
+        } else {
+          await tx.productCategory.update({
+            where: { productId_categoryId: { productId: id, categoryId } },
+            data: { position },
+            select: { productId: true },
+          });
+        }
         await this.audit.record(tx, {
           ...context,
           action: 'product.updated',
           targetType: 'product',
           targetId: id,
-          before: { position: before },
-          after: { position },
+          ...(mainBefore !== undefined
+            ? { before: { position: mainBefore }, after: { position } }
+            : {
+                before: {
+                  otherCategoryPosition: { categoryId, position: shownBefore },
+                },
+                after: { otherCategoryPosition: { categoryId, position } },
+              }),
         });
         count += 1;
       }
@@ -472,12 +667,7 @@ export class ProductsService {
         'Products reordered',
       );
     }
-    const products = await this.prisma.product.findMany({
-      where: { categoryId },
-      orderBy: PRODUCT_ORDER,
-      select: PRODUCT_FIELDS,
-    });
-    return { products };
+    return { products: await this.shownIn(categoryId) };
   }
 
   // Staff search by name, drafts too, with the shop's trigram matching
@@ -485,7 +675,7 @@ export class ProductsService {
   // category and the status are bound parameters, never part of the SQL.
   private async search(
     words: string,
-    { categoryId, isActive, limit }: ProductListQuery,
+    { categoryId, brandId, isActive, limit }: ProductListQuery,
   ): Promise<ProductPage> {
     const matches = await this.prisma.$queryRaw<{ id: string }[]>`
       SELECT p."id"
@@ -493,22 +683,47 @@ export class ProductsService {
        WHERE ${words} <% p."name"
          AND (${categoryId ?? null}::uuid IS NULL
               OR p."categoryId" = ${categoryId ?? null}::uuid)
+         AND (${brandId ?? null}::uuid IS NULL
+              OR p."brandId" = ${brandId ?? null}::uuid)
          AND (${isActive ?? null}::boolean IS NULL
               OR p."isActive" = ${isActive ?? null}::boolean)
        ORDER BY word_similarity(${words}, p."name") DESC, p."name", p."id"
        LIMIT ${limit}`;
-    const ids = matches.map((match) => match.id);
+    const products = await this.inOrder(matches.map((match) => match.id));
+    return { products, nextAfter: null };
+  }
+
+  // Every product shown in the category, drafts too, in the order customers
+  // see them: those whose main category it is, and those also shown in it,
+  // each at its own place. The ID is a bound parameter.
+  private async shownIn(categoryId: string): Promise<Product[]> {
+    const shown = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT "id" FROM (
+        SELECT p."id", p."name", p."position"
+          FROM "products" p
+         WHERE p."categoryId" = ${categoryId}::uuid
+        UNION ALL
+        SELECT p."id", p."name", o."position"
+          FROM "product_categories" o
+          JOIN "products" p ON p."id" = o."productId"
+         WHERE o."categoryId" = ${categoryId}::uuid
+      ) shown
+       ORDER BY "position", "name", "id"`;
+    return this.inOrder(shown.map((row) => row.id));
+  }
+
+  // These products as staff see them, in this order. One deleted in
+  // between is left out.
+  private async inOrder(ids: string[]): Promise<Product[]> {
     const rows = await this.prisma.product.findMany({
       where: { id: { in: ids } },
       select: PRODUCT_FIELDS,
     });
-    const byId = new Map(rows.map((row) => [row.id, row]));
-    // In the order of the matches. A product deleted in between is left out.
-    const products = ids.flatMap((id) => {
+    const byId = new Map(rows.map((row) => [row.id, staffProduct(row)]));
+    return ids.flatMap((id) => {
       const product = byId.get(id);
       return product ? [product] : [];
     });
-    return { products, nextAfter: null };
   }
 
   // Locks the product until the transaction ends, then reads it, or answers
@@ -525,10 +740,80 @@ export class ProductsService {
     if (locked.length === 0) {
       throw new NotFoundException(PRODUCT_NOT_FOUND);
     }
-    return tx.product.findUniqueOrThrow({
-      where: { id },
-      select: PRODUCT_FIELDS,
-    });
+    return staffProduct(
+      await tx.product.findUniqueOrThrow({
+        where: { id },
+        select: PRODUCT_FIELDS,
+      }),
+    );
+  }
+
+  // Where a product goes in the categories it is put into (part 15A): last
+  // among the products shown there, its own and those also shown in it.
+  // That is its main category when it is put into one without a place
+  // (placeMain), and each other category added to its list, which never
+  // holds the main one. All of them are locked in one go, in the order of
+  // their IDs (KEY SHARE: their deletion waits), and each must exist.
+  // Gives the main category's place, and what to save for each one added.
+  private async placed(
+    tx: Prisma.TransactionClient,
+    mainId: string,
+    placeMain: boolean,
+    otherIds: string[],
+    currentIds: string[],
+  ): Promise<{
+    position: number | undefined;
+    others: { categoryId: string; position: number }[];
+  }> {
+    if (otherIds.includes(mainId)) {
+      throw validationFailed([MAIN_IS_OTHER]);
+    }
+    const added = otherIds.filter((id) => !currentIds.includes(id));
+    const ids = placeMain ? [mainId, ...added] : added;
+    if (ids.length === 0) {
+      return { position: undefined, others: [] };
+    }
+    const rows = await tx.$queryRaw<{ id: string; position: number }[]>`
+      SELECT c."id", (LEAST(9998, COALESCE(GREATEST(
+               (SELECT MAX(p."position") FROM "products" p
+                 WHERE p."categoryId" = c."id"),
+               (SELECT MAX(o."position") FROM "product_categories" o
+                 WHERE o."categoryId" = c."id")
+             ), -1)) + 1)::int AS "position"
+        FROM "categories" c
+       WHERE c."id" = ANY(${ids}::uuid[])
+       ORDER BY c."id"
+         FOR KEY SHARE OF c`;
+    const place = new Map(rows.map((row) => [row.id, row.position]));
+    if (placeMain && !place.has(mainId)) {
+      throw validationFailed([NO_SUCH_CATEGORY]);
+    }
+    if (added.some((id) => !place.has(id))) {
+      throw validationFailed([NO_SUCH_OTHER_CATEGORY]);
+    }
+    return {
+      position: placeMain ? place.get(mainId) : undefined,
+      others: rows
+        .filter((row) => added.includes(row.id))
+        .map((row) => ({ categoryId: row.id, position: row.position })),
+    };
+  }
+
+  // A product's brand must exist, and stay while the product is saved with
+  // it: KEY SHARE lets other changes to the brand go on, but its deletion
+  // waits. No brand, or none given, needs no check.
+  private async brandKept(
+    tx: Prisma.TransactionClient,
+    brandId: string | null | undefined,
+  ): Promise<void> {
+    if (!brandId) {
+      return;
+    }
+    const found = await tx.$queryRaw<{ id: string }[]>`
+      SELECT id FROM brands WHERE id = ${brandId}::uuid FOR KEY SHARE`;
+    if (found.length === 0) {
+      throw validationFailed([NO_SUCH_BRAND]);
+    }
   }
 
   // A batch that still holds stock is never deleted, and its product with

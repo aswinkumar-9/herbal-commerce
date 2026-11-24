@@ -1,5 +1,6 @@
 import {
   productListQuerySchema,
+  productOrderQuerySchema,
   productOrderSchema,
   productSchema,
   productUpdateSchema,
@@ -7,6 +8,7 @@ import {
 } from './products.schemas';
 
 const CATEGORY = '7c9e6679-7425-40de-944b-e07fc1f90ae7';
+const BRAND = '3f6c1a2e-9b4d-4c7e-8a15-6d2f0e9b7c41';
 const draft = { categoryId: CATEGORY, name: ' Ashwagandha Capsules ' };
 const details = {
   type: 'AYURVEDIC_MEDICINE',
@@ -215,6 +217,45 @@ describe('productUpdateSchema', () => {
   });
 });
 
+// Part 15A: a brand from the list, or none.
+describe('a product’s brand', () => {
+  it('is optional on a new product, and given by its ID', () => {
+    expect(productSchema.parse(draft)).not.toHaveProperty('brandId');
+    expect(productSchema.parse({ ...draft, brandId: BRAND }).brandId).toBe(
+      BRAND,
+    );
+    expect(productSchema.parse({ ...draft, brandId: null }).brandId).toBeNull();
+  });
+
+  it('changes by its ID, or goes with null', () => {
+    expect(productUpdateSchema.parse({ brandId: BRAND })).toEqual({
+      brandId: BRAND,
+    });
+    expect(productUpdateSchema.parse({ brandId: null })).toEqual({
+      brandId: null,
+    });
+  });
+
+  it('refuses a brand given by name or slug', () => {
+    expect(refusedFields({ ...draft, brandId: 'himalaya' })).toEqual([
+      'brandId',
+    ]);
+    expect(productUpdateSchema.safeParse({ brandId: 'Himalaya' }).success).toBe(
+      false,
+    );
+  });
+
+  it('filters the staff list by its ID only', () => {
+    expect(productListQuerySchema.parse({ brandId: BRAND })).toEqual({
+      limit: 50,
+      brandId: BRAND,
+    });
+    expect(
+      productListQuerySchema.safeParse({ brandId: 'himalaya' }).success,
+    ).toBe(false);
+  });
+});
+
 describe('productListQuerySchema', () => {
   it('turns the query text into a page size and filters, 50 by default', () => {
     expect(productListQuerySchema.parse({})).toEqual({ limit: 50 });
@@ -327,5 +368,79 @@ describe('productOrderSchema', () => {
       (_, n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
     );
     expect(refused({ categoryId: CATEGORY, ids })).toEqual([['ids', 'At most 1000 products']]);
+  });
+});
+
+describe('the other categories a product is also shown in', () => {
+  const A = '1d4f7a2c-8b3e-4c6d-9e0f-2a5b8c1d4e7f';
+  const B = '6e9b2c5f-1a4d-4e7b-8c0f-3d6a9b2c5e8f';
+  const issues = (otherCategoryIds: unknown) =>
+    productUpdateSchema
+      .safeParse({ otherCategoryIds })
+      .error?.issues.map((issue) => [issue.path.join('.'), issue.message]);
+
+  it('are optional on a new product, and given by their IDs', () => {
+    expect(productSchema.parse(draft)).not.toHaveProperty('otherCategoryIds');
+    expect(
+      productSchema.parse({ ...draft, otherCategoryIds: [A, B] })
+        .otherCategoryIds,
+    ).toEqual([A, B]);
+  });
+
+  it('are replaced by a change, and an empty list takes them all away', () => {
+    expect(productUpdateSchema.parse({ otherCategoryIds: [B] })).toEqual({
+      otherCategoryIds: [B],
+    });
+    expect(productUpdateSchema.parse({ otherCategoryIds: [] })).toEqual({
+      otherCategoryIds: [],
+    });
+  });
+
+  it('are kept in small letters, so one ID is never taken for two', () => {
+    expect(
+      productUpdateSchema.parse({ otherCategoryIds: [A.toUpperCase()] }),
+    ).toEqual({ otherCategoryIds: [A] });
+    expect(issues([A, A.toUpperCase()])).toEqual([
+      ['otherCategoryIds', 'List each category once'],
+    ]);
+  });
+
+  it('keep the main category in small letters too, so it is never taken for another', () => {
+    expect(
+      productSchema.parse({ ...draft, categoryId: CATEGORY.toUpperCase() })
+        .categoryId,
+    ).toBe(CATEGORY);
+    expect(
+      productUpdateSchema.parse({ categoryId: CATEGORY.toUpperCase() }),
+    ).toEqual({ categoryId: CATEGORY });
+  });
+
+  it('refuses a category by name, an ID twice, and more than 5', () => {
+    expect(issues(['hair-care'])).toEqual([
+      ['otherCategoryIds.0', 'Choose each category by its ID'],
+    ]);
+    expect(issues([A, B, A])).toEqual([
+      ['otherCategoryIds', 'List each category once'],
+    ]);
+    const six = Array.from(
+      { length: 6 },
+      (_, n) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+    );
+    expect(issues(six)).toEqual([
+      ['otherCategoryIds', 'At most 5 other categories'],
+    ]);
+    expect(issues(null)).toHaveLength(1);
+  });
+});
+
+describe('productOrderQuerySchema', () => {
+  it('takes the category by its ID, and nothing else', () => {
+    expect(
+      productOrderQuerySchema.parse({ categoryId: CATEGORY, limit: '5' }),
+    ).toEqual({ categoryId: CATEGORY });
+    expect(productOrderQuerySchema.safeParse({}).success).toBe(false);
+    expect(
+      productOrderQuerySchema.safeParse({ categoryId: 'hair-care' }).success,
+    ).toBe(false);
   });
 });

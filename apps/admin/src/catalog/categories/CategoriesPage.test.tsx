@@ -21,6 +21,7 @@ const HAIR = {
   description: null,
   isActive: true,
   position: 0,
+  parentId: null as string | null,
   createdAt: at,
   updatedAt: at,
 };
@@ -45,6 +46,8 @@ const ALL = [HAIR, SKIN, TEAS];
 const OIL = {
   id: '3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f',
   categoryId: HAIR.id,
+  otherCategoryIds: [],
+  brandId: null,
   name: 'Bhringraj Oil',
   slug: 'bhringraj-oil',
   summary: null,
@@ -66,8 +69,10 @@ const OIL = {
 const listOf = (categories: unknown[]) => () => json(200, { categories });
 const PATCH = (category: { id: string }) =>
   `PATCH /v1/staff/categories/${category.id}`;
-const HAS_PRODUCTS = (category: { id: string }) =>
-  `GET /v1/staff/products?categoryId=${category.id}&limit=1`;
+// Every product shown in a category: its own, and those also shown in it.
+const SHOWN_IN = (category: { id: string }) =>
+  `GET /v1/staff/products/order?categoryId=${category.id}`;
+const productsOf = (products: unknown[]) => () => json(200, { products });
 
 function rowNames() {
   const list = screen.getByRole('list', {
@@ -602,8 +607,7 @@ describe('deleting a category (Super Users)', () => {
       answers: {
         // The list read again after the delete never comes back.
         [LIST]: [listOf(ALL), () => new Promise<Response>(() => undefined)],
-        [HAS_PRODUCTS(TEAS)]: () =>
-          json(200, { products: [], nextAfter: null }),
+        [SHOWN_IN(TEAS)]: productsOf([]),
         [`DELETE /v1/staff/categories/${TEAS.id}`]: () =>
           new Response(null, { status: 204 }),
       },
@@ -632,8 +636,7 @@ describe('deleting a category (Super Users)', () => {
     const { user, api } = await openPage({
       staff: RAVI,
       answers: {
-        [HAS_PRODUCTS(HAIR)]: () =>
-          json(200, { products: [OIL], nextAfter: null }),
+        [SHOWN_IN(HAIR)]: productsOf([OIL]),
       },
     });
     await waitForList();
@@ -656,8 +659,7 @@ describe('deleting a category (Super Users)', () => {
     const { user, api } = await openPage({
       staff: RAVI,
       answers: {
-        [HAS_PRODUCTS(HAIR)]: () =>
-          json(200, { products: [], nextAfter: null }),
+        [SHOWN_IN(HAIR)]: productsOf([]),
         [PATCH(HAIR)]: () => json(200, { ...HAIR, isActive: false }),
       },
     });
@@ -683,8 +685,7 @@ describe('deleting a category (Super Users)', () => {
     const { user } = await openPage({
       staff: RAVI,
       answers: {
-        [HAS_PRODUCTS(SKIN)]: () =>
-          json(200, { products: [], nextAfter: null }),
+        [SHOWN_IN(SKIN)]: productsOf([]),
         [`DELETE /v1/staff/categories/${SKIN.id}`]: () =>
           json(409, {
             message:
@@ -709,5 +710,538 @@ describe('deleting a category (Super Users)', () => {
       'This category still has products.',
     );
     expect(dialog).toHaveAttribute('open');
+  });
+});
+
+// Subcategories (part 15A): two inside Hair Care, one inside Skin Care,
+// which is hidden.
+const HAIR_OILS = {
+  ...HAIR,
+  id: '2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e',
+  name: 'Hair Oils',
+  slug: 'hair-oils',
+  parentId: HAIR.id,
+  position: 0,
+};
+const HAIR_MASKS = {
+  ...HAIR,
+  id: '4d5e6f7a-8b9c-4d0e-9f1a-2b3c4d5e6f7a',
+  name: 'Hair Masks',
+  slug: 'hair-masks',
+  parentId: HAIR.id,
+  position: 1,
+};
+const SKIN_SOAPS = {
+  ...HAIR,
+  id: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b',
+  name: 'Herbal Soaps',
+  slug: 'herbal-soaps',
+  parentId: SKIN.id,
+  isActive: false,
+  position: 0,
+};
+const TREE = [HAIR, HAIR_OILS, HAIR_MASKS, SKIN, SKIN_SOAPS, TEAS];
+
+function subcategoryNames(parent: { name: string }) {
+  const list = screen.getByRole('list', {
+    name: `Subcategories of ${parent.name}, in order`,
+  });
+  return within(list)
+    .getAllByRole('listitem')
+    .map((row) => row.querySelector('p')?.textContent);
+}
+
+function rowOf(category: { name: string }) {
+  return screen
+    .getByRole('button', { name: `Move ${category.name}` })
+    .closest('li') as HTMLElement;
+}
+
+async function openTree(answers: Parameters<typeof openSignedIn>[1] = {}) {
+  const console = await openPage({
+    ...answers,
+    answers: { [LIST]: listOf(TREE), ...answers.answers },
+  });
+  await waitForList();
+  return console;
+}
+
+describe('subcategories (part 15A)', () => {
+  it('shows each top category with its subcategories under it, in order', async () => {
+    await openTree();
+
+    expect(rowNames()).toEqual([
+      'Hair Care',
+      'Hair Oils',
+      'Hair Masks',
+      'Skin Care',
+      'Herbal Soaps',
+      'Herbal Teas',
+    ]);
+    expect(subcategoryNames(HAIR)).toEqual(['Hair Oils', 'Hair Masks']);
+    expect(subcategoryNames(SKIN)).toEqual(['Herbal Soaps']);
+    expect(
+      screen.queryByRole('list', { name: /^Subcategories of Herbal Teas/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /A subcategory moves among the others in its category\./,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('says only how to drag while there are no subcategories', async () => {
+    await openPage();
+    await waitForList();
+
+    expect(
+      screen.getByText(/^Drag a handle to change the order\./),
+    ).not.toHaveTextContent('A subcategory moves');
+  });
+
+  it('is hidden while its top category is, and says when it will be shown', async () => {
+    const { user } = await openTree({
+      answers: {
+        [PATCH(SKIN_SOAPS)]: () => json(200, { ...SKIN_SOAPS, isActive: true }),
+      },
+    });
+    expect(within(rowOf(SKIN_SOAPS)).getByText('Hidden')).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole('switch', { name: 'Customers see Herbal Soaps' }),
+    );
+
+    expect(
+      await screen.findByText(
+        'Herbal Soaps will be shown once Skin Care is shown',
+      ),
+    ).toBeInTheDocument();
+    const soaps = rowOf(SKIN_SOAPS);
+    expect(within(soaps).getByRole('switch')).toBeChecked();
+    expect(within(soaps).getByText('Hidden')).toBeInTheDocument();
+    expect(
+      within(soaps).getByText('Customers see it once Skin Care is shown.'),
+    ).toBeInTheDocument();
+  });
+
+  it('hides the subcategories with their top category, and says so', async () => {
+    const { user } = await openTree({
+      answers: { [PATCH(HAIR)]: () => json(200, { ...HAIR, isActive: false }) },
+    });
+    expect(within(rowOf(HAIR_OILS)).getByText('Shown')).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole('switch', { name: 'Customers see Hair Care' }),
+    );
+
+    expect(
+      await screen.findByText(
+        'Hair Care and its subcategories are now hidden from customers',
+      ),
+    ).toBeInTheDocument();
+    const oils = rowOf(HAIR_OILS);
+    expect(within(oils).getByText('Hidden')).toBeInTheDocument();
+    expect(within(oils).getByRole('switch')).toBeChecked();
+    expect(
+      within(oils).getByText('Customers see it once Hair Care is shown.'),
+    ).toBeInTheDocument();
+  });
+
+  it('orders the subcategories of one top category among themselves', async () => {
+    const { user, api } = await openTree({
+      answers: {
+        [ORDER]: listOf([
+          HAIR,
+          { ...HAIR_MASKS, position: 0 },
+          { ...HAIR_OILS, position: 1 },
+          SKIN,
+          SKIN_SOAPS,
+          TEAS,
+        ]),
+      },
+    });
+    const handle = screen.getByRole('button', { name: 'Move Hair Oils' });
+    expect(handle).toHaveAccessibleDescription(
+      expect.stringContaining('press Up or Down to move a category one place'),
+    );
+
+    handle.focus();
+    await user.keyboard('{ArrowDown}');
+
+    expect(subcategoryNames(HAIR)).toEqual(['Hair Masks', 'Hair Oils']);
+    expect(
+      screen.getByText('Hair Oils moved to position 2 of 2 in Hair Care.'),
+    ).toBeInTheDocument();
+    expect(await screen.findByText('Order saved')).toBeInTheDocument();
+    expect(api.to('PUT', '/v1/staff/categories/order')[0]?.body).toEqual({
+      parentId: HAIR.id,
+      ids: [HAIR_MASKS.id, HAIR_OILS.id],
+    });
+    expect(rowNames()).toEqual([
+      'Hair Care',
+      'Hair Masks',
+      'Hair Oils',
+      'Skin Care',
+      'Herbal Soaps',
+      'Herbal Teas',
+    ]);
+
+    // Not past the last one of its own category.
+    await user.keyboard('{End}');
+    expect(api.to('PUT', '/v1/staff/categories/order')).toHaveLength(1);
+  });
+
+  it('follows the server’s order again once a subcategory list is saved', async () => {
+    const { user } = await openTree({
+      answers: {
+        [ORDER]: [
+          listOf([
+            HAIR,
+            { ...HAIR_MASKS, position: 0 },
+            { ...HAIR_OILS, position: 1 },
+            SKIN,
+            SKIN_SOAPS,
+            TEAS,
+          ]),
+          // Someone else put Hair Oils first again meanwhile.
+          listOf([
+            { ...SKIN, position: 0 },
+            SKIN_SOAPS,
+            { ...HAIR, position: 1 },
+            HAIR_OILS,
+            HAIR_MASKS,
+            TEAS,
+          ]),
+        ],
+      },
+    });
+
+    screen.getByRole('button', { name: 'Move Hair Oils' }).focus();
+    await user.keyboard('{ArrowDown}');
+    await screen.findByText('Order saved');
+    screen.getByRole('button', { name: 'Move Skin Care' }).focus();
+    await user.keyboard('{ArrowUp}');
+
+    await waitFor(() =>
+      expect(rowNames()).toEqual([
+        'Skin Care',
+        'Herbal Soaps',
+        'Hair Care',
+        'Hair Oils',
+        'Hair Masks',
+        'Herbal Teas',
+      ]),
+    );
+  });
+
+  it('says the order is on its way while a subcategory list saves', async () => {
+    const answer = heldBack();
+    await openTree({ answers: { [ORDER]: answer.answer } });
+
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Move Hair Masks' }), {
+      key: 'Home',
+    });
+
+    expect(await screen.findByText('Saving the order…')).toBeInTheDocument();
+    await act(async () =>
+      answer.release(
+        json(200, {
+          categories: [
+            HAIR,
+            { ...HAIR_MASKS, position: 0 },
+            { ...HAIR_OILS, position: 1 },
+            SKIN,
+            SKIN_SOAPS,
+            TEAS,
+          ],
+        }),
+      ),
+    );
+    expect(await screen.findByText('Order saved')).toBeInTheDocument();
+  });
+
+  it('moves a top category with its subcategories', async () => {
+    const { user, api } = await openTree({
+      answers: {
+        [ORDER]: listOf([
+          { ...SKIN, position: 0 },
+          SKIN_SOAPS,
+          { ...HAIR, position: 1 },
+          HAIR_OILS,
+          HAIR_MASKS,
+          TEAS,
+        ]),
+      },
+    });
+
+    screen.getByRole('button', { name: 'Move Hair Care' }).focus();
+    await user.keyboard('{ArrowDown}');
+
+    expect(
+      screen.getByText('Hair Care moved to position 2 of 3.'),
+    ).toBeInTheDocument();
+    expect(rowNames()).toEqual([
+      'Skin Care',
+      'Herbal Soaps',
+      'Hair Care',
+      'Hair Oils',
+      'Hair Masks',
+      'Herbal Teas',
+    ]);
+    await screen.findByText('Order saved');
+    expect(api.to('PUT', '/v1/staff/categories/order')[0]?.body).toEqual({
+      ids: [SKIN.id, HAIR.id, TEAS.id],
+    });
+  });
+
+  it('puts a new category inside a top category, after its last one', async () => {
+    const SERUMS = {
+      ...HAIR,
+      id: '6f7a8b9c-0d1e-4f2a-8b3c-4d5e6f7a8b9c',
+      name: 'Hair Serums',
+      slug: 'hair-serums',
+      isActive: false,
+      parentId: HAIR.id,
+      position: 2,
+    };
+    const { user, api } = await openTree({
+      answers: {
+        [LIST]: [
+          listOf(TREE),
+          listOf([HAIR, HAIR_OILS, HAIR_MASKS, SERUMS, SKIN, SKIN_SOAPS, TEAS]),
+        ],
+        [CREATE]: () => json(201, SERUMS),
+      },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'New category' }));
+    const dialog = screen.getByRole('dialog', { name: 'New category' });
+    const inside = within(dialog).getByLabelText('Inside');
+    expect(inside).toHaveValue('');
+    expect(
+      within(inside)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual([
+      'None: it is a top category',
+      'Hair Care',
+      'Skin Care (hidden)',
+      'Herbal Teas',
+    ]);
+    await user.type(within(dialog).getByLabelText('Name'), 'Hair Serums');
+    await user.selectOptions(inside, 'Hair Care');
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Add category' }),
+    );
+
+    expect(await screen.findByText('Hair Serums added')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(subcategoryNames(HAIR)).toEqual([
+        'Hair Oils',
+        'Hair Masks',
+        'Hair Serums',
+      ]),
+    );
+    expect(api.to('POST', '/v1/staff/categories')[0]?.body).toEqual({
+      name: 'Hair Serums',
+      description: null,
+      isActive: false,
+      parentId: HAIR.id,
+      position: 2,
+    });
+  });
+
+  it('offers no choice of where it sits while there is no other category', async () => {
+    const { user } = await openPage({ answers: { [LIST]: listOf([]) } });
+
+    await user.click(
+      await screen.findByRole('button', { name: 'Add the first category' }),
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'New category' });
+    expect(within(dialog).queryByLabelText('Inside')).not.toBeInTheDocument();
+  });
+
+  it('moves a category into another, at the end there, and reads the list again', async () => {
+    const moved = { ...TEAS, parentId: HAIR.id, position: 2 };
+    const { user, api } = await openTree({
+      answers: {
+        [LIST]: [
+          listOf(TREE),
+          listOf([HAIR, HAIR_OILS, HAIR_MASKS, moved, SKIN, SKIN_SOAPS]),
+        ],
+        [PATCH(TEAS)]: () => json(200, moved),
+      },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Edit Herbal Teas' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit Herbal Teas' });
+    const inside = within(dialog).getByLabelText('Inside');
+    expect(
+      within(inside)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual([
+      'None: it is a top category',
+      'Hair Care',
+      'Skin Care (hidden)',
+    ]);
+    await user.selectOptions(inside, 'Hair Care');
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Save changes' }),
+    );
+
+    expect(await screen.findByText('Herbal Teas saved')).toBeInTheDocument();
+    await waitFor(() =>
+      expect(subcategoryNames(HAIR)).toEqual([
+        'Hair Oils',
+        'Hair Masks',
+        'Herbal Teas',
+      ]),
+    );
+    await waitFor(() =>
+      expect(api.to('GET', '/v1/staff/categories')).toHaveLength(2),
+    );
+    expect(api.to('PATCH', `/v1/staff/categories/${TEAS.id}`)[0]?.body).toEqual(
+      { parentId: HAIR.id, position: 2 },
+    );
+  });
+
+  it('makes a subcategory a top category, at the end of the top ones', async () => {
+    const moved = { ...HAIR_OILS, parentId: null, position: 3 };
+    const { user, api } = await openTree({
+      answers: { [PATCH(HAIR_OILS)]: () => json(200, moved) },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Edit Hair Oils' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit Hair Oils' });
+    const inside = within(dialog).getByLabelText('Inside');
+    expect(inside).toHaveValue(HAIR.id);
+    await user.selectOptions(inside, 'None: it is a top category');
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Save changes' }),
+    );
+
+    expect(await screen.findByText('Hair Oils saved')).toBeInTheDocument();
+    expect(
+      api.to('PATCH', `/v1/staff/categories/${HAIR_OILS.id}`)[0]?.body,
+    ).toEqual({ parentId: null, position: 3 });
+  });
+
+  it('keeps a category with subcategories a top category', async () => {
+    const { user } = await openTree();
+
+    await user.click(screen.getByRole('button', { name: 'Edit Hair Care' }));
+    const inside = within(
+      screen.getByRole('dialog', { name: 'Edit Hair Care' }),
+    ).getByLabelText('Inside');
+
+    expect(inside).toBeDisabled();
+    expect(inside).toHaveAccessibleDescription(
+      'It has subcategories, so it stays a top category: there are only two levels.',
+    );
+  });
+
+  it('shows the API’s refusal next to where it sits', async () => {
+    const { user } = await openTree({
+      answers: {
+        [PATCH(TEAS)]: () =>
+          json(400, {
+            message: 'Validation failed',
+            errors: [
+              {
+                field: 'parentId',
+                message:
+                  'This is a subcategory. Choose a top category: there are only two levels.',
+              },
+            ],
+          }),
+      },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Edit Herbal Teas' }));
+    const dialog = screen.getByRole('dialog', { name: 'Edit Herbal Teas' });
+    const inside = within(dialog).getByLabelText('Inside');
+    await user.selectOptions(inside, 'Skin Care (hidden)');
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Save changes' }),
+    );
+
+    await waitFor(() =>
+      expect(inside).toHaveAccessibleDescription(
+        expect.stringContaining('This is a subcategory. Choose a top category'),
+      ),
+    );
+    expect(inside).toHaveFocus();
+    expect(dialog).toHaveAttribute('open');
+  });
+});
+
+describe('deleting a category with others in it (part 15A)', () => {
+  it('cannot delete a category that still has subcategories, and hides them with it', async () => {
+    const { user } = await openTree({
+      staff: RAVI,
+      answers: {
+        [SHOWN_IN(HAIR)]: productsOf([]),
+        [PATCH(HAIR)]: () => json(200, { ...HAIR, isActive: false }),
+      },
+    });
+
+    await user.click(screen.getByRole('button', { name: 'Delete Hair Care' }));
+    const dialog = screen.getByRole('dialog', { name: 'Delete Hair Care?' });
+
+    expect(
+      within(dialog).getByText(
+        /It still has subcategories, so it can't be deleted/,
+      ),
+    ).toBeInTheDocument();
+    await waitFor(() =>
+      expect(
+        within(dialog).queryByText('Checking for products…'),
+      ).not.toBeInTheDocument(),
+    );
+    expect(
+      within(dialog).getByRole('button', { name: 'Delete for good' }),
+    ).toBeDisabled();
+    expect(
+      within(dialog).getByText(/Its subcategories are hidden with it\./),
+    ).toBeInTheDocument();
+
+    await user.click(
+      within(dialog).getByRole('button', { name: 'Hide it instead' }),
+    );
+    expect(
+      await screen.findByText(
+        'Hair Care and its subcategories are now hidden from customers',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('cannot delete a category that still shows products from other categories', async () => {
+    const { user, api } = await openTree({
+      staff: RAVI,
+      answers: { [SHOWN_IN(TEAS)]: productsOf([OIL]) },
+    });
+
+    await user.click(
+      screen.getByRole('button', { name: 'Delete Herbal Teas' }),
+    );
+    const dialog = screen.getByRole('dialog', { name: 'Delete Herbal Teas?' });
+
+    expect(
+      await within(dialog).findByText(
+        /It still shows products from other categories, so it can't be deleted/,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(dialog).queryByText(/It still has products/),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).queryByText(/Its subcategories are hidden/),
+    ).not.toBeInTheDocument();
+    expect(
+      within(dialog).getByRole('button', { name: 'Delete for good' }),
+    ).toBeDisabled();
+    expect(api.unexpected).toEqual([]);
   });
 });

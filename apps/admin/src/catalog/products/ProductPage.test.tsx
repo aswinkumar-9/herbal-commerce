@@ -7,12 +7,13 @@ import {
   OIL,
   PATCH_PRODUCT,
   PRODUCT,
-  PRODUCTS_IN,
   SHAMPOO,
   SKIN,
-  SOAP,
   IMAGES,
   VARIANTS,
+  BRANDS,
+  HIMALAYA,
+  brandsOf,
   categoriesOf,
   fieldsRefused,
   imagesOf,
@@ -34,6 +35,7 @@ async function openProduct(
     ...options,
     answers: {
       [CATEGORIES]: categoriesOf([HAIR, SKIN]),
+      [BRANDS]: brandsOf([HIMALAYA]),
       [PRODUCT(product)]: () => json(200, product),
       [VARIANTS(product)]: variantsOf([]),
       [IMAGES(product)]: imagesOf([]),
@@ -53,6 +55,7 @@ async function openNew(
     ...options,
     answers: {
       [CATEGORIES]: categoriesOf([HAIR, SKIN]),
+      [BRANDS]: brandsOf([HIMALAYA]),
       ...options.answers,
     },
   });
@@ -67,7 +70,7 @@ const liveSwitch = () =>
 
 describe('a new product', () => {
   // It types a whole product, which takes a while on a busy machine.
-  it('is added as a draft, after the last product of its category', async () => {
+  it('is added as a draft, the API putting it last in its category', async () => {
     const NEW = {
       ...OIL,
       id: '6f7a8b9c-0d1e-4f2a-9b3c-4d5e6f7a8b9c',
@@ -79,7 +82,6 @@ describe('a new product', () => {
     };
     const { user, api, router } = await openNew({
       answers: {
-        [PRODUCTS_IN(HAIR)]: productsOf([OIL, SHAMPOO]),
         [CREATE]: () => json(201, NEW),
         [PRODUCT(NEW)]: () => json(200, NEW),
         [VARIANTS(NEW)]: variantsOf([]),
@@ -123,6 +125,8 @@ describe('a new product', () => {
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(api.to('POST', '/v1/staff/products')[0]?.body).toEqual({
       categoryId: HAIR.id,
+      otherCategoryIds: [],
+      brandId: null,
       name: 'Neem Hair Oil',
       summary: null,
       description: null,
@@ -135,8 +139,8 @@ describe('a new product', () => {
       ingredients: null,
       hsnCode: null,
       gstRate: null,
-      position: 2,
     });
+    expect(api.unexpected).toEqual([]);
   }, 15_000);
 
   it('starts in the category the list had chosen', async () => {
@@ -146,6 +150,38 @@ describe('a new product', () => {
     expect(
       screen.getByRole('option', { name: 'Skin Care (hidden)' }),
     ).toBeInTheDocument();
+  });
+
+  it('names a subcategory with the category it sits in, hidden with it (part 15A)', async () => {
+    const OILS = {
+      ...HAIR,
+      id: '2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e',
+      name: 'Hair Oils',
+      slug: 'hair-oils',
+      parentId: HAIR.id,
+    };
+    const SOAPS = {
+      ...HAIR,
+      id: '5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b',
+      name: 'Herbal Soaps',
+      slug: 'herbal-soaps',
+      parentId: SKIN.id,
+    };
+    await openNew({
+      answers: { [CATEGORIES]: categoriesOf([HAIR, OILS, SKIN, SOAPS]) },
+    });
+
+    expect(
+      within(screen.getByLabelText('Category'))
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual([
+      'Choose a category',
+      'Hair Care',
+      'Hair Care › Hair Oils',
+      'Skin Care (hidden)',
+      'Skin Care › Herbal Soaps (hidden)',
+    ]);
   });
 
   it('is checked before it is sent', async () => {
@@ -280,10 +316,9 @@ describe('changing a product', () => {
     expect(api.to('PATCH', `/v1/staff/products/${OIL.id}`)).toHaveLength(0);
   });
 
-  it('puts a product moved to another category after its last one', async () => {
+  it('moves a product to another category, the API putting it last there', async () => {
     const { user, api } = await openProduct(OIL, {
       answers: {
-        [PRODUCTS_IN(SKIN)]: productsOf([SOAP]),
         [PATCH_PRODUCT(OIL)]: () =>
           json(200, { ...OIL, categoryId: SKIN.id, position: 1 }),
       },
@@ -298,7 +333,6 @@ describe('changing a product', () => {
     expect(await screen.findByText('Bhringraj Oil saved')).toBeInTheDocument();
     expect(api.to('PATCH', `/v1/staff/products/${OIL.id}`)[0]?.body).toEqual({
       categoryId: SKIN.id,
-      position: 1,
     });
   });
 
@@ -428,6 +462,248 @@ describe('changing a product', () => {
     expect(await screen.findByText('Bhringraj Oil saved')).toBeInTheDocument();
     expect(screen.getByLabelText('How to use')).toHaveValue('Typed meanwhile');
     expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+  });
+});
+
+describe('its brand and the other categories it is shown in (part 15A)', () => {
+  const HAIR_OILS = {
+    ...HAIR,
+    id: '2b3c4d5e-6f7a-4b8c-9d0e-1f2a3b4c5d6e',
+    name: 'Hair Oils',
+    slug: 'hair-oils',
+    parentId: HAIR.id,
+  };
+  const others = () => screen.getByRole('group', { name: 'Also shown in' });
+
+  it('gives a product a brand, and takes it away', async () => {
+    const { user, api } = await openProduct(OIL, {
+      answers: {
+        [PATCH_PRODUCT(OIL)]: [
+          () => json(200, { ...OIL, brandId: HIMALAYA.id }),
+          () => json(200, OIL),
+        ],
+      },
+    });
+    const brand = screen.getByLabelText('Brand');
+    await waitFor(() => expect(brand).toBeEnabled());
+    expect(
+      within(brand)
+        .getAllByRole('option')
+        .map((option) => option.textContent),
+    ).toEqual(['No brand', 'Himalaya']);
+    expect(brand).toHaveValue('');
+
+    await user.selectOptions(brand, 'Himalaya');
+    await user.click(saveButton());
+    expect(await screen.findByText('Bhringraj Oil saved')).toBeInTheDocument();
+    expect(brand).toHaveValue(HIMALAYA.id);
+
+    await user.selectOptions(brand, 'No brand');
+    await user.click(saveButton());
+
+    await waitFor(() =>
+      expect(api.to('PATCH', `/v1/staff/products/${OIL.id}`)).toHaveLength(2),
+    );
+    expect(
+      api.to('PATCH', `/v1/staff/products/${OIL.id}`).map((sent) => sent.body),
+    ).toEqual([{ brandId: HIMALAYA.id }, { brandId: null }]);
+  });
+
+  it('says when the brands could not be loaded', async () => {
+    await openProduct(OIL, {
+      answers: { [BRANDS]: () => json(403, { message: 'Forbidden' }) },
+    });
+
+    const brand = screen.getByLabelText('Brand');
+    await waitFor(() =>
+      expect(brand).toHaveAccessibleDescription(
+        'The brands could not be loaded. Reload the page to choose one.',
+      ),
+    );
+    expect(brand).toBeDisabled();
+  });
+
+  it('shows a product in other categories too, never its main one', async () => {
+    const { user, api } = await openProduct(OIL, {
+      answers: {
+        [CATEGORIES]: categoriesOf([HAIR, HAIR_OILS, SKIN]),
+        [PATCH_PRODUCT(OIL)]: () =>
+          json(200, { ...OIL, otherCategoryIds: [SKIN.id] }),
+      },
+    });
+
+    expect(
+      within(others())
+        .getAllByRole('checkbox')
+        .map((box) => box.closest('label')?.textContent),
+    ).toEqual(['Hair Care › Hair Oils', 'Skin Care (hidden)']);
+    expect(others()).toHaveAccessibleDescription(
+      expect.stringContaining('at most 5'),
+    );
+    await user.click(
+      within(others()).getByRole('checkbox', { name: 'Skin Care (hidden)' }),
+    );
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    await user.click(saveButton());
+
+    expect(await screen.findByText('Bhringraj Oil saved')).toBeInTheDocument();
+    expect(api.to('PATCH', `/v1/staff/products/${OIL.id}`)[0]?.body).toEqual({
+      otherCategoryIds: [SKIN.id],
+    });
+    expect(
+      within(others()).getByRole('checkbox', { name: 'Skin Care (hidden)' }),
+    ).toBeChecked();
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+  });
+
+  it('has nothing to save once a box is ticked and cleared again', async () => {
+    const { user, api } = await openProduct(OIL);
+    const skin = within(others()).getByRole('checkbox', {
+      name: 'Skin Care (hidden)',
+    });
+
+    await user.click(skin);
+    await user.click(skin);
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+    await user.click(saveButton());
+
+    expect(
+      await screen.findByText('There are no changes to save.'),
+    ).toBeInTheDocument();
+    expect(api.to('PATCH', `/v1/staff/products/${OIL.id}`)).toHaveLength(0);
+  });
+
+  it('takes the new main category off the other ones', async () => {
+    const shown = { ...OIL, otherCategoryIds: [SKIN.id] };
+    const { user, api } = await openProduct(shown, {
+      answers: {
+        [PATCH_PRODUCT(OIL)]: () => json(200, { ...OIL, categoryId: SKIN.id }),
+      },
+    });
+    expect(
+      within(others()).getByRole('checkbox', { name: 'Skin Care (hidden)' }),
+    ).toBeChecked();
+
+    await user.selectOptions(
+      screen.getByLabelText('Category'),
+      'Skin Care (hidden)',
+    );
+
+    expect(
+      within(others()).queryByRole('checkbox', { name: 'Skin Care (hidden)' }),
+    ).not.toBeInTheDocument();
+    expect(
+      within(others()).getByRole('checkbox', { name: 'Hair Care' }),
+    ).not.toBeChecked();
+    await user.click(saveButton());
+    expect(await screen.findByText('Bhringraj Oil saved')).toBeInTheDocument();
+    expect(api.to('PATCH', `/v1/staff/products/${OIL.id}`)[0]?.body).toEqual({
+      categoryId: SKIN.id,
+      otherCategoryIds: [],
+    });
+  });
+
+  it('stops at 5 other categories', async () => {
+    const more = Array.from({ length: 6 }, (_, n) => ({
+      ...HAIR,
+      id: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`,
+      name: `Range ${n + 1}`,
+      slug: `range-${n + 1}`,
+    }));
+    const five = more.slice(0, 5).map((category) => category.id);
+    const shown = { ...OIL, otherCategoryIds: five };
+    const { user } = await openProduct(shown, {
+      answers: { [CATEGORIES]: categoriesOf([HAIR, ...more]) },
+    });
+    const sixth = within(others()).getByRole('checkbox', { name: 'Range 6' });
+
+    expect(sixth).toBeDisabled();
+    await user.click(
+      within(others()).getByRole('checkbox', { name: 'Range 1' }),
+    );
+
+    expect(sixth).toBeEnabled();
+  });
+
+  it('shows the API’s refusal next to them, and puts the focus there', async () => {
+    const { user } = await openProduct(OIL, {
+      answers: {
+        [CATEGORIES]: categoriesOf([HAIR, HAIR_OILS, SKIN]),
+        [PATCH_PRODUCT(OIL)]: () =>
+          fieldsRefused([
+            {
+              field: 'otherCategoryIds',
+              message: 'No category with one of these IDs',
+            },
+          ]),
+      },
+    });
+
+    await user.click(
+      within(others()).getByRole('checkbox', { name: 'Skin Care (hidden)' }),
+    );
+    await user.click(saveButton());
+
+    await waitFor(() =>
+      expect(others()).toHaveAccessibleDescription(
+        expect.stringContaining('No category with one of these IDs'),
+      ),
+    );
+    // The first box of the list.
+    expect(
+      within(others()).getByRole('checkbox', {
+        name: 'Hair Care › Hair Oils',
+      }),
+    ).toHaveFocus();
+
+    // A new main category may be what the API refused: the mark goes.
+    await user.selectOptions(
+      screen.getByLabelText('Category'),
+      'Skin Care (hidden)',
+    );
+    expect(others()).not.toHaveAccessibleDescription(
+      expect.stringContaining('No category with one of these IDs'),
+    );
+  });
+
+  it('has nothing to save once a box is cleared and ticked again', async () => {
+    // In the order of their IDs: Skin Care's comes first.
+    const shown = { ...OIL, otherCategoryIds: [SKIN.id, HAIR_OILS.id] };
+    const { user } = await openProduct(shown, {
+      answers: { [CATEGORIES]: categoriesOf([HAIR, HAIR_OILS, SKIN]) },
+    });
+    const skin = within(others()).getByRole('checkbox', {
+      name: 'Skin Care (hidden)',
+    });
+
+    await user.click(skin);
+    expect(screen.getByText('Unsaved changes')).toBeInTheDocument();
+    await user.click(skin);
+
+    expect(screen.queryByText('Unsaved changes')).not.toBeInTheDocument();
+  });
+
+  it('shows the API’s refusal of the brand next to it', async () => {
+    const { user } = await openProduct(OIL, {
+      answers: {
+        [PATCH_PRODUCT(OIL)]: () =>
+          fieldsRefused([
+            { field: 'brandId', message: 'No brand with this ID' },
+          ]),
+      },
+    });
+    const brand = screen.getByLabelText('Brand');
+    await waitFor(() => expect(brand).toBeEnabled());
+
+    await user.selectOptions(brand, 'Himalaya');
+    await user.click(saveButton());
+
+    await waitFor(() =>
+      expect(brand).toHaveAccessibleDescription(
+        expect.stringContaining('No brand with this ID'),
+      ),
+    );
+    expect(brand).toHaveFocus();
   });
 });
 

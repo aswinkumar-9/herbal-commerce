@@ -4,6 +4,7 @@ import { AddressesController } from '../addresses/addresses.controller';
 import { CartController } from '../cart/cart.controller';
 import { CategoriesController } from '../catalog/categories.controller';
 import { ProductsController } from '../catalog/products.controller';
+import { StaffBrandsController } from '../catalog/staff-brands.controller';
 import { StaffCategoriesController } from '../catalog/staff-categories.controller';
 import { StaffImagesController } from '../catalog/staff-images.controller';
 import { StaffStockController } from '../inventory/staff-stock.controller';
@@ -62,6 +63,7 @@ describe('public routes', () => {
     expect(publicHandlers(StaffAuditLogController)).toEqual([]);
     expect(publicHandlers(AddressesController)).toEqual([]);
     expect(publicHandlers(StaffCategoriesController)).toEqual([]);
+    expect(publicHandlers(StaffBrandsController)).toEqual([]);
     expect(publicHandlers(StaffProductsController)).toEqual([]);
     expect(publicHandlers(StaffVariantsController)).toEqual([]);
     expect(publicHandlers(StaffImagesController)).toEqual([]);

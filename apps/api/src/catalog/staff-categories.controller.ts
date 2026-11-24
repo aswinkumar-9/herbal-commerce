@@ -56,8 +56,8 @@ export class StaffCategoriesController {
     return this.categories.create(body, context);
   }
 
-  // A new order for the categories customers see: all of them, first to
-  // last.
+  // A new order for the categories customers see, one level at a time: all
+  // the top categories, or all the subcategories of one, first to last.
   @Put('order')
   reorder(
     @Body(new ZodValidationPipe(categoryOrderSchema)) body: CategoryOrderInput,
@@ -66,8 +66,8 @@ export class StaffCategoriesController {
     return this.categories.reorder(body, context);
   }
 
-  // Changes, activates or deactivates a category. An ID that is not a UUID
-  // gets 400 before any database query.
+  // Changes, activates, deactivates or moves a category. An ID that is not a
+  // UUID gets 400 before any database query.
   @Patch(':id')
   update(
     @Param('id', new ParseUUIDPipe()) id: string,

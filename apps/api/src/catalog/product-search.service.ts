@@ -6,6 +6,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { IMAGE_ORDER, imageFileNames } from './image-files';
 import type { ProductSearchQuery, SearchSort } from './product-search.schemas';
 import { SearchCache } from './search-cache';
+import { SHOWN_CATEGORY } from './shown-categories';
 
 // At most this many products are weighed for one search: the shop's
 // catalog is small, so all of them, today. Revisit when the shop has a few
@@ -89,6 +90,23 @@ function byName(a: SearchCard, b: SearchCard): number {
 // misspelt, and filtered by category, type and lowest price. Products in
 // stock come first, then by the order asked for, then by name. The search
 // words are never stored or logged.
+// The products in a category: those whose main category it is, and those
+// also shown in it while it is shown (part 15A). A top category finds its
+// subcategories' products too.
+function inCategory(slug: string): Prisma.ProductWhereInput {
+  const category = { OR: [{ slug }, { parent: { slug } }] };
+  return {
+    OR: [
+      { category },
+      {
+        otherCategories: {
+          some: { category: { AND: [SHOWN_CATEGORY, category] } },
+        },
+      },
+    ],
+  };
+}
+
 @Injectable()
 export class ProductSearchService {
   constructor(
@@ -156,10 +174,8 @@ export class ProductSearchService {
         : await this.prisma.product.findMany({
             where: {
               isActive: true,
-              category: {
-                isActive: true,
-                ...(query.category ? { slug: query.category } : {}),
-              },
+              category: SHOWN_CATEGORY,
+              ...(query.category ? inCategory(query.category) : {}),
               ...(query.type ? { type: query.type } : {}),
               ...(scores ? { id: { in: [...scores.keys()] } } : {}),
             },
@@ -184,7 +200,9 @@ export class ProductSearchService {
              )::float8 AS "score"
         FROM "products" p
         JOIN "categories" c ON c."id" = p."categoryId"
+        LEFT JOIN "categories" top ON top."id" = c."parentId"
        WHERE p."isActive" AND c."isActive"
+         AND (top."id" IS NULL OR top."isActive")
          AND (${words} <% p."name"
               OR ${words} <% p."summary"
               OR ${words} <% p."description")

@@ -7,6 +7,7 @@ import { ApiError } from '../api/api-error';
 import { fakeApi, json } from '../test/fake-api';
 import {
   catalogKeys,
+  isCategoryOrder,
   useCategories,
   useImages,
   useProduct,
@@ -21,6 +22,8 @@ const SECOND = '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d';
 const product = (id: string, name: string) => ({
   id,
   categoryId: CATEGORY_ID,
+  otherCategoryIds: [] as string[],
+  brandId: null,
   name,
   slug: name.toLowerCase().replaceAll(' ', '-'),
   summary: null,
@@ -68,18 +71,19 @@ describe('the catalog data', () => {
   it('reads products a page at a time, each page asking after the last', async () => {
     setAccessToken('t1');
     const api = fakeApi({
-      [`GET /v1/staff/products?categoryId=${CATEGORY_ID}`]: () =>
+      [`GET /v1/staff/products?categoryId=${CATEGORY_ID}&isActive=false`]: () =>
         json(200, { products: [product(FIRST, 'Hair Oil')], nextAfter: FIRST }),
-      [`GET /v1/staff/products?categoryId=${CATEGORY_ID}&after=${FIRST}`]: () =>
-        json(200, {
-          products: [product(SECOND, 'Hair Wash')],
-          nextAfter: null,
-        }),
+      [`GET /v1/staff/products?categoryId=${CATEGORY_ID}&isActive=false&after=${FIRST}`]:
+        () =>
+          json(200, {
+            products: [product(SECOND, 'Hair Wash')],
+            nextAfter: null,
+          }),
     });
     const { wrapper } = withCache();
 
     const { result } = renderHook(
-      () => useProductPages({ categoryId: CATEGORY_ID }),
+      () => useProductPages({ categoryId: CATEGORY_ID, isActive: false }),
       { wrapper },
     );
     await waitFor(() => expect(result.current.hasNextPage).toBe(true));
@@ -92,6 +96,40 @@ describe('the catalog data', () => {
       ),
     ).toEqual(['Hair Oil', 'Hair Wash']);
     expect(api.unexpected).toEqual([]);
+  });
+
+  it('reads one category on its own on one page, with the products also shown there (part 15A)', async () => {
+    setAccessToken('t1');
+    const shown = { ...product(SECOND, 'Hair Wash'), categoryId: FIRST };
+    const api = fakeApi({
+      [`GET /v1/staff/products/order?categoryId=${CATEGORY_ID}`]: () =>
+        json(200, { products: [product(FIRST, 'Hair Oil'), shown] }),
+    });
+    const { wrapper } = withCache();
+
+    const { result } = renderHook(
+      () => useProductPages({ categoryId: CATEGORY_ID, limit: 100 }),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.hasNextPage).toBe(false);
+    expect(result.current.data?.pages).toEqual([
+      { products: [product(FIRST, 'Hair Oil'), shown], nextAfter: null },
+    ]);
+    expect(api.unexpected).toEqual([]);
+  });
+
+  it('takes a category as its order only with nothing else chosen', () => {
+    expect(isCategoryOrder({ categoryId: CATEGORY_ID, limit: 100 })).toBe(true);
+    expect(isCategoryOrder({})).toBe(false);
+    expect(isCategoryOrder({ categoryId: CATEGORY_ID, isActive: true })).toBe(
+      false,
+    );
+    expect(isCategoryOrder({ categoryId: CATEGORY_ID, q: 'oil' })).toBe(false);
+    expect(isCategoryOrder({ categoryId: CATEGORY_ID, brandId: FIRST })).toBe(
+      false,
+    );
   });
 
   it('reads one product, and asks nothing for an ID that is not one', async () => {

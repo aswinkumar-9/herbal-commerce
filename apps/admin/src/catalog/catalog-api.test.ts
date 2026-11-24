@@ -3,24 +3,28 @@ import { setAccessToken } from '../api/access-token';
 import { ApiError } from '../api/api-error';
 import { fakeApi, json } from '../test/fake-api';
 import {
+  createBrand,
   createCategory,
   createProduct,
   createVariant,
+  deleteBrand,
   deleteCategory,
   deleteImage,
   deleteProduct,
   deleteVariant,
   getProduct,
   imageFileProblem,
+  listBrands,
   listCategories,
   listImages,
+  listProductOrder,
   listProducts,
   listVariants,
-  nextProductPosition,
   reorderCategories,
   reorderImages,
   reorderProducts,
   reorderVariants,
+  updateBrand,
   updateCategory,
   updateImage,
   updateProduct,
@@ -39,6 +43,7 @@ const HAIR_CARE = {
   description: null,
   isActive: true,
   position: 0,
+  parentId: null,
   createdAt: '2026-11-01T09:00:00.000Z',
   updatedAt: '2026-11-01T09:00:00.000Z',
 };
@@ -46,6 +51,8 @@ const HAIR_CARE = {
 const OIL = {
   id: PRODUCT_ID,
   categoryId: CATEGORY_ID,
+  otherCategoryIds: [] as string[],
+  brandId: null as string | null,
   name: 'Bhringraj Hair Oil',
   slug: 'bhringraj-hair-oil',
   summary: null,
@@ -118,6 +125,35 @@ describe('the categories', () => {
     expect(api.sent[0]?.body).toEqual({ ids: [OTHER_ID, CATEGORY_ID] });
   });
 
+  it('sends a new order of one top category’s subcategories (part 15A)', async () => {
+    signedIn();
+    const api = fakeApi({
+      'PUT /v1/staff/categories/order': () =>
+        json(200, { categories: [HAIR_CARE] }),
+    });
+
+    await reorderCategories([OTHER_ID], CATEGORY_ID);
+
+    expect(api.sent[0]?.body).toEqual({
+      parentId: CATEGORY_ID,
+      ids: [OTHER_ID],
+    });
+  });
+
+  it('reads where a category sits', async () => {
+    signedIn();
+    fakeApi({
+      'GET /v1/staff/categories': () =>
+        json(200, {
+          categories: [{ ...HAIR_CARE, parentId: OTHER_ID }],
+        }),
+    });
+
+    const [category] = await listCategories();
+
+    expect(category?.parentId).toBe(OTHER_ID);
+  });
+
   it('turns an answer of the wrong shape into an error', async () => {
     signedIn();
     fakeApi({
@@ -128,6 +164,86 @@ describe('the categories', () => {
     await expect(listCategories()).rejects.toThrow(
       'The server sent an answer the console does not understand.',
     );
+  });
+});
+
+describe('the brands (part 15A)', () => {
+  const BRAND_ID = '3f6c1a2e-9b4d-4c7e-8a15-6d2f0e9b7c41';
+  const HIMALAYA = {
+    id: BRAND_ID,
+    name: 'Himalaya',
+    slug: 'himalaya',
+    createdAt: '2026-11-24T09:00:00.000Z',
+    updatedAt: '2026-11-24T09:00:00.000Z',
+  };
+
+  it('lists them with how many products have each', async () => {
+    signedIn();
+    const api = fakeApi({
+      'GET /v1/staff/brands': () =>
+        json(200, { brands: [{ ...HIMALAYA, productCount: 3 }] }),
+    });
+
+    await expect(listBrands()).resolves.toEqual([
+      { ...HIMALAYA, productCount: 3 },
+    ]);
+    expect(api.sent[0]?.authorization).toBe('Bearer t1');
+  });
+
+  it('creates, changes and deletes one', async () => {
+    signedIn();
+    const api = fakeApi({
+      'POST /v1/staff/brands': () => json(201, HIMALAYA),
+      [`PATCH /v1/staff/brands/${BRAND_ID}`]: () =>
+        json(200, { ...HIMALAYA, name: 'Himalaya Wellness' }),
+      [`DELETE /v1/staff/brands/${BRAND_ID}`]: () =>
+        new Response(null, { status: 204 }),
+    });
+
+    await expect(createBrand({ name: 'Himalaya' })).resolves.toEqual(HIMALAYA);
+    await expect(
+      updateBrand(BRAND_ID, { name: 'Himalaya Wellness' }),
+    ).resolves.toMatchObject({ name: 'Himalaya Wellness' });
+    await expect(deleteBrand(BRAND_ID)).resolves.toBeUndefined();
+
+    expect(api.sent.map((request) => request.body)).toEqual([
+      { name: 'Himalaya' },
+      { name: 'Himalaya Wellness' },
+      undefined,
+    ]);
+  });
+
+  it('never puts an ID that is not one into the path', async () => {
+    signedIn();
+    const api = fakeApi({});
+
+    await expect(updateBrand('../admins', { name: 'X' })).rejects.toThrow(
+      'There is no such item.',
+    );
+    await expect(deleteBrand('x?y')).rejects.toThrow('There is no such item.');
+    expect(api.sent).toEqual([]);
+  });
+
+  it('turns a list without product counts into an error', async () => {
+    signedIn();
+    fakeApi({
+      'GET /v1/staff/brands': () => json(200, { brands: [HIMALAYA] }),
+    });
+
+    await expect(listBrands()).rejects.toThrow(
+      'The server sent an answer the console does not understand.',
+    );
+  });
+
+  it('asks for the products of one brand', async () => {
+    signedIn();
+    const api = fakeApi({
+      [`GET /v1/staff/products?brandId=${BRAND_ID}&limit=1`]: () =>
+        json(200, { products: [], nextAfter: null }),
+    });
+
+    await listProducts({ brandId: BRAND_ID, limit: 1 });
+    expect(api.unexpected).toEqual([]);
   });
 });
 
@@ -153,6 +269,17 @@ describe('the products', () => {
       limit: 25,
     });
 
+    expect(api.unexpected).toEqual([]);
+  });
+
+  it('lists every product shown in a category, for its order (part 15A)', async () => {
+    signedIn();
+    const api = fakeApi({
+      [`GET /v1/staff/products/order?categoryId=${CATEGORY_ID}`]: () =>
+        json(200, { products: [OIL] }),
+    });
+
+    await expect(listProductOrder(CATEGORY_ID)).resolves.toEqual([OIL]);
     expect(api.unexpected).toEqual([]);
   });
 
@@ -210,40 +337,14 @@ describe('the products', () => {
     });
   });
 
-  it('puts a product after the last one of its category, on any page', async () => {
+  it('reads a product’s brand and the other categories it is also shown in (part 15A)', async () => {
     signedIn();
-    const IN = `GET /v1/staff/products?categoryId=${CATEGORY_ID}&limit=100`;
-    const api = fakeApi({
-      [IN]: () =>
-        json(200, {
-          products: [OIL, { ...OIL, id: OTHER_ID, position: 7 }],
-          nextAfter: OTHER_ID,
-        }),
-      [`GET /v1/staff/products?categoryId=${CATEGORY_ID}&after=${OTHER_ID}&limit=100`]:
-        () =>
-          json(200, { products: [{ ...OIL, position: 12 }], nextAfter: null }),
-    });
-
-    await expect(nextProductPosition(CATEGORY_ID)).resolves.toBe(13);
-    expect(api.sent).toHaveLength(2);
-  });
-
-  it('starts an empty category at 0, and never goes past 9999', async () => {
-    signedIn();
-    const IN = `GET /v1/staff/products?categoryId=${CATEGORY_ID}&limit=100`;
+    const shown = { ...OIL, otherCategoryIds: [OTHER_ID], brandId: OTHER_ID };
     fakeApi({
-      [IN]: [
-        () => json(200, { products: [], nextAfter: null }),
-        () =>
-          json(200, {
-            products: [{ ...OIL, position: 9999 }],
-            nextAfter: null,
-          }),
-      ],
+      [`GET /v1/staff/products/${PRODUCT_ID}`]: () => json(200, shown),
     });
 
-    await expect(nextProductPosition(CATEGORY_ID)).resolves.toBe(0);
-    await expect(nextProductPosition(CATEGORY_ID)).resolves.toBe(9999);
+    await expect(getProduct(PRODUCT_ID)).resolves.toEqual(shown);
   });
 
   it('refuses a product type it does not know', async () => {

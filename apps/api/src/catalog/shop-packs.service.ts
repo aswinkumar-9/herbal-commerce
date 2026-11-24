@@ -4,6 +4,7 @@ import type { PackUnit } from '../generated/prisma/enums';
 import { MediaStorage } from '../media/media-storage';
 import { PrismaService } from '../prisma/prisma.service';
 import { IMAGE_ORDER, imageFileNames } from './image-files';
+import { isShown, SHOWN_FIELDS } from './shown-categories';
 
 // A pack size as another module may know it: the cart (ADR 0025) and
 // orders (ADR 0026). They ask the catalog, never its tables (ADR 0001).
@@ -43,7 +44,7 @@ const PACK_FIELDS = {
       hsnCode: true,
       gstRate: true,
       isActive: true,
-      category: { select: { isActive: true } },
+      category: { select: SHOWN_FIELDS },
       variants: { select: { id: true } },
       images: { orderBy: IMAGE_ORDER, take: 1, select: { fileKey: true } },
     },
@@ -90,7 +91,7 @@ export class ShopPacksService {
       ...pack,
       hsnCode: product.hsnCode,
       gstRate: product.gstRate,
-      onSale: isActive && product.isActive && product.category.isActive,
+      onSale: isActive && product.isActive && isShown(product.category),
       product: {
         name: product.name,
         slug: product.slug,

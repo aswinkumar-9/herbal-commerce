@@ -200,13 +200,41 @@ model Category {
   // Customers never see an inactive category. A new one starts inactive,
   // so staff can prepare it before it shows.
   isActive    Boolean  @default(false)
-  // Customers see the categories in this order, then by name.
+  // Customers see the categories in this order, then by name: the top
+  // categories among themselves, and each one's subcategories among
+  // themselves.
   position    Int      @default(0)
+  // The top category it sits in, when it is a subcategory (part 15A). Only
+  // two levels: a top category may hold its own products as well as
+  // subcategories, and a subcategory holds only products. One that still
+  // has subcategories can't be deleted.
+  parentId    String?  @db.Uuid
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   products Product[]
+  parent Category? @relation("Subcategories", fields: [parentId], references: [id], onDelete: Restrict)
+  subcategories Category[] @relation("Subcategories")
+  // The products whose main category is another, also shown here.
+  otherProducts ProductCategory[]
 
+  @@index([parentId])
   @@map("categories")
+}
+
+// A brand, such as "Himalaya" (part 15A). Staff keep the list, and each
+// product may have one, which the shop shows and reports group by. Kept
+// once, so reports never count one brand under two spellings.
+model Brand {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  // The brand's part of a web address, such as "himalaya". Unique, so two
+  // brands can never share a name that only differs in case or spacing.
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  products Product[]
+
+  @@map("brands")
 }
 
 // What a product is under Indian law. It decides which licence its page
@@ -221,6 +249,8 @@ enum ProductType {
 model Product {
   id                  String       @id @default(uuid()) @db.Uuid
   categoryId          String       @db.Uuid
+  // Its brand, if it has one (part 15A).
+  brandId             String?      @db.Uuid
   name                String
   // The product's part of a web address, such as "ashwagandha-capsules".
   slug                String       @unique
@@ -251,10 +281,15 @@ model Product {
 
   // A category that still has products cannot be deleted.
   category Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  // A brand that still has products cannot be deleted.
+  brand    Brand?           @relation(fields: [brandId], references: [id], onDelete: Restrict)
   variants ProductVariant[]
   images   ProductImage[]
+  // The other categories it is also shown in (part 15A).
+  otherCategories ProductCategory[]
 
   @@index([categoryId])
+  @@index([brandId])
   // The search (ADR 0030): trigram indexes, so a part of a word, or a word
   // with a typo, in the name, the summary or the description still finds
   // the product.
@@ -262,6 +297,25 @@ model Product {
   @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_summary_trgm_idx")
   @@index([description(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_description_trgm_idx")
   @@map("products")
+}
+
+// A product also shown in a category other than its main one (part 15A).
+// Its main category stays Product.categoryId: reports count each sale
+// once, there. Deleting the product takes these with it; a category that
+// still shows other products can't be deleted.
+model ProductCategory {
+  productId  String   @db.Uuid
+  categoryId String   @db.Uuid
+  // Its place among the category's products, like Product.position.
+  position   Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  product  Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  category Category @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+
+  @@id([productId, categoryId])
+  @@index([categoryId])
+  @@map("product_categories")
 }
 
 

@@ -7,6 +7,7 @@ import {
 import { AuthModule } from '../auth/auth.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { MediaModule } from '../media/media.module';
+import { BrandsService } from './brands.service';
 import { CategoriesController } from './categories.controller';
 import { CategoriesService } from './categories.service';
 import { ImageUploadParser } from './image-upload';
@@ -17,6 +18,7 @@ import { SearchCache } from './search-cache';
 import { ProductsController } from './products.controller';
 import { ProductsService } from './products.service';
 import { ShopPacksService } from './shop-packs.service';
+import { StaffBrandsController } from './staff-brands.controller';
 import { StaffCategoriesController } from './staff-categories.controller';
 import { StaffImagesController } from './staff-images.controller';
 import { StaffProductsController } from './staff-products.controller';
@@ -24,7 +26,8 @@ import { StaffVariantsController } from './staff-variants.controller';
 import { VariantsService } from './variants.service';
 
 // The product catalog: categories (ADR 0020), products (ADR 0021), their
-// pack sizes with prices (ADR 0022), and their images (ADR 0023). The shop
+// pack sizes with prices (ADR 0022), their images (ADR 0023), and brands
+// (part 15A). The shop
 // asks the inventory which packs are in stock (ADR 0024). Other modules,
 // such as the cart (ADR 0025), ask the catalog about pack sizes. Customers
 // search the shop (ADR 0030); the search keeps what it read of the catalog
@@ -36,12 +39,14 @@ import { VariantsService } from './variants.service';
     CategoriesController,
     ProductsController,
     StaffCategoriesController,
+    StaffBrandsController,
     StaffProductsController,
     StaffVariantsController,
     StaffImagesController,
   ],
   providers: [
     CategoriesService,
+    BrandsService,
     ProductsService,
     ProductSearchService,
     SearchCache,

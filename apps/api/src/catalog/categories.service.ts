@@ -18,6 +18,7 @@ import type {
   CategoryUpdateInput,
 } from './categories.schemas';
 import { changedFields, pick } from './changes';
+import { validationFailed } from './validation-failed';
 
 export const CATEGORY_NOT_FOUND = 'Category not found';
 export const SLUG_TAKEN =
@@ -26,6 +27,30 @@ export const CATEGORY_HAS_PRODUCTS =
   'This category still has products. Move them to another category or delete them first.';
 export const CATEGORIES_CHANGED =
   'The categories changed while you were ordering them. Reload and try again.';
+export const CATEGORY_HAS_SUBCATEGORIES =
+  'This category still has subcategories. Move them to another category or delete them first.';
+export const CATEGORY_SHOWS_OTHER_PRODUCTS =
+  'This category still shows products from other categories. Take it off their other categories first.';
+// Only two levels (part 15A): a category sits inside a top category, or in
+// none.
+const NO_SUCH_PARENT = {
+  field: 'parentId',
+  message: 'No category with this ID',
+};
+const PARENT_IS_SUBCATEGORY = {
+  field: 'parentId',
+  message:
+    'This is a subcategory. Choose a top category: there are only two levels.',
+};
+const OWN_PARENT = {
+  field: 'parentId',
+  message: 'A category cannot sit inside itself',
+};
+const KEEPS_SUBCATEGORIES = {
+  field: 'parentId',
+  message:
+    'This category has subcategories, so it cannot sit inside another. Move them first.',
+};
 
 const CATEGORY_FIELDS = {
   id: true,
@@ -34,12 +59,20 @@ const CATEGORY_FIELDS = {
   description: true,
   isActive: true,
   position: true,
+  parentId: true,
   createdAt: true,
   updatedAt: true,
 } satisfies Prisma.CategorySelect;
 
-// Staff and customers see categories in the same order.
-const CATEGORY_ORDER = [
+// What a shop page shows of a category.
+export const SHOP_CATEGORY_FIELDS = {
+  name: true,
+  slug: true,
+  description: true,
+} satisfies Prisma.CategorySelect;
+
+// Staff and customers see categories in the same order, within each level.
+export const CATEGORY_ORDER = [
   { position: 'asc' },
   { name: 'asc' },
   { id: 'asc' },
@@ -47,9 +80,45 @@ const CATEGORY_ORDER = [
 
 type Category = Prisma.CategoryGetPayload<{ select: typeof CATEGORY_FIELDS }>;
 
+// Where a locked category sits: inside a top category, or in none.
+interface Placement {
+  id: string;
+  parentId: string | null;
+}
+
 // What the audit log keeps of a category: everything staff can set.
-function auditFields({ name, slug, description, isActive, position }: Category) {
-  return { name, slug, description, isActive, position };
+function auditFields({
+  name,
+  slug,
+  description,
+  isActive,
+  position,
+  parentId,
+}: Category) {
+  return { name, slug, description, isActive, position, parentId };
+}
+
+// Top categories in order, each followed by its own subcategories in
+// order, so the list reads as the shop shows it. Sorted, not grouped, so no
+// category can ever be left out.
+function treeOrder(sorted: Category[]): Category[] {
+  const rank = new Map(sorted.map(({ id }, index) => [id, index]));
+  const place = ({ id, parentId }: Category) =>
+    (rank.get(parentId ?? id) ?? 0) * (sorted.length + 1) +
+    (parentId === null ? 0 : (rank.get(id) ?? 0) + 1);
+  return [...sorted].sort((a, b) => place(a) - place(b));
+}
+
+// A category may sit only inside a top category that exists: there are
+// only two levels. The parent's row is locked, so this stays true until
+// the transaction ends.
+function checkParent(parent: Placement | undefined): void {
+  if (!parent) {
+    throw validationFailed([NO_SUCH_PARENT]);
+  }
+  if (parent.parentId !== null) {
+    throw validationFailed([PARENT_IS_SUBCATEGORY]);
+  }
 }
 
 // Product categories (ADR 0020). Admins and Super Users manage them, only
@@ -64,23 +133,32 @@ export class CategoriesService {
     private readonly logger: PinoLogger,
   ) {}
 
-  // Every category, hidden ones too, in the order customers will see them.
-  // A catalog has only a few, so there is no paging.
+  // Every category, hidden ones too, in the order customers will see them:
+  // each top category followed by its subcategories. A catalog has only a
+  // few, so there is no paging.
   async list(): Promise<{ categories: Category[] }> {
     const categories = await this.prisma.category.findMany({
       orderBy: CATEGORY_ORDER,
       select: CATEGORY_FIELDS,
     });
-    return { categories };
+    return { categories: treeOrder(categories) };
   }
 
-  // What customers see: active categories only, and only what a shop page
-  // needs.
+  // What customers see: the active top categories, each with its active
+  // subcategories, and only what a shop page needs. A subcategory of a
+  // hidden top category is hidden with it.
   async listActive() {
     const categories = await this.prisma.category.findMany({
-      where: { isActive: true },
+      where: { isActive: true, parentId: null },
       orderBy: CATEGORY_ORDER,
-      select: { name: true, slug: true, description: true },
+      select: {
+        ...SHOP_CATEGORY_FIELDS,
+        subcategories: {
+          where: { isActive: true },
+          orderBy: CATEGORY_ORDER,
+          select: SHOP_CATEGORY_FIELDS,
+        },
+      },
     });
     return { categories };
   }
@@ -91,6 +169,10 @@ export class CategoriesService {
   ): Promise<Category> {
     const category = await this.saving(() =>
       this.prisma.$transaction(async (tx) => {
+        if (input.parentId) {
+          const rows = await this.locked(tx, [input.parentId]);
+          checkParent(rows.get(input.parentId));
+        }
         const created = await tx.category.create({
           data: input,
           select: CATEGORY_FIELDS,
@@ -114,7 +196,9 @@ export class CategoriesService {
   }
 
   // Changes only the fields given. A field set to the value it already has
-  // is no change, and a request with no real change is not audited.
+  // is no change, and a request with no real change is not audited. A
+  // category moves into a top category only while it has no subcategories
+  // of its own: there are only two levels.
   async update(
     id: string,
     input: CategoryUpdateInput,
@@ -122,10 +206,23 @@ export class CategoriesService {
   ): Promise<Category> {
     const { category, changed } = await this.saving(() =>
       this.prisma.$transaction(async (tx) => {
-        const current = await this.lockedCategory(tx, id);
+        const { current, parent } = await this.lockedCategory(
+          tx,
+          id,
+          input.parentId,
+        );
         const fields = changedFields(current, input);
         if (fields.length === 0) {
           return { category: current, changed: false };
+        }
+        if (fields.includes('parentId') && input.parentId) {
+          if (input.parentId === id) {
+            throw validationFailed([OWN_PARENT]);
+          }
+          checkParent(parent);
+          if (await this.hasSubcategories(tx, id)) {
+            throw validationFailed([KEEPS_SUBCATEGORIES]);
+          }
         }
         const before = pick(current, fields);
         const after = pick(input, fields);
@@ -154,23 +251,36 @@ export class CategoriesService {
     return category;
   }
 
-  // Puts the categories in a new order, from the whole list first to last,
-  // as staff dragged them (ADR 0032). Each one's position becomes its place
+  // Puts one level of categories in a new order, from the whole list first
+  // to last, as staff dragged them (ADR 0032): the top categories, or the
+  // subcategories of one (part 15A). Each one's position becomes its place
   // in the list. All of it is saved in one transaction, with an audit entry
   // for each category that moved, so each one's history shows it.
   async reorder(
-    { ids }: CategoryOrderInput,
+    { parentId, ids }: CategoryOrderInput,
     context: AuditContext,
   ): Promise<{ categories: Category[] }> {
     const moved = await this.prisma.$transaction(async (tx) => {
-      // Every category, locked in the order of their IDs, as everywhere, so
-      // two new orders take turns. NO KEY UPDATE: products being saved in a
-      // category don't wait for it.
+      if (parentId) {
+        const parent = await tx.category.findUnique({
+          where: { id: parentId },
+          select: { id: true },
+        });
+        if (!parent) {
+          throw validationFailed([NO_SUCH_PARENT]);
+        }
+      }
+      // The level's categories, locked in the order of their IDs, as
+      // everywhere, so two new orders take turns. NO KEY UPDATE: products
+      // being saved in a category don't wait for it.
       const current = await tx.$queryRaw<{ id: string; position: number }[]>`
-        SELECT id, position FROM categories ORDER BY id FOR NO KEY UPDATE`;
+        SELECT id, position FROM categories
+         WHERE "parentId" IS NOT DISTINCT FROM ${parentId}::uuid
+         ORDER BY id FOR NO KEY UPDATE`;
       const was = new Map(current.map((row) => [row.id, row.position]));
-      // The list must be every category: one added or deleted since staff
-      // loaded the page would otherwise be left out of the order.
+      // The list must be every category of the level: one added, moved or
+      // deleted since staff loaded the page would otherwise be left out of
+      // the order.
       if (current.length !== ids.length || ids.some((id) => !was.has(id))) {
         throw new ConflictException(CATEGORIES_CHANGED);
       }
@@ -199,7 +309,7 @@ export class CategoriesService {
     });
     if (moved > 0) {
       this.logger.info(
-        { moved, actorId: context.actorId },
+        { parentId, moved, actorId: context.actorId },
         'Categories reordered',
       );
     }
@@ -208,12 +318,25 @@ export class CategoriesService {
 
   // Deletes a category for good. Only Super Users may: the route is
   // @SuperUserOnly(). The audit entry keeps what the category was. While the
-  // category has products, the database refuses (ON DELETE RESTRICT), and
-  // the answer is 409.
+  // category has subcategories, shows products from other categories, or
+  // has products, which the database refuses (ON DELETE RESTRICT), the
+  // answer is 409.
   async remove(id: string, context: AuditContext): Promise<void> {
     try {
       await this.prisma.$transaction(async (tx) => {
-        const current = await this.lockedCategory(tx, id);
+        const { current } = await this.lockedCategory(tx, id);
+        // Locked, so none can be put inside it meanwhile.
+        if (await this.hasSubcategories(tx, id)) {
+          throw new ConflictException(CATEGORY_HAS_SUBCATEGORIES);
+        }
+        // Locked too: a product being shown in it waits for the lock.
+        const shown = await tx.productCategory.findFirst({
+          where: { categoryId: id },
+          select: { productId: true },
+        });
+        if (shown) {
+          throw new ConflictException(CATEGORY_SHOWS_OTHER_PRODUCTS);
+        }
         await tx.category.delete({ where: { id }, select: { id: true } });
         await this.audit.record(tx, {
           ...context,
@@ -235,23 +358,50 @@ export class CategoriesService {
     );
   }
 
-  // Locks the category until the transaction ends, then reads it, or
-  // answers 404. One change at a time for each category, so an audit
-  // entry's "before" is exactly what the change replaced. The ID is sent as
-  // a parameter, never pasted into the SQL.
+  // Locks the category, and the top category it is to sit in if one is
+  // given, then reads it, or answers 404.
   private async lockedCategory(
     tx: Prisma.TransactionClient,
     id: string,
-  ): Promise<Category> {
-    const locked = await tx.$queryRaw<{ id: string }[]>`
-      SELECT id FROM categories WHERE id = ${id}::uuid FOR UPDATE`;
-    if (locked.length === 0) {
+    parentId?: string | null,
+  ): Promise<{ current: Category; parent: Placement | undefined }> {
+    const rows = await this.locked(tx, parentId ? [id, parentId] : [id]);
+    if (!rows.has(id)) {
       throw new NotFoundException(CATEGORY_NOT_FOUND);
     }
-    return tx.category.findUniqueOrThrow({
+    const current = await tx.category.findUniqueOrThrow({
       where: { id },
       select: CATEGORY_FIELDS,
     });
+    return { current, parent: parentId ? rows.get(parentId) : undefined };
+  }
+
+  // Locks these categories until the transaction ends, in the order of
+  // their IDs, as everywhere, so two changes never wait for each other in a
+  // circle, and gives where each one sits. One change at a time for each
+  // category, so an audit entry's "before" is exactly what the change
+  // replaced, and a category being moved into can't be deleted or become a
+  // subcategory meanwhile. The IDs are sent as parameters, never pasted
+  // into the SQL.
+  private async locked(
+    tx: Prisma.TransactionClient,
+    ids: string[],
+  ): Promise<Map<string, Placement>> {
+    const rows = await tx.$queryRaw<Placement[]>`
+      SELECT id, "parentId" FROM categories
+       WHERE id = ANY(${ids}::uuid[]) ORDER BY id FOR UPDATE`;
+    return new Map(rows.map((row) => [row.id, row]));
+  }
+
+  private async hasSubcategories(
+    tx: Prisma.TransactionClient,
+    id: string,
+  ): Promise<boolean> {
+    const child = await tx.category.findFirst({
+      where: { parentId: id },
+      select: { id: true },
+    });
+    return child !== null;
   }
 
   // A slug used by another category answers 409. The unique index decides,

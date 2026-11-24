@@ -2,7 +2,7 @@
 
 E-commerce platform for herbal products: customer app and website, an admin console, and one backend API.
 
-Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries, write stock off and put it right after counting a shelf, every change is kept as a movement, and a batch sells only with at least 6 months left. Each pack size has its own low-stock number, 10 packs unless staff change it. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. The admin console has begun (part 12A): staff sign in with the password and the authenticator code, stay signed in through a cookie the page cannot read, see the menu for their role, and are signed out after 30 minutes without activity. Since part 12B, staff run the categories and products there: they find products by name, filter them, drag them into the order customers see, edit each product on its own page with the same checks as the API, and Super Users delete them after a dialog that says what is lost. Since part 12C, each product's page has its pack sizes and images too: staff add and change pack sizes in a dialog, put them and the images in order by dragging, and upload several photos at once, each with its progress, so a product now goes live from the console. Since part 12D, the Stock page lists every pack size with its stock, filtered to those out of stock, low or with a batch that stops selling within 30 days, and each pack size has its own page: its batches, receiving a delivery, correcting a label, writing packs off, counting a shelf, and each batch's history. A count that went stale while staff typed it is never saved. Each product's page shows its pack sizes' stock too. Since part 12E, the console has its own look: frosted glass on the menu, the save bar and behind dialogs, and soft raised cards, buttons and chips, as readable as before in light and dark. Since part 13, a design system (`packages/design`) holds what the console and the website share, the console's look, and the shop's own look, with a preview page for the owner. Since part 12F, staff handle orders in the console: the paid orders to pack first, the oldest first, each step by its chip, an order found by the reference the customer quotes, each order's page with its next step, a packing slip to print, several orders packed at once, and the number to pack beside Orders in the menu. Super Users cancel orders there and see the refunds, the failed ones first. Since part 12G, Super Users run the Admins in the console: they invite them, send an invitation again, reset an Admin's lost authenticator app, disable, enable and remove them. An invited Admin chooses a password and sets up the authenticator app on the console's page for the emailed link, from a QR code. Super Users read the audit log there in sentences, filtered by kind of change and by person, with what changed on request, and mark a refund Razorpay couldn't give back as given back by hand, with a note. Since part 14A, the customer website (`apps/web`) shows the shop to anyone, on pages made on the server so that a shared link shows the product: the home page with the owner's pictures, the shop with its search, filters and sort, each category's products, and each product's page with its photos, its packs with their prices, MRP and stock, and its licence and maker. Since part 14B, customers sign up and sign in there, keep their name, password and delivery addresses, and read the shop's five policy pages. Since part 14C, they add packs to a cart, check out to one of their addresses, and pay on Razorpay's own page, in its test mode for now. Since part 14D, they see their orders, follow each one step by step with the courier and the tracking number once shipped, and cancel one until it ships. There is no customer app yet. See `docs/` for requirements, architecture, the API, security and decisions.
+Status: early development. The backend API has its foundation (configuration, health checks, database, logging) and customer accounts: registration, email verification, login with 30-day sessions, token refresh, logout, password recovery by email, and the customer's own account: reading it, changing the name and the password, signing out everywhere, and up to 10 delivery addresses. Every endpoint is protected unless marked public, and rate limited, with brute-force protection on login. Old sessions, expired links, unverified sign-ups and carts nobody changed for 90 days are deleted automatically. Super Users are created with a developer command, staff set up MFA with an authenticator app and sign in on their own path with the password and a code together, and staff changes go into an append-only audit log. Staff tokens open only staff routes, and customer tokens only customer routes. Super Users invite Admins by email, each Admin chooses their own password from the link, and some staff routes are for Super Users only. Super Users also list, disable, enable and remove Admins, and send an invitation again. Every staff sign-in is recorded, and Super Users read the audit log page by page. The product catalog has categories, products and their pack sizes with prices: Admins and Super Users create, change, activate and deactivate them, and only Super Users delete them. A product goes live only with its licence and maker details, its ingredients, its HSN code and GST rate, and at least one image. Each pack has an MRP and a price in whole rupees, never above the MRP, and every price change is audited. Staff upload up to 6 photos per product, which the API checks and re-encodes to WebP in two sizes, without the photo's hidden details; Admins may delete images too. Stock is kept per batch, with the batch number and dates from the label, in one warehouse: staff receive deliveries, write stock off and put it right after counting a shelf, every change is kept as a movement, and a batch sells only with at least 6 months left. Each pack size has its own low-stock number, 10 packs unless staff change it. Anyone can browse the shop without signing in: the active categories, each category's live products with their lowest price and main photo, and each product's page with its packs on sale, whether each is in stock, and its images. Signed-in customers keep a cart: at most 4 packs of one product, all its pack sizes together, always with today's prices and whether each line can be bought. They place an order from the whole cart, to one of their addresses: every amount in whole rupees, with the GST inside the prices shown, ₹49 delivery below ₹499, and the stock held for 15 minutes while they pay. A double tap places one order, and an unpaid order expires on its own and gives its stock back. They pay through Razorpay, in its test mode for now: the server confirms every payment with Razorpay itself, Razorpay's signed webhooks cover an app closed too soon, a payment that comes after its order expired is kept while the stock is free, and a payment that can't be kept goes back in full on its own. The admin console has begun (part 12A): staff sign in with the password and the authenticator code, stay signed in through a cookie the page cannot read, see the menu for their role, and are signed out after 30 minutes without activity. Since part 12B, staff run the categories and products there: they find products by name, filter them, drag them into the order customers see, edit each product on its own page with the same checks as the API, and Super Users delete them after a dialog that says what is lost. Since part 12C, each product's page has its pack sizes and images too: staff add and change pack sizes in a dialog, put them and the images in order by dragging, and upload several photos at once, each with its progress, so a product now goes live from the console. Since part 12D, the Stock page lists every pack size with its stock, filtered to those out of stock, low or with a batch that stops selling within 30 days, and each pack size has its own page: its batches, receiving a delivery, correcting a label, writing packs off, counting a shelf, and each batch's history. A count that went stale while staff typed it is never saved. Each product's page shows its pack sizes' stock too. Since part 12E, the console has its own look: frosted glass on the menu, the save bar and behind dialogs, and soft raised cards, buttons and chips, as readable as before in light and dark. Since part 13, a design system (`packages/design`) holds what the console and the website share, the console's look, and the shop's own look, with a preview page for the owner. Since part 12F, staff handle orders in the console: the paid orders to pack first, the oldest first, each step by its chip, an order found by the reference the customer quotes, each order's page with its next step, a packing slip to print, several orders packed at once, and the number to pack beside Orders in the menu. Super Users cancel orders there and see the refunds, the failed ones first. Since part 12G, Super Users run the Admins in the console: they invite them, send an invitation again, reset an Admin's lost authenticator app, disable, enable and remove them. An invited Admin chooses a password and sets up the authenticator app on the console's page for the emailed link, from a QR code. Super Users read the audit log there in sentences, filtered by kind of change and by person, with what changed on request, and mark a refund Razorpay couldn't give back as given back by hand, with a note. Since part 14A, the customer website (`apps/web`) shows the shop to anyone, on pages made on the server so that a shared link shows the product: the home page with the owner's pictures, the shop with its search, filters and sort, each category's products, and each product's page with its photos, its packs with their prices, MRP and stock, and its licence and maker. Since part 14B, customers sign up and sign in there, keep their name, password and delivery addresses, and read the shop's five policy pages. Since part 14C, they add packs to a cart, check out to one of their addresses, and pay on Razorpay's own page, in its test mode for now. Since part 14D, they see their orders, follow each one step by step with the courier and the tracking number once shipped, and cancel one until it ships. Since part 15A, the catalog has brands, subcategories inside its categories, two levels only, and products shown in up to 5 other categories besides their main one, all run from the console. The website shows them from part 15B. There is no customer app yet. See `docs/` for requirements, architecture, the API, security and decisions.
 
 ## Prerequisites
 
@@ -233,21 +233,25 @@ The admin console is a web app for staff (ADR 0031). Since part 12B its Catalog 
 
 ### Manage the catalog in the console
 
-Open **Catalog** in the menu. It has two tabs (ADR 0032).
+Open **Catalog** in the menu. It has three tabs: Categories, Products and Brands (ADR 0032, ADR 0044).
 
-- **Categories,** in the order customers see them:
-  - the switch on each row shows or hides a category at once;
-  - "New category" and Edit open a form, and a new category goes last;
-  - only Super Users see Delete. A category that still has products can't be deleted: the dialog says so, and offers hiding it instead.
+- **Categories,** in the order customers see them, each top category with its subcategories under it:
+  - the switch on each row shows or hides a category at once. A subcategory inside a hidden top category stays hidden, and its row says "Customers see it once Hair Care is shown.";
+  - "New category" and Edit open a form, and a new category goes last. "Inside" puts it in a top category, as a subcategory. There are only two levels, so a category that has subcategories stays a top category;
+  - only Super Users see Delete. A category that still has subcategories or products, or still shows products from other categories, can't be deleted: the dialog says so, and offers hiding it instead.
 - **Products:**
   - type in "Search by name" and pause, or press Enter. A typo or the start of a word still finds a product;
   - choose a category and a status (live or drafts). The filters stay in the page's address, so "Products" on a product's page brings the list back as you left it;
   - a draft says how many details it still needs before it can go live;
   - click a product to open its page, or "New product". With a category chosen, a new product starts in it.
-- **Changing the order:** drag a row by its handle (the dots on the left), or focus the handle with Tab and press Up, Down, Home or End. "Order saved" shows when it is saved. Products can be ordered within one category: choose it, keep "Live and drafts", leave the search empty, and "Show more" until all of them are there.
+- **Brands,** by name, each with how many products have it:
+  - "New brand" and Edit open a form. Renaming keeps the slug;
+  - only Super Users see Delete, and only a brand no product has can be deleted.
+- **Changing the order:** drag a row by its handle (the dots on the left), or focus the handle with Tab and press Up, Down, Home or End. "Order saved" shows when it is saved. A subcategory moves among the others in its category. Products are ordered within one category: choose it, keep "Live and drafts" and leave the search empty. The list then shows every product shown in it, its own and those also shown there from another category, which say "Main category" and its name.
 - **A product's page:**
   - Basics, Label details, Tax and In the shop, saved together with "Save changes" at the bottom of the window;
   - mistakes are marked at their fields before anything is sent, and the focus goes to the first one;
+  - "Brand" is one from the Brands tab, or "No brand". "Also shown in" ticks up to 5 other categories it is shown in too. Its Category stays its main one, where reports count its sales;
   - leaving with unsaved changes asks first;
   - a new product is always a draft, and goes last in its category;
   - going live needs every label and tax detail and an image: add one in the Images section below, then turn on "Customers see it" and save;
@@ -566,7 +570,7 @@ Admins and Super Users create, change, activate and deactivate product categorie
    ```powershell
    $auth = @{ Authorization = "Bearer $($login.accessToken)" }
    $categories = (Invoke-RestMethod -Uri http://localhost:3000/v1/staff/categories -Headers $auth).categories
-   $categories | Format-Table name, slug, isActive, position, id
+   $categories | Format-Table name, slug, parentId, isActive, position, id
    ```
 3. **Create one, or pick one from the list.** A new category's slug is made from its name (`Hair Care` becomes `hair-care`), and it starts hidden from customers.
    ```powershell
@@ -601,13 +605,51 @@ Admins and Super Users create, change, activate and deactivate product categorie
 - **Keep `charset=utf-8` in the content type.** Without it, Windows PowerShell 5.1 sends letters outside English wrongly: `é` arrives broken, and Devanagari as `??`.
 - A name without Latin letters or digits, in Devanagari for example, needs its own slug: add `"slug":"ayurveda"` to the body.
 - A change that sets the values a category already has changes nothing, and writes no audit entry.
-- **To change the order of all the categories at once,** send every category's ID, first to last: `Invoke-RestMethod -Method Put -Uri http://localhost:3000/v1/staff/categories/order -Headers $auth -ContentType 'application/json; charset=utf-8' -Body (@{ ids = @($categories.id) } | ConvertTo-Json)` keeps the order as it is. A list that misses a category answers `409` (ADR 0032).
+- **Subcategories** (ADR 0044): add `"parentId":"<a top category's ID>"` to the body to create one inside a top category. Send `{"parentId":"<its ID>"}` to move a category there, and `{"parentId":null}` to make it a top category again. There are only two levels, so a subcategory never holds subcategories. A move keeps its position: order its new level to place it.
+- **To change the order of the top categories at once,** send every top category's ID, first to last: `Invoke-RestMethod -Method Put -Uri http://localhost:3000/v1/staff/categories/order -Headers $auth -ContentType 'application/json; charset=utf-8' -Body (@{ ids = @(($categories | Where-Object { -not $_.parentId }).id) } | ConvertTo-Json)` keeps the order as it is. A list that misses one answers `409` (ADR 0032). To order one top category's subcategories, send `parentId` too: `@{ parentId = $id; ids = @(($categories | Where-Object parentId -eq $id).id) }`.
+- A category that still has subcategories or products, or still shows products from other categories, cannot be deleted (`409`).
 - Every change is in the audit log: `category.created`, `category.updated` (with only what changed) and `category.deleted` (with what was deleted). See "Read the audit log", with `?targetId=$id`. Its `target` column stays empty for categories, because it names accounts only.
 - The staff access token lasts 15 minutes. After that, sign in again (step 1).
 
+## Manage brands
+
+Admins and Super Users keep the list of brands, and each product may have one. Only a Super User deletes one, and only one no product has (ADR 0044). The admin console is the everyday way (the Brands tab); this is the same by hand.
+
+1. **Sign in as staff**, as in "Manage categories", step 1, and set `$auth` as in its step 2.
+2. **List the brands,** with how many products have each:
+   ```powershell
+   $brands = (Invoke-RestMethod -Uri http://localhost:3000/v1/staff/brands -Headers $auth).brands
+   $brands | Format-Table name, slug, productCount, id
+   ```
+3. **Create one, or pick one by its slug:**
+   ```powershell
+   # Either create one:
+   $brandId = (Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/brands -Headers $auth -ContentType 'application/json; charset=utf-8' -Body '{"name":"Himalaya"}').id
+   # Or pick one by its slug:
+   $brandId = ($brands | Where-Object slug -eq 'himalaya').id
+   "[$brandId]"
+   ```
+   **If the brackets are empty, stop:** the next commands would call the wrong URL.
+4. **Run only the line you need:**
+   ```powershell
+   # Rename it. The slug stays, so links keep working.
+   Invoke-RestMethod -Method Patch -Uri "http://localhost:3000/v1/staff/brands/$brandId" -Headers $auth -ContentType 'application/json; charset=utf-8' -Body '{"name":"Himalaya Herbals"}'
+   # Delete it for good: Super Users only, and only while no product has it.
+   Invoke-RestMethod -Method Delete -Uri "http://localhost:3000/v1/staff/brands/$brandId" -Headers $auth
+   ```
+5. **Sign out and clean up:**
+   ```powershell
+   Invoke-RestMethod -Method Post -Uri http://localhost:3000/v1/staff/auth/logout -ContentType 'application/json' -Body (@{ refreshToken = $login.refreshToken } | ConvertTo-Json)
+   Remove-Variable login, auth, brands, brandId
+   ```
+
+- A product gets its brand with `{"brandId":"<the brand's ID>"}`, and loses it with `{"brandId":null}` (see "Manage products").
+- A brand that a product still has, a draft too, cannot be deleted (`409`): choose another brand, or none, for that product first.
+- Every change is in the audit log: `brand.created`, `brand.updated` (with only what changed) and `brand.deleted` (with what was deleted).
+
 ## Manage products
 
-Admins and Super Users create, change, activate and deactivate products. Only a Super User deletes one (ADR 0021). A product always starts as a draft. It goes live only with its type, licence number, maker's name and address, its ingredients, its HSN code and GST rate (ADR 0022), and at least one image (ADR 0023). Customers see it only while its category is active too. Its prices are on its pack sizes, and its photos are its images: see "Manage pack sizes and prices" and "Manage product images". The admin console is the everyday way (see "Manage the catalog in the console"); this is the same by hand.
+Admins and Super Users create, change, activate and deactivate products. Only a Super User deletes one (ADR 0021). A product always starts as a draft. It goes live only with its type, licence number, maker's name and address, its ingredients, its HSN code and GST rate (ADR 0022), and at least one image (ADR 0023). Customers see it only while its main category is shown too: active, and for a subcategory, inside an active top category. Its prices are on its pack sizes, and its photos are its images: see "Manage pack sizes and prices" and "Manage product images". The admin console is the everyday way (see "Manage the catalog in the console"); this is the same by hand.
 
 1. **Sign in as staff**, as in "Sign in as staff". Replace its last line with `Remove-Variable secure, code, body`, and check that `$login.accessToken` is not empty. Then:
    ```powershell
@@ -624,6 +666,8 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
    - For the next page, add `&after=<the nextAfter value>`.
    - Add `&categoryId=<a category's ID>` for one category, or `&isActive=false` for the drafts only.
    - Add `&q=ashwa` to search by name: the closest names first, all on one page (ADR 0032).
+   - Add `&brandId=<a brand's ID>` for one brand's products.
+   - Every product shown in one category, its own and those also shown there, in order: `(Invoke-RestMethod -Uri "$api/staff/products/order?categoryId=<a category's ID>" -Headers $auth).products | Format-Table name, categoryId, position` (ADR 0044).
    - One product, a draft too: `Invoke-RestMethod -Uri "$api/staff/products/<its ID>" -Headers $auth | Format-List`.
 3. **Create a draft, or pick one by its slug.** The draft needs only a category (its ID, from "Manage categories") and a name:
    ```powershell
@@ -661,8 +705,12 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
    ```powershell
    # Take it out of the shop. Use true to show it again.
    Invoke-RestMethod -Method Patch -Uri "$api/staff/products/$id" -Headers $auth -ContentType $json -Body '{"isActive":false}'
-   # Move it to another category.
+   # Move it to another main category. It goes last there.
    Invoke-RestMethod -Method Patch -Uri "$api/staff/products/$id" -Headers $auth -ContentType $json -Body '{"categoryId":"<another category ID>"}'
+   # Give it a brand (see "Manage brands"). Use null to take it away.
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/products/$id" -Headers $auth -ContentType $json -Body '{"brandId":"<a brand ID>"}'
+   # Show it in other categories too, at most 5. [] shows it in its main category only.
+   Invoke-RestMethod -Method Patch -Uri "$api/staff/products/$id" -Headers $auth -ContentType $json -Body '{"otherCategoryIds":["<a category ID>"]}'
    # Delete it for good: Super Users only. An Admin takes it out of the shop instead.
    Invoke-RestMethod -Method Delete -Uri "$api/staff/products/$id" -Headers $auth
    ```
@@ -682,7 +730,7 @@ Admins and Super Users create, change, activate and deactivate products. Only a 
 - **Removing a detail from a live product is refused.** Take the product out of the shop first.
 - **A new product cannot be created live:** it has no image yet. Create it, add an image, then go live (steps 3 to 5).
 - Every change is in the audit log: `product.created`, `product.updated` (with only what changed) and `product.deleted`. Read a product's story with `?targetId=$id` (see "Read the audit log").
-- A category that still has products cannot be deleted (`409`).
+- A category that still has products, or still shows products from other categories, cannot be deleted (`409`).
 - Deleting a product deletes its pack sizes and its images too, image files included. Its `product.deleted` entry keeps the packs and images. **A product with a pack that still holds stock cannot be deleted** (`409`): write the stock off first (see "Manage stock").
 
 ## Manage pack sizes and prices
@@ -1152,7 +1200,7 @@ Each email is saved with the change it tells of, and sent within a second of it.
 │   │   └── src/
 │   │       ├── api/            the one API client: the access token in memory, renewal one at a time, answers checked
 │   │       ├── auth/           signing in, the session and its tabs, the role guards, the idle sign-out
-│   │       ├── catalog/        the catalog pages: categories, products with their pack sizes and images, and ordering by drag and drop (ADR 0032, ADR 0033)
+│   │       ├── catalog/        the catalog pages: categories with their subcategories, products with their pack sizes and images, brands, and ordering by drag and drop (ADR 0032, ADR 0033, ADR 0044)
 │   │       ├── stock/          the Stock page, each pack size's batches, and their dialogs: receive, change, correct, count (ADR 0034)
 │   │       ├── orders/         the Orders page, each order's page and its dialogs, the packing slip, packing several, the Refunds tab, and giving a refund back by hand (ADR 0037, ADR 0038)
 │   │       ├── admins/         the Admins page and its dialogs (ADR 0038)
@@ -1172,7 +1220,7 @@ Each email is saved with the change it tells of, and sent within a second of it.
 │   │       ├── audit/          the append-only audit log, a request's audit context, and reading the log page by page
 │   │       ├── auth/           registration, login, tokens and sessions (customer and staff audiences), password reset and change, access and roles guards, /v1/me
 │   │       ├── cart/           signed-in customers' carts: the rules (4 packs of one product, 50 pack sizes, totals) and the routes
-│   │       ├── catalog/        categories, products, pack sizes and images: their rules (slug, going live, prices, image checks), the staff routes and the public shop
+│   │       ├── catalog/        brands, categories, products, pack sizes and images: their rules (slug, two levels, going live, prices, image checks), the staff routes and the public shop
 │   │       ├── inventory/      stock per batch: the rules (dates, 6-month shelf life, when a batch stops selling, low stock), the staff routes and the Stock page's list, counts of a shelf, what orders hold of each batch, "in stock" for the shop, and taking and giving back stock for orders
 │   │       ├── orders/         checkout and customers' orders: the rules (totals, delivery, GST, references), the routes, paying for them and Razorpay's webhooks, the job that expires unpaid orders, and staff taking orders through their steps
 │   │       ├── payments/       payments and refunds, the Super Users' list of refunds, and the only code that talks to Razorpay

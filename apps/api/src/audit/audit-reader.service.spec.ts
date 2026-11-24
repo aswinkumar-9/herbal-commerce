@@ -15,6 +15,7 @@ const ADMIN = {
 };
 type NamedModel =
   | 'category'
+  | 'brand'
   | 'product'
   | 'productVariant'
   | 'productImage'
@@ -22,6 +23,7 @@ type NamedModel =
   | 'order';
 const NAMED_MODELS: NamedModel[] = [
   'category',
+  'brand',
   'product',
   'productVariant',
   'productImage',
@@ -61,6 +63,7 @@ function setup(
     auditLog: { findMany: jest.fn().mockResolvedValue(rows) },
     user: { findMany: jest.fn().mockResolvedValue(users) },
     category: lookup('category'),
+    brand: lookup('brand'),
     product: lookup('product'),
     productVariant: lookup('productVariant'),
     productImage: lookup('productImage'),
@@ -230,6 +233,7 @@ describe('AuditReaderService.list', () => {
     expect(asked[2].OR).toEqual([{ action: { startsWith: 'order.' } }]);
     expect(asked[3].OR).toEqual([
       { action: { startsWith: 'category.' } },
+      { action: { startsWith: 'brand.' } },
       { action: { startsWith: 'product.' } },
       { action: { startsWith: 'variant.' } },
       { action: { startsWith: 'image.' } },
@@ -251,6 +255,7 @@ describe('AuditReaderService.list', () => {
         entry(5, { targetType: 'batch', targetId: ID(5) }),
         entry(6, { targetType: 'category', targetId: ID(6) }),
         entry(7, { targetType: 'order', targetId: ID(7) }),
+        entry(8, { targetType: 'brand', targetId: ID(8) }),
       ],
       [],
       {
@@ -266,6 +271,7 @@ describe('AuditReaderService.list', () => {
           { id: ID(5), batchNumber: 'AB2611', variant: { id: ID(3), sku: 'ASH-CAP-60' } },
         ],
         category: [{ id: ID(6), name: 'Hair Care' }],
+        brand: [{ id: ID(8), name: 'Himalaya' }],
       },
     );
 
@@ -280,6 +286,7 @@ describe('AuditReaderService.list', () => {
       { name: 'Hair Care', parent: null },
       // Gone since: nothing to call it.
       null,
+      { name: 'Himalaya', parent: null },
     ]);
     expect(prisma.order.findMany).toHaveBeenCalledTimes(1);
     expect(prisma.order.findMany).toHaveBeenCalledWith({

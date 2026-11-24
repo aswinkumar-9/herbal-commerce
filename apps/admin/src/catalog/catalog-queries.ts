@@ -6,14 +6,18 @@ import {
 import type { QueryClient } from '@tanstack/react-query';
 import {
   getProduct,
+  listBrands,
   listCategories,
   listImages,
+  listProductOrder,
   listProducts,
   listVariants,
 } from './catalog-api';
 import type {
+  Brand,
   Category,
   ProductImage,
+  ProductPage,
   ProductQuery,
   Variant,
 } from './catalog-api';
@@ -23,6 +27,7 @@ import type {
 export const catalogKeys = {
   all: ['catalog'] as const,
   categories: () => ['catalog', 'categories'] as const,
+  brands: () => ['catalog', 'brands'] as const,
   productLists: () => ['catalog', 'products'] as const,
   products: (query: Omit<ProductQuery, 'after'>) =>
     ['catalog', 'products', query] as const,
@@ -33,10 +38,13 @@ export const catalogKeys = {
     ['catalog', 'product', productId, 'variants'] as const,
   images: (productId: string) =>
     ['catalog', 'product', productId, 'images'] as const,
-  // Whether a category has any product, drafts too (under productLists, so
-  // a product change refreshes it).
-  categoryHasProducts: (categoryId: string) =>
-    ['catalog', 'products', 'any', categoryId] as const,
+  // Every product shown in a category, drafts too: its own and those also
+  // shown in it (under productLists, so a product change refreshes it).
+  productOrder: (categoryId: string) =>
+    ['catalog', 'products', 'order', categoryId] as const,
+  // The same for a brand (part 15A).
+  brandHasProducts: (brandId: string) =>
+    ['catalog', 'products', 'any-of-brand', brandId] as const,
 };
 
 export function useCategories() {
@@ -46,14 +54,39 @@ export function useCategories() {
   });
 }
 
+// Every brand, by name (part 15A).
+export function useBrands() {
+  return useQuery({
+    queryKey: catalogKeys.brands(),
+    queryFn: ({ signal }) => listBrands(signal),
+  });
+}
+
+// One category, with nothing else chosen: the list staff put in order.
+export function isCategoryOrder(query: Omit<ProductQuery, 'after'>): boolean {
+  return (
+    query.categoryId !== undefined &&
+    query.brandId === undefined &&
+    query.isActive === undefined &&
+    query.q === undefined
+  );
+}
+
 // Products one page at a time: each page's nextAfter asks for the next.
-// A search comes back on one page. While another filter loads, the last
+// A search comes back on one page, and so does one category on its own:
+// every product shown in it, its own and those also shown there (part
+// 15A), as its order takes them all. While another filter loads, the last
 // list stays (isPlaceholderData says so).
 export function useProductPages(query: Omit<ProductQuery, 'after'>) {
   return useInfiniteQuery({
     queryKey: catalogKeys.products(query),
-    queryFn: ({ pageParam, signal }) =>
-      listProducts({ ...query, after: pageParam }, signal),
+    queryFn: async ({ pageParam, signal }): Promise<ProductPage> =>
+      query.categoryId && isCategoryOrder(query)
+        ? {
+            products: await listProductOrder(query.categoryId, signal),
+            nextAfter: null,
+          }
+        : listProducts({ ...query, after: pageParam }, signal),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextAfter ?? undefined,
     placeholderData: keepPreviousData,
@@ -94,6 +127,26 @@ export function putCategory(queryClient: QueryClient, saved: Category): void {
 export function dropCategory(queryClient: QueryClient, id: string): void {
   queryClient.setQueryData<Category[]>(catalogKeys.categories(), (list) =>
     list?.filter((category) => category.id !== id),
+  );
+}
+
+// A brand as the server now has it, in place in the cached list. A change
+// gives no product count back: the one in the list stays.
+export function putBrand(
+  queryClient: QueryClient,
+  saved: Omit<Brand, 'productCount'>,
+): void {
+  queryClient.setQueryData<Brand[]>(catalogKeys.brands(), (list) =>
+    list?.map((brand) =>
+      brand.id === saved.id ? { ...brand, ...saved } : brand,
+    ),
+  );
+}
+
+// A deleted brand, out of the cached list.
+export function dropBrand(queryClient: QueryClient, id: string): void {
+  queryClient.setQueryData<Brand[]>(catalogKeys.brands(), (list) =>
+    list?.filter((brand) => brand.id !== id),
   );
 }
 

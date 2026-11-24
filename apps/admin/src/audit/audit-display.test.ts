@@ -227,6 +227,95 @@ describe('the audit log in sentences', () => {
     ).toBe('Asha Verma changed the category Hair Care');
   });
 
+  it('tells what happened to a brand, linking to the brands while it exists (part 15A)', () => {
+    const brand = {
+      targetType: 'brand',
+      targetId: 'b',
+      subject: { name: 'Himalaya', parent: null },
+    };
+    expect(said({ ...brand, action: 'brand.created' })).toBe(
+      'Asha Verma added the brand Himalaya',
+    );
+    expect(said({ ...brand, action: 'brand.updated' })).toBe(
+      'Asha Verma changed the brand Himalaya',
+    );
+    expect(linkOf({ ...brand, action: 'brand.updated' })?.to).toBe(
+      '/catalog/brands',
+    );
+    const gone = {
+      targetType: 'brand',
+      targetId: 'b',
+      subject: null,
+      action: 'brand.deleted',
+      before: { name: 'Old Brand', slug: 'old-brand' },
+      after: null,
+    };
+    expect(said(gone)).toBe('Asha Verma deleted the brand Old Brand');
+    expect(linkOf(gone)?.to).toBeNull();
+    expect(
+      changedFields(
+        entryOf({
+          targetType: 'product',
+          action: 'product.updated',
+          before: { brandId: null },
+          after: { brandId: 'b' },
+        }),
+      ),
+    ).toEqual([{ key: 'brandId', label: 'Brand', before: '—', after: 'b' }]);
+  });
+
+  it('names where a category sits (part 15A)', () => {
+    expect(
+      changedFields(
+        entryOf({
+          targetType: 'category',
+          action: 'category.updated',
+          before: { parentId: null },
+          after: { parentId: 'c' },
+        }),
+      ),
+    ).toEqual([{ key: 'parentId', label: 'Inside', before: '—', after: 'c' }]);
+  });
+
+  it('tells a product moved in a category it is also shown in, and its other categories (part 15A)', () => {
+    const moved = {
+      targetType: 'product',
+      targetId: PRODUCT_ID,
+      subject: { name: 'Ashwagandha Capsules', parent: null },
+      action: 'product.updated',
+      before: { otherCategoryPosition: { categoryId: 'c', position: 2 } },
+      after: { otherCategoryPosition: { categoryId: 'c', position: 0 } },
+    };
+    expect(said(moved)).toBe(
+      'Asha Verma moved the product Ashwagandha Capsules',
+    );
+    expect(changedFields(entryOf(moved))).toEqual([
+      {
+        key: 'otherCategoryPosition',
+        label: 'Place in a category it is also shown in',
+        before: '2',
+        after: '0',
+      },
+    ]);
+    expect(
+      changedFields(
+        entryOf({
+          targetType: 'product',
+          action: 'product.updated',
+          before: { otherCategoryIds: ['a'] },
+          after: { otherCategoryIds: ['a', 'b'] },
+        }),
+      ),
+    ).toEqual([
+      {
+        key: 'otherCategoryIds',
+        label: 'Also shown in',
+        before: '1',
+        after: '2',
+      },
+    ]);
+  });
+
   it('names something deleted from what the entry kept, with no link', () => {
     const gone = {
       targetType: 'product',
