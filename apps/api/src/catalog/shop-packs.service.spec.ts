@@ -5,6 +5,10 @@ import { ShopPacksService } from './shop-packs.service';
 const V60 = '9a8b7c6d-5e4f-4a3b-8c2d-1e0f9a8b7c6d';
 const V120 = '1b2c3d4e-5f6a-4b7c-8d9e-0f1a2b3c4d5e';
 const FILE_KEY = 'b1c2d3e4-5f60-4a7b-8c9d-0e1f2a3b4c5d';
+const PRODUCT = '7d6c5b4a-3f2e-4d1c-8b0a-9f8e7d6c5b4a';
+const WELLNESS = '2e3f4a5b-6c7d-4e8f-9a0b-1c2d3e4f5a6b';
+const IMMUNITY = '5a6b7c8d-9e0f-4a1b-8c2d-3e4f5a6b7c8d';
+const HIMALAYA = '8c9d0e1f-2a3b-4c4d-8e5f-6a7b8c9d0e1f';
 
 // A pack size as the query returns it: on sale, in a live product of an
 // active category, with a photo.
@@ -18,12 +22,19 @@ function row(changes: object = {}, productChanges: object = {}) {
     priceRupees: 449,
     isActive: true,
     product: {
+      id: PRODUCT,
       name: 'Ashwagandha Capsules',
       slug: 'ashwagandha-capsules',
       hsnCode: '300490',
       gstRate: 5,
       isActive: true,
-      category: { isActive: true, parent: null },
+      category: {
+        id: WELLNESS,
+        name: 'Wellness',
+        isActive: true,
+        parent: null,
+      },
+      brand: { id: HIMALAYA, name: 'Himalaya' },
       variants: [{ id: V60 }, { id: V120 }],
       images: [{ fileKey: FILE_KEY }],
       ...productChanges,
@@ -67,16 +78,61 @@ describe('ShopPacksService', () => {
         slug: 'ashwagandha-capsules',
         imageUrl: `http://media/products/${FILE_KEY}-small.webp`,
       },
+      reportGroups: {
+        productId: PRODUCT,
+        topCategoryId: WELLNESS,
+        topCategoryName: 'Wellness',
+        subcategoryId: null,
+        subcategoryName: null,
+        brandId: HIMALAYA,
+        brandName: 'Himalaya',
+      },
     });
     expect(prisma.productVariant.findUnique.mock.calls[0][0].where).toEqual({
       sku: 'ASH-CAP-60',
     });
-    // Whether its category is active, and the top category it sits in.
-    expect(
-      prisma.productVariant.findUnique.mock.calls[0][0].select.product.select
-        .category,
-    ).toEqual({
-      select: { isActive: true, parent: { select: { isActive: true } } },
+    // Whether its category is active, and the top category it sits in;
+    // and for reports, their names and its brand's (part 15C).
+    const product =
+      prisma.productVariant.findUnique.mock.calls[0][0].select.product.select;
+    expect(product.category).toEqual({
+      select: {
+        id: true,
+        name: true,
+        isActive: true,
+        parent: { select: { id: true, name: true, isActive: true } },
+      },
+    });
+    expect(product.brand).toEqual({ select: { id: true, name: true } });
+    expect(product.id).toBe(true);
+  });
+
+  it('is reported under its top category and its subcategory, and without a brand as none (part 15C)', async () => {
+    const { packs, prisma } = setup();
+    prisma.productVariant.findMany.mockResolvedValue([
+      row(
+        {},
+        {
+          category: {
+            id: IMMUNITY,
+            name: 'Immunity',
+            isActive: true,
+            parent: { id: WELLNESS, name: 'Wellness', isActive: true },
+          },
+          brand: null,
+        },
+      ),
+    ]);
+
+    const [pack] = await packs.findByIds([V60]);
+    expect(pack?.reportGroups).toEqual({
+      productId: PRODUCT,
+      topCategoryId: WELLNESS,
+      topCategoryName: 'Wellness',
+      subcategoryId: IMMUNITY,
+      subcategoryName: 'Immunity',
+      brandId: null,
+      brandName: null,
     });
   });
 

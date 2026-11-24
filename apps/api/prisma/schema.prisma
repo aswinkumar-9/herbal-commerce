@@ -599,6 +599,18 @@ model OrderItem {
   // packs times priceRupees, and the GST inside it.
   lineTotalRupees Int
   gstRupees       Int
+  // What its sale is reported under, as it was when the order was placed
+  // (part 15C, ADR 0046): the product, the top category and subcategory of
+  // its main category, and its brand, by ID and name. No foreign keys, like
+  // the pack size's. Lines from before part 15C were filled from the
+  // catalog as it was then; one whose pack size was gone has none.
+  productId       String?  @db.Uuid
+  topCategoryId   String?  @db.Uuid
+  topCategoryName String?
+  subcategoryId   String?  @db.Uuid
+  subcategoryName String?
+  brandId         String?  @db.Uuid
+  brandName       String?
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 

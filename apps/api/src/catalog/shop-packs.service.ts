@@ -27,6 +27,21 @@ export interface ShopPack {
   onSale: boolean;
   // The product's name and slug, and the small file of its main photo.
   product: { name: string; slug: string; imageUrl: string | null };
+  // What a sale of it is reported under, as the catalog is now (part 15C).
+  reportGroups: ReportGroups;
+}
+
+// A product's groupings for reports (ADR 0046): the product, the top
+// category and subcategory of its main category, and its brand. A main
+// category that is a top category has no subcategory.
+export interface ReportGroups {
+  productId: string;
+  topCategoryId: string;
+  topCategoryName: string;
+  subcategoryId: string | null;
+  subcategoryName: string | null;
+  brandId: string | null;
+  brandName: string | null;
 }
 
 const PACK_FIELDS = {
@@ -39,12 +54,24 @@ const PACK_FIELDS = {
   isActive: true,
   product: {
     select: {
+      id: true,
       name: true,
       slug: true,
       hsnCode: true,
       gstRate: true,
       isActive: true,
-      category: { select: SHOWN_FIELDS },
+      // Whether customers see it, and its names for reports.
+      category: {
+        select: {
+          id: true,
+          name: true,
+          isActive: SHOWN_FIELDS.isActive,
+          parent: {
+            select: { id: true, name: true, ...SHOWN_FIELDS.parent.select },
+          },
+        },
+      },
+      brand: { select: { id: true, name: true } },
       variants: { select: { id: true } },
       images: { orderBy: IMAGE_ORDER, take: 1, select: { fileKey: true } },
     },
@@ -85,6 +112,8 @@ export class ShopPacksService {
 
   private shopPack({ id, isActive, product, ...pack }: PackRow): ShopPack {
     const image = product.images[0];
+    const { category, brand } = product;
+    const top = category.parent ?? category;
     return {
       variantId: id,
       productVariantIds: product.variants.map((variant) => variant.id),
@@ -98,6 +127,15 @@ export class ShopPacksService {
         imageUrl: image
           ? this.media.url(imageFileNames(image.fileKey).small)
           : null,
+      },
+      reportGroups: {
+        productId: product.id,
+        topCategoryId: top.id,
+        topCategoryName: top.name,
+        subcategoryId: category.parent ? category.id : null,
+        subcategoryName: category.parent ? category.name : null,
+        brandId: brand?.id ?? null,
+        brandName: brand?.name ?? null,
       },
     };
   }
