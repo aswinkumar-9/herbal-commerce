@@ -86,10 +86,10 @@ function byName(a: SearchCard, b: SearchCard): number {
 }
 
 // The shop's search (ADR 0030): live products in active categories, found
-// by words in their name, summary or description, even partial or
-// misspelt, and filtered by category, type and lowest price. Products in
-// stock come first, then by the order asked for, then by name. The search
-// words are never stored or logged.
+// by words in their name, brand, summary or description, even partial or
+// misspelt, and filtered by category, brand, type and lowest price.
+// Products in stock come first, then by the order asked for, then by name.
+// The search words are never stored or logged.
 // The products in a category: those whose main category it is, and those
 // also shown in it while it is shown (part 15A). A top category finds its
 // subcategories' products too.
@@ -118,11 +118,12 @@ export class ProductSearchService {
 
   async search(query: ProductSearchQuery): Promise<SearchPage> {
     // The costly part, the same for every page, sort and price filter of
-    // these words, category and type: kept a while (SearchCache).
+    // these words, category, brand and type: kept a while (SearchCache).
     const { rows, scores } = await this.kept.read(
       JSON.stringify([
         query.q ?? null,
         query.category ?? null,
+        query.brand ?? null,
         query.type ?? null,
       ]),
       () => this.readCatalog(query),
@@ -164,8 +165,8 @@ export class ProductSearchService {
     };
   }
 
-  // The live products in active categories the words, category and type
-  // find, with their packs on sale and their main photo.
+  // The live products in active categories the words, category, brand
+  // and type find, with their packs on sale and their main photo.
   private async readCatalog(query: ProductSearchQuery): Promise<CatalogRead> {
     const scores = query.q ? await this.matches(query.q) : null;
     const rows =
@@ -176,6 +177,7 @@ export class ProductSearchService {
               isActive: true,
               category: SHOWN_CATEGORY,
               ...(query.category ? inCategory(query.category) : {}),
+              ...(query.brand ? { brand: { slug: query.brand } } : {}),
               ...(query.type ? { type: query.type } : {}),
               ...(scores ? { id: { in: [...scores.keys()] } } : {}),
             },
@@ -186,8 +188,9 @@ export class ProductSearchService {
     return { rows, scores };
   }
 
-  // The live products whose name, summary or description has a word like
-  // the search words, each with how well it matches: the name counts most.
+  // The live products whose name, brand (part 15B), summary or
+  // description has a word like the search words, each with how well it
+  // matches: the name and the brand count most.
   // pg_trgm compares three-letter pieces, so "ashwa" and "ashwaganda" both
   // find Ashwagandha. The words are a bound parameter, never part of the
   // SQL.
@@ -195,17 +198,20 @@ export class ProductSearchService {
     const rows = await this.prisma.$queryRaw<{ id: string; score: number }[]>`
       SELECT p."id", GREATEST(
                word_similarity(${words}, p."name"),
+               word_similarity(${words}, COALESCE(b."name", '')),
                word_similarity(${words}, COALESCE(p."summary", '')) * 0.8,
                word_similarity(${words}, COALESCE(p."description", '')) * 0.6
              )::float8 AS "score"
         FROM "products" p
         JOIN "categories" c ON c."id" = p."categoryId"
         LEFT JOIN "categories" top ON top."id" = c."parentId"
+        LEFT JOIN "brands" b ON b."id" = p."brandId"
        WHERE p."isActive" AND c."isActive"
          AND (top."id" IS NULL OR top."isActive")
          AND (${words} <% p."name"
               OR ${words} <% p."summary"
-              OR ${words} <% p."description")
+              OR ${words} <% p."description"
+              OR ${words} <% b."name")
        ORDER BY "score" DESC, p."id"
        LIMIT ${SEARCH_CANDIDATES}`;
     return new Map(rows.map((row) => [row.id, row.score]));

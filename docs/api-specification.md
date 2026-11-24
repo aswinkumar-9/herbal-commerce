@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.35.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.36.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -494,18 +494,39 @@ Errors:
 | `404` | `Category not found` | No category customers see with this slug: unknown, hidden, or a subcategory of a hidden one, which all look the same |
 | `429` | `code: "RATE_LIMITED"` | The 600 per minute limit |
 
+## Brands
+
+### GET `/v1/brands`
+
+**Public.** The brands customers can shop by, for the shop's brand filter (since part 15B). Only brands with at least one **live** product: active, with a main category customers see. By name.
+
+Response `200`:
+```json
+{
+  "brands": [
+    { "name": "Himalaya", "slug": "himalaya" }
+  ]
+}
+```
+- Each brand has exactly these two fields. The shop never shows IDs.
+- `slug`: use it as the search's `brand` filter (`/v1/products?brand=himalaya`). It stays the same when a brand is renamed.
+- A brand whose products are all drafts or hidden isn't listed. No paging: a shop has only a few.
+
+Errors: `429` (the 600 per minute limit).
+
 ## Products
 
 ### GET `/v1/products`
 
-**Public.** The shop's search (ADR 0030): live products, active and in a category customers see, found by words in their name, summary or description, and filtered by category, type and price. Words may be part of a word, or misspelt: "ashwa" and "ashwaganda" both find Ashwagandha. Without words, it lists every live product.
+**Public.** The shop's search (ADR 0030): live products, active and in a category customers see, found by words in their name, brand, summary or description, and filtered by category, brand, type and price. Words may be part of a word, or misspelt: "ashwa" and "ashwaganda" both find Ashwagandha. Without words, it lists every live product.
 
 Query parameters, all optional:
 
 | Parameter | Rules | Meaning |
 |---|---|---|
-| `q` | 2 to 100 characters, after trimming; each run of spaces becomes one; empty means none | The search words |
+| `q` | 2 to 100 characters, after trimming; each run of spaces becomes one; empty means none | The search words. Since part 15B they find a product by its brand's name too, which counts as much as its own name: "himalaya" finds Himalaya's products. |
 | `category` | A category's slug | Only that category, and for a top category its subcategories too (since part 15A). Products also shown in it are found too. A hidden or unknown one finds nothing. |
+| `brand` | A brand's slug | Only that brand's products (since part 15B). An unknown one finds nothing. |
 | `type` | `AYURVEDIC_MEDICINE`, `FOOD_OR_SUPPLEMENT` or `COSMETIC` | Only that type |
 | `minPriceRupees`, `maxPriceRupees` | Whole numbers, 0 to 1000000; the lowest not above the highest | The product's lowest price on sale is within them. A product with no pack on sale is then never found. |
 | `sort` | `relevance`, `price-asc`, `price-desc` or `name` | Default: `relevance` with words, `name` without. `relevance` needs words. |

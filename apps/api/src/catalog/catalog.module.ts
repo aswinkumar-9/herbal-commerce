@@ -7,6 +7,7 @@ import {
 import { AuthModule } from '../auth/auth.module';
 import { InventoryModule } from '../inventory/inventory.module';
 import { MediaModule } from '../media/media.module';
+import { BrandsController } from './brands.controller';
 import { BrandsService } from './brands.service';
 import { CategoriesController } from './categories.controller';
 import { CategoriesService } from './categories.service';
@@ -37,6 +38,7 @@ import { VariantsService } from './variants.service';
   imports: [AuthModule, MediaModule, InventoryModule],
   controllers: [
     CategoriesController,
+    BrandsController,
     ProductsController,
     StaffCategoriesController,
     StaffBrandsController,

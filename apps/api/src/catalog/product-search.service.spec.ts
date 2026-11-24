@@ -191,8 +191,10 @@ describe('ProductSearchService.search', () => {
       ...unknown[],
     ];
     const text = sql.join('?');
-    // The name, the summary and the description, the name counting most.
+    // The name, the brand's name (part 15B), the summary and the
+    // description, the name and the brand counting most.
     expect(text).toContain('word_similarity(?, p."name")');
+    expect(text).toContain(`word_similarity(?, COALESCE(b."name", '')),`);
     expect(text).toContain(
       `word_similarity(?, COALESCE(p."summary", '')) * 0.8`,
     );
@@ -202,6 +204,9 @@ describe('ProductSearchService.search', () => {
     expect(text).toContain('? <% p."name"');
     expect(text).toContain('? <% p."summary"');
     expect(text).toContain('? <% p."description"');
+    expect(text).toContain('? <% b."name"');
+    // A product without a brand is still found by its own words.
+    expect(text).toContain('LEFT JOIN "brands" b ON b."id" = p."brandId"');
     // Live products in active categories only.
     expect(text).toContain('WHERE p."isActive" AND c."isActive"');
     // A subcategory's products only while its top category is active too.
@@ -217,10 +222,23 @@ describe('ProductSearchService.search', () => {
       'ashwaganda',
       'ashwaganda',
       'ashwaganda',
+      'ashwaganda',
+      'ashwaganda',
       500,
     ]);
     expect(prisma.product.findMany.mock.calls[0][0].where.id).toEqual({
       in: ['id-ashwagandha-powder', 'id-ashwagandha-capsules'],
+    });
+  });
+
+  it('filters by a brand, by its slug (part 15B)', async () => {
+    const { service, prisma } = setup([row('amla-juice', [149])]);
+
+    await service.search(search({ brand: 'himalaya' }));
+
+    expect(prisma.product.findMany.mock.calls[0][0].where).toMatchObject({
+      isActive: true,
+      brand: { slug: 'himalaya' },
     });
   });
 
@@ -425,7 +443,7 @@ describe('ProductSearchService.search, keeping what it read', () => {
     expect(prisma.product.findMany).toHaveBeenCalledTimes(1);
   });
 
-  it('reads again for other words, another category or another type', async () => {
+  it('reads again for other words, another category, another brand or another type', async () => {
     const { service, prisma } = setup(SHOP);
     prisma.$queryRaw.mockResolvedValue([{ id: 'id-amla-juice', score: 0.9 }]);
 
@@ -433,10 +451,12 @@ describe('ProductSearchService.search, keeping what it read', () => {
     await service.search(search({ q: 'amla', page: 2 }));
     await service.search(search({ q: 'brahmi' }));
     await service.search(search({ category: 'juices' }));
+    await service.search(search({}));
+    await service.search(search({ brand: 'himalaya' }));
     await service.search(search({ type: 'AYURVEDIC_MEDICINE' }));
 
     expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
-    expect(prisma.product.findMany).toHaveBeenCalledTimes(4);
+    expect(prisma.product.findMany).toHaveBeenCalledTimes(6);
   });
 
   it('reads afresh once staff change the catalog, or after a minute', async () => {

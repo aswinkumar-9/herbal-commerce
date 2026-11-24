@@ -48,7 +48,7 @@ describe('productSearchQuerySchema', () => {
     ]);
   });
 
-  it('takes a category by its slug, and a product type', () => {
+  it('takes a category and a brand (part 15B) by their slugs, and a product type', () => {
     expect(
       productSearchQuerySchema.parse({
         category: 'herbal-teas',
@@ -57,6 +57,12 @@ describe('productSearchQuerySchema', () => {
     ).toMatchObject({ category: 'herbal-teas', type: 'FOOD_OR_SUPPLEMENT' });
     expect(refused({ category: 'Herbal Teas' })).toEqual([
       'category: A slug has lowercase letters, digits and single hyphens, like "hair-care"',
+    ]);
+    expect(productSearchQuerySchema.parse({ brand: 'himalaya' })).toMatchObject(
+      { brand: 'himalaya' },
+    );
+    expect(refused({ brand: 'Himalaya' })).toEqual([
+      'brand: A slug has lowercase letters, digits and single hyphens, like "hair-care"',
     ]);
     expect(refused({ type: 'TEA' })).toEqual([
       'type: Choose AYURVEDIC_MEDICINE, FOOD_OR_SUPPLEMENT or COSMETIC',
