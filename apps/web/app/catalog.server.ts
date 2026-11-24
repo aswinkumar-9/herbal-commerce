@@ -29,6 +29,13 @@ const categoriesSchema = z.object({ categories: z.array(topCategorySchema) });
 // subcategory sits in, say.
 const categoryLink = z.object({ name: z.string().min(1), slug });
 
+// A brand customers can shop by (part 15B): a name, and the slug the
+// shop's address filters by.
+const brandSchema = z.object({ name: z.string().min(1), slug });
+export type Brand = z.infer<typeof brandSchema>;
+
+const brandsSchema = z.object({ brands: z.array(brandSchema) });
+
 // A product as a list shows it: its name, a line about it, its lowest
 // price on sale (none when no pack is), and its main photo, small.
 const cardFields = {
@@ -109,6 +116,8 @@ const productSchema = z.object({
   countryOfOrigin: z.string().min(1),
   // A subcategory names its top category (part 15B), for the trail.
   category: categoryLink.extend({ parent: categoryLink.nullable() }),
+  // Its brand, if it has one (part 15B).
+  brand: brandSchema.nullable(),
   variants: z.array(
     z.object({
       sku: z.string().min(1),
@@ -154,6 +163,12 @@ function fromMedia<T extends { imageUrl: string | null }>(card: T): T {
 export async function listCategories(request: Request): Promise<TopCategory[]> {
   const { categories } = await apiGet(request, 'categories', categoriesSchema);
   return categories;
+}
+
+// The brands with a product on sale, by name (part 15B).
+export async function listBrands(request: Request): Promise<Brand[]> {
+  const { brands } = await apiGet(request, 'brands', brandsSchema);
+  return brands;
 }
 
 // One page of the shop's search: products in stock first.

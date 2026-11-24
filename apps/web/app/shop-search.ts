@@ -1,5 +1,5 @@
 // What the shop page's address asks for (part 14A): search words, a
-// category, a type, a price range, an order and a page. An address can
+// category, a brand (part 15B), a type, a price range, an order and a page. An address can
 // come from anywhere, so each part is checked here as the API checks it
 // (ADR 0030), and a part the API would refuse is left out: the API is
 // never asked what it would answer with an error. The parts a customer
@@ -41,6 +41,7 @@ export type Sort = (typeof SORTS)[number];
 export interface ShopSearch {
   q?: string | undefined;
   category?: string | undefined;
+  brand?: string | undefined;
   type?: ProductTypeKey | undefined;
   min?: number | undefined;
   max?: number | undefined;
@@ -124,6 +125,7 @@ export function readShopSearch(params: URLSearchParams): {
   }
 
   const category = field(params, 'category');
+  const brand = field(params, 'brand');
   const type = field(params, 'type');
   const sort = field(params, 'sort');
   const page = field(params, 'page');
@@ -136,6 +138,7 @@ export function readShopSearch(params: URLSearchParams): {
     search: {
       q,
       category: isSlug(category) ? category : undefined,
+      brand: isSlug(brand) ? brand : undefined,
       // Its own keys only: never one every object has, like "constructor".
       type: Object.hasOwn(PRODUCT_TYPES, type)
         ? (type as ProductTypeKey)
@@ -161,6 +164,9 @@ export function apiQuery(search: ShopSearch): URLSearchParams {
   }
   if (search.category) {
     query.set('category', search.category);
+  }
+  if (search.brand) {
+    query.set('brand', search.brand);
   }
   if (search.type) {
     query.set('type', PRODUCT_TYPES[search.type]);
@@ -191,6 +197,9 @@ export function shopHref(
   if (next.category) {
     params.set('category', next.category);
   }
+  if (next.brand) {
+    params.set('brand', next.brand);
+  }
   if (next.type) {
     params.set('type', next.type);
   }
@@ -214,11 +223,12 @@ export function shopHref(
   return query ? `/shop?${query}` : '/shop';
 }
 
-// How many filters are in use: the category, the type, and the price range
-// as one.
+// How many filters are in use: the category, the brand, the type, and the
+// price range as one.
 export function filtersInUse(search: ShopSearch): number {
   return (
     Number(search.category !== undefined) +
+    Number(search.brand !== undefined) +
     Number(search.type !== undefined) +
     Number(search.min !== undefined || search.max !== undefined)
   );

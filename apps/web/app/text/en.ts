@@ -174,6 +174,10 @@ export const text = {
       inUse: (count: number) => `${count} in use`,
       category: 'Category',
       allCategories: 'All categories',
+      // A top category with subcategories, as the list offers it whole.
+      allIn: (name: string) => `All ${name}`,
+      brand: 'Brand',
+      allBrands: 'All brands',
       type: 'Type',
       allTypes: 'All types',
       min: 'Lowest price in rupees',
@@ -801,6 +805,8 @@ export const text = {
     description: (name: string) =>
       `${name} at Herbal Commerce. Prices include GST, and delivery is free from ₹499.`,
     photos: 'Photos',
+    // Before the brand's name, which leads to its products in the shop.
+    by: 'By',
     showPhoto: (at: number, of: number) => `Show photo ${at} of ${of}`,
     packs: {
       heading: 'Pack sizes',

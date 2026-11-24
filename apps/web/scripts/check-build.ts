@@ -31,11 +31,12 @@ process.env.NODE_ENV = 'production';
 process.env['WEB_SESSION_SECRET'] = randomBytes(32).toString('base64url');
 
 // The stand-in for the API: one category with one product, and one
-// subcategory in it with the same product (part 15B), or busy when asked
-// to be.
+// subcategory in it with the same product, of one brand (part 15B), or busy
+// when asked to be.
 let busy = false;
 const WELLNESS = { name: 'Wellness', slug: 'wellness', description: null };
 const TEAS = { name: 'Herbal Teas', slug: 'herbal-teas', description: null };
+const BRAND = { name: 'Herbal Works', slug: 'herbal-works' };
 const TULSI = {
   name: 'Tulsi Drops',
   slug: 'tulsi-drops',
@@ -105,6 +106,7 @@ const answers: Record<string, unknown> = {
   '/v1/categories': {
     categories: [{ ...WELLNESS, subcategories: [TEAS] }],
   },
+  '/v1/brands': { brands: [BRAND] },
   '/v1/products': {
     products: [{ ...TULSI, inStock: true }],
     total: 1,
@@ -122,6 +124,7 @@ const answers: Record<string, unknown> = {
     manufacturerAddress: 'Mysuru',
     countryOfOrigin: 'India',
     category: { name: WELLNESS.name, slug: WELLNESS.slug, parent: null },
+    brand: BRAND,
     variants: [
       {
         sku: 'TUL-30',
@@ -861,6 +864,7 @@ try {
   await checkPage('/', 200);
   await checkPage('/shop', 200);
   await checkPage('/shop?q=tulsi&sort=price-asc', 200);
+  await checkPage('/shop?category=herbal-teas&brand=herbal-works', 200);
   await checkPage('/categories/wellness', 200);
   await checkPage('/categories/herbal-teas', 200);
   await checkPage('/products/tulsi-drops', 200);

@@ -19,8 +19,16 @@ const CATEGORIES = {
       name: 'Hair Care',
       slug: 'hair-care',
       description: 'For the hair',
-      subcategories: [],
+      subcategories: [
+        { name: 'Hair Oils', slug: 'hair-oils', description: null },
+      ],
     },
+  ],
+};
+const BRANDS = {
+  brands: [
+    { name: 'Dabur', slug: 'dabur' },
+    { name: 'Himalaya', slug: 'himalaya' },
   ],
 };
 const card = (
@@ -91,21 +99,24 @@ async function thrownStatus(promise: Promise<unknown>): Promise<number> {
 }
 
 describe('the shop’s loader', () => {
-  it('asks the API for the categories, then for the search in its own names', async () => {
+  it('asks the API for the categories and brands, then for the search in its own names', async () => {
     apiAnswers({
       '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
       '/v1/products': () => answer(200, FOUND),
     });
     const page = await shopAt(
-      '?q=tulsi&category=wellness&type=cosmetic&min=10&max=900&page=2',
+      '?q=tulsi&category=wellness&brand=himalaya&type=cosmetic&min=10&max=900&page=2',
     );
     expect(asked()).toEqual([
       { pathname: '/v1/categories', query: {} },
+      { pathname: '/v1/brands', query: {} },
       {
         pathname: '/v1/products',
         query: {
           q: 'tulsi',
           category: 'wellness',
+          brand: 'himalaya',
           type: 'COSMETIC',
           minPriceRupees: '10',
           maxPriceRupees: '900',
@@ -117,26 +128,53 @@ describe('the shop’s loader', () => {
     ]);
     expect(page.found).toEqual(FOUND);
     expect(page.categories).toEqual(CATEGORIES.categories);
+    expect(page.brands).toEqual(BRANDS.brands);
     expect(page.origin).toBe('http://localhost:3001');
   });
 
-  it('leaves out a category no longer on show', async () => {
+  it('leaves out a category or brand no longer on show', async () => {
     apiAnswers({
       '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
       '/v1/products': () => answer(200, FOUND),
     });
-    const page = await shopAt('?category=old-category');
+    const page = await shopAt('?category=old-category&brand=old-brand');
     expect(page.search.category).toBeUndefined();
-    expect(asked()[1]?.query).not.toHaveProperty('category');
+    expect(page.search.brand).toBeUndefined();
+    expect(asked()[2]?.query).not.toHaveProperty('category');
+    expect(asked()[2]?.query).not.toHaveProperty('brand');
+  });
+
+  it('filters by a subcategory on show (part 15B)', async () => {
+    apiAnswers({
+      '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
+      '/v1/products': () => answer(200, FOUND),
+    });
+    const page = await shopAt('?category=hair-oils');
+    expect(page.search.category).toBe('hair-oils');
+    expect(asked()[2]?.query).toMatchObject({ category: 'hair-oils' });
+  });
+
+  it('says the shop is taking a break when the brands’ answer is not as expected', async () => {
+    for (const odd of [{ name: 'Dabur' }, { name: 'Dabur', slug: '../x' }]) {
+      apiAnswers({
+        '/v1/categories': () => answer(200, CATEGORIES),
+        '/v1/brands': () => answer(200, { brands: [odd] }),
+        '/v1/products': () => answer(200, FOUND),
+      });
+      expect(await thrownStatus(shopAt('')), JSON.stringify(odd)).toBe(503);
+    }
   });
 
   it('never asks what the API would refuse, and passes on what was wrong', async () => {
     apiAnswers({
       '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
       '/v1/products': () => answer(200, FOUND),
     });
     const page = await shopAt('?q=a&min=9.5&sort=relevance&page=900');
-    expect(asked()[1]?.query).toEqual({ sort: 'name', page: '1', limit: '24' });
+    expect(asked()[2]?.query).toEqual({ sort: 'name', page: '1', limit: '24' });
     expect(page.problems).toEqual({
       q: 'Type at least 2 characters to search.',
       min: 'Give a price in whole rupees, like 499.',
@@ -146,6 +184,7 @@ describe('the shop’s loader', () => {
   it('shows no photo from anywhere but the shop’s media address', async () => {
     apiAnswers({
       '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
       '/v1/products': () =>
         answer(200, {
           ...FOUND,
@@ -173,6 +212,7 @@ describe('the shop’s loader', () => {
   it('says the shop is taking a break when the search’s answer is not as expected', async () => {
     apiAnswers({
       '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
       '/v1/products': () =>
         answer(200, { ...FOUND, products: [{ ...card('x'), inStock: 'yes' }] }),
     });
@@ -182,6 +222,7 @@ describe('the shop’s loader', () => {
   it('refuses a photo address that isn’t a web address', async () => {
     apiAnswers({
       '/v1/categories': () => answer(200, CATEGORIES),
+      '/v1/brands': () => answer(200, BRANDS),
       '/v1/products': () =>
         answer(200, {
           ...FOUND,
@@ -376,6 +417,7 @@ describe('a product’s loader', () => {
     manufacturerAddress: '12, Industrial Area, Mysuru 570016',
     countryOfOrigin: 'India',
     category: { name: 'Wellness', slug: 'wellness', parent: null },
+    brand: null,
     variants: [
       {
         sku: 'ASH-60',
@@ -462,6 +504,27 @@ describe('a product’s loader', () => {
         }),
     });
     expect(await thrownStatus(productAt('ashwagandha-capsules'))).toBe(503);
+  });
+
+  it('gives its brand, and refuses one not as expected (part 15B)', async () => {
+    const brand = { name: 'Himalaya', slug: 'himalaya' };
+    apiAnswers({
+      '/v1/products/ashwagandha-capsules': () =>
+        answer(200, { ...PRODUCT, brand }),
+    });
+    expect((await productAt('ashwagandha-capsules')).product.brand).toEqual(
+      brand,
+    );
+    for (const odd of [{ name: 'Himalaya' }, { ...brand, slug: '../x' }]) {
+      apiAnswers({
+        '/v1/products/ashwagandha-capsules': () =>
+          answer(200, { ...PRODUCT, brand: odd }),
+      });
+      expect(
+        await thrownStatus(productAt('ashwagandha-capsules')),
+        JSON.stringify(odd),
+      ).toBe(503);
+    }
   });
 });
 

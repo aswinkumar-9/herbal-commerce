@@ -186,6 +186,23 @@ export default function ProductPage({
             >
               {product.name}
             </h1>
+            {product.brand ? (
+              <p
+                itemProp="brand"
+                itemScope
+                itemType={`${SCHEMA}Brand`}
+                className="body-5 text-ink-muted"
+              >
+                {words.by}{' '}
+                <Link
+                  prefetch="intent"
+                  to={`/shop?brand=${product.brand.slug}`}
+                  className="text-primary underline underline-offset-4 transition-colors duration-300 ease-settle hover:text-primary-strong"
+                >
+                  <span itemProp="name">{product.brand.name}</span>
+                </Link>
+              </p>
+            ) : null}
             {product.summary ? (
               <p
                 itemProp="description"

@@ -28,6 +28,7 @@ const ASHWAGANDHA: Product = {
   manufacturerAddress: '12, Industrial Area,\nMysuru 570016',
   countryOfOrigin: 'India',
   category: { name: 'Wellness', slug: 'wellness', parent: null },
+  brand: null,
   variants: [
     {
       sku: 'ASH-CAP-60',
@@ -107,6 +108,22 @@ describe('a product’s page', () => {
       'aria-current',
       'page',
     );
+  });
+
+  it('names its brand, a link to the brand’s products in the shop (part 15B)', async () => {
+    await renderProduct({
+      ...ASHWAGANDHA,
+      brand: { name: 'Himalaya', slug: 'himalaya' },
+    });
+    const by = screen.getByRole('link', { name: 'Himalaya' });
+    expect(by).toHaveAttribute('href', '/shop?brand=himalaya');
+    expect(by.parentElement).toHaveTextContent(/^By Himalaya$/);
+  });
+
+  it('says no brand when it has none', async () => {
+    await renderProduct();
+    expect(screen.queryByText(/^By /)).not.toBeInTheDocument();
+    expect(document.querySelector('[itemprop="brand"]')).toBeNull();
   });
 
   it('passes through the top category, when its own is a subcategory (part 15B)', async () => {
@@ -439,6 +456,23 @@ describe('what search engines read from the page itself', () => {
       '12, Industrial Area,\nMysuru 570016',
     );
     expect(props(product, 'address')).toEqual([]);
+  });
+
+  it('names its brand as a brand of its own (part 15B)', async () => {
+    await renderProduct({
+      ...ASHWAGANDHA,
+      brand: { name: 'Himalaya', slug: 'himalaya' },
+    });
+    const product = document.querySelector(
+      '[itemtype="https://schema.org/Product"]',
+    ) as HTMLElement;
+    const brand = props(product, 'brand')[0] as Element;
+    expect(brand).toHaveAttribute('itemscope');
+    expect(brand).toHaveAttribute('itemtype', 'https://schema.org/Brand');
+    expect(value(props(brand, 'name')[0])).toBe('Himalaya');
+    // Still the product's own name first.
+    expect(value(props(product, 'name')[0])).toBe('Ashwagandha Capsules');
+    expect(props(product, 'name')).toHaveLength(1);
   });
 
   it('keeps the label a proper list: each fact one term and its words', async () => {

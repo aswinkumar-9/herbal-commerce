@@ -48,6 +48,7 @@ const PRODUCT = {
   manufacturerAddress: 'Mysuru',
   countryOfOrigin: 'India',
   category: { name: 'Wellness', slug: 'wellness', parent: null },
+  brand: null,
   variants: [
     {
       sku: 'ASH-CAP-60',
