@@ -3,6 +3,7 @@
 - Status: Accepted and implemented (part 12B)
 - Date: 2026-11-13
 - Updated: 2026-11-18 (part 12C: pack sizes and images on the product's page, and one guard per page for leaving with unsaved changes, see ADR 0033)
+- Updated: 2026-11-24 (part 15A: a Brands tab, subcategories on the Categories page, a brand and "Also shown in" on a product's page, and one category's products listed at once to order, see ADR 0044)
 
 ## Context
 

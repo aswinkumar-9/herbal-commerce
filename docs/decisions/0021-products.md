@@ -7,6 +7,7 @@
 - Updated: 2026-11-06 (part 5: a product that still holds stock cannot be deleted, and its page says which packs are in stock, see ADR 0024)
 - Updated: 2026-11-11 (part 11: the shop can be searched by words in a product's name, summary and description, and filtered by category, type and price, see ADR 0030)
 - Updated: 2026-11-13 (part 12B: staff read one product, search the list by name, and put a category's products in a new order in one request, see ADR 0032)
+- Updated: 2026-11-24 (part 15A: a product may have a brand and be shown in up to 5 other categories, keeping one main category, and goes last in its category unless given a place, see ADR 0044)
 
 ## Context
 

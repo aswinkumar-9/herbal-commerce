@@ -4,6 +4,7 @@
 - Date: 2026-11-03
 - Updated: 2026-11-04 (part 4B: products, and a category with products cannot be deleted, see ADR 0021)
 - Updated: 2026-11-13 (part 12B: staff put every category in a new order in one request, from the admin console, see ADR 0032)
+- Updated: 2026-11-24 (part 15A: subcategories, two levels only, each level ordered on its own, and a category that still has subcategories or shows products from other categories cannot be deleted, see ADR 0044)
 
 ## Context
 
