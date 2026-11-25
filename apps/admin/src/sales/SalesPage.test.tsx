@@ -316,6 +316,10 @@ describe('the Sales page', () => {
     expect(
       screen.getByText(/Nothing was paid for or refunded in this period/),
     ).toBeInTheDocument();
+    // No chart or lists of nothing.
+    expect(
+      screen.queryByRole('heading', { name: 'Sales each day' }),
+    ).not.toBeInTheDocument();
 
     await user.click(chip('Yesterday'));
     await waitFor(() =>
@@ -333,6 +337,9 @@ describe('the Sales page', () => {
     expect(
       screen.queryByText(/Nothing was paid for or refunded/),
     ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: 'Sales each day' }),
+    ).toBeInTheDocument();
   });
 
   it('says when the figures have never been worked out', async () => {

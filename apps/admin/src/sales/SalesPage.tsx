@@ -28,6 +28,7 @@ import {
   periodChoice,
 } from './sales-periods';
 import type { DateField, Period, PeriodChoice, Preset } from './sales-periods';
+import { SalesBreakdown } from './SalesBreakdown';
 import { useSalesReport } from './sales-queries';
 import { useIndiaToday } from './use-india-today';
 
@@ -423,7 +424,9 @@ function Figures({ report }: { report: SalesReport }) {
           Nothing was paid for or refunded in this period. Payments show here
           within 5 minutes of being made.
         </p>
-      ) : null}
+      ) : (
+        <SalesBreakdown report={report} />
+      )}
     </>
   );
 }
