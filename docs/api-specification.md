@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.36.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.37.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -2840,6 +2840,91 @@ One version, with its text: `{ "page", "version", "body", "publishedAt", "publis
 **The audit log** gets `policy.draft_saved`, `policy.draft_discarded` and `policy.published`, about the page (`targetType` `policy_page`, `targetId` the page's word), with the revision before and after, the version, and the number of characters, never the text. Reading is not audited. **The database holds the rules too:** only a Super User saves or publishes, a revision only goes forward, and a version is never changed or deleted.
 
 Errors for all of them: `400 Validation failed` (a bad body or parameter, named in `errors`); `401`; `403 Only a Super User may do this.`; `404 Policy page not found`; `409` as above; `429` (the 600 per minute limit).
+
+## Reports (Super Users only)
+
+### GET `/v1/staff/reports/sales`
+
+A period's sales, compared with the period of the same length just before, for the Sales page (since part 15D, ADR 0047). Needs a **Super User's** staff access token: an Admin gets `403 Only a Super User may do this.` Reading is not audited.
+
+Read from the daily sales summaries (ADR 0046), which a job rebuilds every 5 minutes, so the answer can be up to about 5 minutes behind: `refreshedAt` says when they were last rebuilt. The customers are counted from the payments themselves. Everything is read in one snapshot, so the totals, the series and the lists always agree.
+
+Query parameters, both needed:
+
+| Parameter | Rules | Meaning |
+|---|---|---|
+| `from` | A date such as `2026-11-01`, else `Use a date such as 2026-11-25` | The period's first day in India |
+| `to` | The same, on or after `from` (else `The period starts after it ends`), at most 3660 days on (else `Choose at most 3660 days`) | Its last day, included. A day still to come simply has no sales yet |
+
+Any other parameter is ignored.
+
+The rules (the owner's, 2026-11-23 and 2026-11-25):
+- a payment counts on the day in India it was paid, and its refund comes off on the day it was made. A refund of a payment that never counted changes nothing;
+- **`salesRupees`** is what the products sold for, **without the GST** inside their prices, less what was refunded. It can be below 0 for a period with more refunded than sold;
+- `gstRupees` and `deliveryRupees` are counted the same way, and `paidRupees` is the three together: what customers paid, less what went back;
+- `orders` are the orders paid in the period, and `averageOrderRupees` what one came to on average, its products without GST, before any refund, to the nearest rupee: `null` without orders;
+- `refundedOrders` and `refundedRupees` are the refunds made in the period, everything included;
+- `newCustomers` paid for the first time ever in the period; `returningCustomers` had paid before it.
+
+Response `200`:
+```json
+{
+  "period": { "from": "2026-11-01", "to": "2026-11-25" },
+  "previousPeriod": { "from": "2026-10-07", "to": "2026-10-31" },
+  "refreshedAt": "2026-11-25T06:40:00.000Z",
+  "totals": {
+    "salesRupees": 1374,
+    "gstRupees": 179,
+    "deliveryRupees": 49,
+    "paidRupees": 1602,
+    "orders": 4,
+    "averageOrderRupees": 451,
+    "refundedOrders": 1,
+    "refundedRupees": 498,
+    "newCustomers": 2,
+    "returningCustomers": 1
+  },
+  "previousTotals": { "salesRupees": 0, "gstRupees": 0, "deliveryRupees": 0, "paidRupees": 0, "orders": 0, "averageOrderRupees": null, "refundedOrders": 0, "refundedRupees": 0, "newCustomers": 0, "returningCustomers": 0 },
+  "series": {
+    "unit": "day",
+    "points": [
+      { "start": "2026-11-01", "salesRupees": 0, "orders": 0 },
+      { "start": "2026-11-03", "salesRupees": 900, "orders": 2 }
+    ]
+  },
+  "products": [
+    { "productId": "7d6c5b4a-3f2e-4d1c-8b0a-9f8e7d6c5b41", "name": "Ashwagandha Capsules", "salesRupees": 855, "packs": 2 }
+  ],
+  "categories": [
+    {
+      "categoryId": "2e3f4a5b-6c7d-4e8f-9a0b-1c2d3e4f5a61",
+      "name": "Wellness",
+      "salesRupees": 855,
+      "subcategories": [
+        { "categoryId": "2e3f4a5b-6c7d-4e8f-9a0b-1c2d3e4f5a62", "name": "Immunity", "salesRupees": 855 }
+      ]
+    }
+  ],
+  "brands": [
+    { "brandId": "8c9d0e1f-2a3b-4c4d-8e5f-6a7b8c9d0e11", "name": "Himalaya", "recorded": true, "salesRupees": 855 },
+    { "brandId": null, "name": null, "recorded": true, "salesRupees": 506 }
+  ],
+  "states": [{ "state": "Karnataka", "salesRupees": 1350, "orders": 3 }],
+  "methods": [
+    { "method": "UPI", "salesRupees": 1170, "orders": 3 },
+    { "method": null, "salesRupees": -428, "orders": 0 }
+  ]
+}
+```
+- `refreshedAt`: `null` until the summaries are first filled, a minute after the API first starts.
+- `series`: every day, week or month of the period, in order, those with nothing too. Days for up to 62 days, weeks for up to 182, months beyond. A week starts on Monday and a month on the 1st, but the first starts with the period. `start` is its first day.
+- `products` and `brands`: the best 10. `categories`, `states` and `methods`: all of them. Each list is the best first, equal ones by name, those without a name last.
+- A product is named as it last sold, so a product renamed shows its newest name. A `productId` of `null` is a line sold before part 15C whose pack size was deleted: it is known by its name only.
+- A `categoryId` of `null` is "Not recorded", for those same old lines. A category's `subcategories` are its sales in each; what is left is its own products.
+- A brand with `brandId: null` is "No brand" when `recorded` is `true`, and "Not recorded" for those old lines when it is `false`.
+- A `method` of `null` is "Not recorded": a payment made before part 15C.
+
+Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` and `403` (as for the Admin endpoints); `429` (the 600 per minute limit).
 
 ## Not yet implemented
 
