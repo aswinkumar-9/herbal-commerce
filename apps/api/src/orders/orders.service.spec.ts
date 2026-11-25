@@ -40,6 +40,26 @@ const address = {
   state: 'Karnataka',
   pincode: '560038',
 };
+// What each sells under in reports (part 15C): Ashwagandha in a
+// subcategory, with a brand; Tulsi Tea in a top category, without one.
+const ashGroups = {
+  productId: 'a5a5a5a5-a5a5-4a5a-8a5a-a5a5a5a5a5a5',
+  topCategoryId: 'c1c1c1c1-c1c1-4c1c-8c1c-c1c1c1c1c1c1',
+  topCategoryName: 'Wellness',
+  subcategoryId: 'c2c2c2c2-c2c2-4c2c-8c2c-c2c2c2c2c2c2',
+  subcategoryName: 'Immunity',
+  brandId: 'b1b1b1b1-b1b1-4b1b-8b1b-b1b1b1b1b1b1',
+  brandName: 'Himalaya',
+};
+const teaGroups = {
+  productId: 'a6a6a6a6-a6a6-4a6a-8a6a-a6a6a6a6a6a6',
+  topCategoryId: 'c3c3c3c3-c3c3-4c3c-8c3c-c3c3c3c3c3c3',
+  topCategoryName: 'Herbal Teas',
+  subcategoryId: null,
+  subcategoryName: null,
+  brandId: null,
+  brandName: null,
+};
 // Two pack sizes as the catalog describes them: sold now, unless changed.
 const ash = (changes: object = {}) => ({
   variantId: V60,
@@ -53,6 +73,7 @@ const ash = (changes: object = {}) => ({
   gstRate: 5,
   onSale: true,
   product: { name: 'Ashwagandha Capsules', slug: 'ash', imageUrl: null },
+  reportGroups: ashGroups,
   ...changes,
 });
 const tea = (changes: object = {}) => ({
@@ -67,6 +88,7 @@ const tea = (changes: object = {}) => ({
   gstRate: 18,
   onSale: true,
   product: { name: 'Tulsi Tea', slug: 'tea', imageUrl: null },
+  reportGroups: teaGroups,
   ...changes,
 });
 // 3 packs of Ashwagandha at Rs 449, and 1 of Tulsi Tea at Rs 199.
@@ -289,10 +311,23 @@ describe('OrdersService.place', () => {
       deliveryPincode: '560038',
       ...totals,
       holdExpiresAt: new Date('2026-11-07T06:15:00.000Z'),
+      // Each line keeps what its sale is reported under (part 15C).
       items: {
         create: [
-          { ...ashLine, variantId: V60, hsnCode: '300490', position: 0 },
-          { ...teaLine, variantId: TEA, hsnCode: '0902', position: 1 },
+          {
+            ...ashLine,
+            ...ashGroups,
+            variantId: V60,
+            hsnCode: '300490',
+            position: 0,
+          },
+          {
+            ...teaLine,
+            ...teaGroups,
+            variantId: TEA,
+            hsnCode: '0902',
+            position: 1,
+          },
         ],
       },
     });
@@ -301,8 +336,8 @@ describe('OrdersService.place', () => {
       tx,
       ORDER,
       [
-        { ...ashLine, variantId: V60, hsnCode: '300490' },
-        { ...teaLine, variantId: TEA, hsnCode: '0902' },
+        { ...ashLine, ...ashGroups, variantId: V60, hsnCode: '300490' },
+        { ...teaLine, ...teaGroups, variantId: TEA, hsnCode: '0902' },
       ],
       NOW,
     );

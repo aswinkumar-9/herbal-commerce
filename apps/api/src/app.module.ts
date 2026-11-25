@@ -21,6 +21,7 @@ import { PoliciesModule } from './policies/policies.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RateLimitGuard } from './rate-limit/rate-limit.guard';
 import { RateLimitModule } from './rate-limit/rate-limit.module';
+import { ReportsModule } from './reports/reports.module';
 import { RetentionModule } from './retention/retention.module';
 import { StaffModule } from './staff/staff.module';
 import { ValkeyModule } from './valkey/valkey.module';
@@ -56,6 +57,7 @@ import { ValkeyModule } from './valkey/valkey.module';
     PoliciesModule,
     HealthModule,
     RetentionModule,
+    ReportsModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

@@ -599,6 +599,18 @@ model OrderItem {
   // packs times priceRupees, and the GST inside it.
   lineTotalRupees Int
   gstRupees       Int
+  // What its sale is reported under, as it was when the order was placed
+  // (part 15C, ADR 0046): the product, the top category and subcategory of
+  // its main category, and its brand, by ID and name. No foreign keys, like
+  // the pack size's. Lines from before part 15C were filled from the
+  // catalog as it was then; one whose pack size was gone has none.
+  productId       String?  @db.Uuid
+  topCategoryId   String?  @db.Uuid
+  topCategoryName String?
+  subcategoryId   String?  @db.Uuid
+  subcategoryName String?
+  brandId         String?  @db.Uuid
+  brandName       String?
 
   order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
 
@@ -610,22 +622,41 @@ model OrderItem {
 // What a customer pays an order with, at Razorpay (ADR 0027): one for each
 // order, made when the customer first chooses to pay. Money in whole rupees.
 model Payment {
-  id                String    @id @default(uuid()) @db.Uuid
-  orderId           String    @unique @db.Uuid
+  id                String         @id @default(uuid()) @db.Uuid
+  orderId           String         @unique @db.Uuid
   // Razorpay's order, such as "order_RB58MiP5SPFYyM", for the order's total.
-  razorpayOrderId   String    @unique
+  razorpayOrderId   String         @unique
   amountRupees      Int
   // The Razorpay payment that paid the order, and when, once one has.
-  razorpayPaymentId String?   @unique
+  razorpayPaymentId String?        @unique
   paidAt            DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  // How it was paid, as Razorpay said when it was settled (part 15C, ADR
+  // 0046). Set with the payment, never changed; none on payments paid
+  // before part 15C ("Not recorded" in reports).
+  method            PaymentMethod?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   // An order is never deleted, and neither is its payment.
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
   refunds Refund[]
 
+  // For the sales summaries: a few days' payments (part 15C).
+  @@index([paidAt])
   @@map("payments")
+}
+
+// How a customer paid, as Razorpay names it (part 15C, ADR 0046).
+enum PaymentMethod {
+  UPI
+  CARD
+  NETBANKING
+  WALLET
+  // Card EMI, and EMI without a card.
+  EMI
+  PAY_LATER
+  // Any other way Razorpay takes, such as a bank transfer.
+  OTHER
 }
 
 // Why money goes back to a customer.
@@ -684,6 +715,8 @@ model Refund {
   @@index([givenBackById])
   // For the job that asks Razorpay again.
   @@index([status, createdAt])
+  // For the sales summaries: a few days' refunds (part 15C).
+  @@index([createdAt])
   @@map("refunds")
 }
 
@@ -797,4 +830,67 @@ model PolicyVersion {
   @@unique([kind, version])
   @@index([publishedById])
   @@map("policy_versions")
+}
+
+// What was sold each day in India, for the reports (part 15C, ADR 0046).
+// Filled only by the database's rebuild_sales_summaries(), from the paid
+// payments and their refunds: a payment counts on the day it was paid, its
+// refund is taken off on the day the refund was made. The API rebuilds the
+// recent days every 5 minutes; past days never change.
+
+// Each day's order lines, by what they are reported under, as the order
+// line keeps it (none for a line whose pack size was deleted before part
+// 15C), the state they went to and how they were paid (none: "Not
+// recorded"). The rupees are the lines' totals, GST included, as the orders
+// show them; and the GST inside.
+model DailyLineSale {
+  id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  day               DateTime       @db.Date
+  deliveryState     String
+  method            PaymentMethod?
+  productId         String?        @db.Uuid
+  productName       String
+  topCategoryId     String?        @db.Uuid
+  topCategoryName   String?
+  subcategoryId     String?        @db.Uuid
+  subcategoryName   String?
+  brandId           String?        @db.Uuid
+  brandName         String?
+  soldPacks         Int
+  soldRupees        Int
+  soldGstRupees     Int
+  refundedPacks     Int
+  refundedRupees    Int
+  refundedGstRupees Int
+
+  @@index([day])
+  @@map("daily_line_sales")
+}
+
+// Each day's orders, by the state they went to and how they were paid: the
+// delivery charge belongs to an order, not to its lines.
+model DailyOrderSale {
+  id                     String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  day                    DateTime       @db.Date
+  deliveryState          String
+  method                 PaymentMethod?
+  soldOrders             Int
+  soldItemsRupees        Int
+  soldGstRupees          Int
+  soldDeliveryRupees     Int
+  refundedOrders         Int
+  refundedItemsRupees    Int
+  refundedGstRupees      Int
+  refundedDeliveryRupees Int
+
+  @@index([day])
+  @@map("daily_order_sales")
+}
+
+// When the summaries were last rebuilt: one row, once they have been.
+model SalesSummaryRefresh {
+  id          Int      @id @default(1)
+  refreshedAt DateTime
+
+  @@map("sales_summary_refreshes")
 }

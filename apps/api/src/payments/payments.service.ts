@@ -8,7 +8,11 @@ import { z } from 'zod';
 import type { AuditContext } from '../audit/audit-context';
 import { AuditService } from '../audit/audit.service';
 import type { Prisma } from '../generated/prisma/client';
-import type { RefundReason, RefundStatus } from '../generated/prisma/enums';
+import type {
+  PaymentMethod,
+  RefundReason,
+  RefundStatus,
+} from '../generated/prisma/enums';
 import {
   NotificationsService,
   type RefundNotificationKind,
@@ -455,17 +459,18 @@ export class PaymentsService {
     return { paidBy: payment.razorpayPaymentId, refunded: refund !== null };
   }
 
-  // Records the Razorpay payment that paid the order. Only once: the
-  // database never lets a paid payment change.
+  // Records the Razorpay payment that paid the order, and how it was paid.
+  // Only once: the database never lets a paid payment change.
   async markPaid(
     tx: Prisma.TransactionClient,
     paymentId: string,
     razorpayPaymentId: string,
+    method: PaymentMethod,
     now: Date,
   ): Promise<void> {
     const { count } = await tx.payment.updateMany({
       where: { id: paymentId, razorpayPaymentId: null },
-      data: { razorpayPaymentId, paidAt: now },
+      data: { razorpayPaymentId, method, paidAt: now },
     });
     if (count !== 1) {
       throw new Error('The payment was paid already');

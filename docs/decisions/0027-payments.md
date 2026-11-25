@@ -4,6 +4,7 @@
 - Date: 2026-11-09
 - Updated: 2026-11-10 (part 9: a paid order cancelled before it ships gets its payment back, and Super Users see payments and refunds, see ADR 0028; the owner chose Razorpay for every payment method, UPI included)
 - Updated: 2026-11-11 (part 10: the customer is emailed when an order is paid and when a refund is complete, and the Super Users when a refund fails, see ADR 0029)
+- Updated: 2026-11-25 (part 15C: a payment keeps how it was paid, from Razorpay's own record, set once with the payment, see ADR 0046)
 
 ## Context
 

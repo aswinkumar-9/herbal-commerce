@@ -7,9 +7,10 @@ import {
 import { InjectPinoLogger, PinoLogger } from 'nestjs-pino';
 import { RetryLaterException } from '../common/retry-later.exception';
 import type { Prisma } from '../generated/prisma/client';
-import type { RefundReason } from '../generated/prisma/enums';
+import type { PaymentMethod, RefundReason } from '../generated/prisma/enums';
 import { NotEnoughStockError, StockService } from '../inventory/stock.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { paymentMethodOf } from '../payments/payment-method';
 import {
   PaymentsService,
   type PaymentRecord,
@@ -210,8 +211,9 @@ export class OrderPaymentsService {
     if (paid.amountRupees !== record.amountRupees || paid.currency !== 'INR') {
       throw new Error('A captured payment does not match its order');
     }
+    const method = paymentMethodOf(paid.method);
     const settlement = await this.prisma.$transaction((tx) =>
-      this.settleLocked(tx, record, paid.id, now),
+      this.settleLocked(tx, record, paid.id, method, now),
     );
     if (settlement.kind === 'PAID') {
       this.notifications.wake();
@@ -265,6 +267,7 @@ export class OrderPaymentsService {
     tx: Prisma.TransactionClient,
     record: PaymentRecord,
     razorpayPaymentId: string,
+    method: PaymentMethod,
     now: Date,
   ): Promise<Settlement> {
     const orderId = record.orderId;
@@ -310,6 +313,7 @@ export class OrderPaymentsService {
         tx,
         record,
         razorpayPaymentId,
+        method,
         order.status,
         now,
       );
@@ -328,6 +332,7 @@ export class OrderPaymentsService {
         tx,
         record,
         razorpayPaymentId,
+        method,
         order.status,
         now,
       );
@@ -344,10 +349,11 @@ export class OrderPaymentsService {
     tx: Prisma.TransactionClient,
     record: PaymentRecord,
     razorpayPaymentId: string,
+    method: PaymentMethod,
     from: 'PENDING_PAYMENT' | 'EXPIRED',
     now: Date,
   ): Promise<void> {
-    await this.payments.markPaid(tx, record.id, razorpayPaymentId, now);
+    await this.payments.markPaid(tx, record.id, razorpayPaymentId, method, now);
     const { count } = await tx.order.updateMany({
       where: { id: record.orderId, status: from },
       data: { status: 'PAID' },

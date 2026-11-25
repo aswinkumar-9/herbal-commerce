@@ -6,6 +6,7 @@ import {
 import { AddressesService } from '../addresses/addresses.service';
 import { CartService } from '../cart/cart.service';
 import { ShopPacksService } from '../catalog/shop-packs.service';
+import type { ReportGroups } from '../catalog/shop-packs.service';
 import type { Prisma } from '../generated/prisma/client';
 import type {
   OrderStatus,
@@ -108,9 +109,10 @@ export interface OrderSummary {
   moreProducts: number;
 }
 
-// A priced line with what only the order keeps: the pack size's ID, and
-// its HSN code for the invoice.
-interface PricedLine extends OrderLine {
+// A priced line with what only the order keeps: the pack size's ID, its
+// HSN code for the invoice, and what its sale is reported under (part
+// 15C).
+interface PricedLine extends OrderLine, ReportGroups {
   variantId: string;
   hsnCode: string;
 }
@@ -457,6 +459,7 @@ export class OrdersService {
         mrpRupees: pack.mrpRupees,
         priceRupees: pack.priceRupees,
         gstRate: pack.gstRate,
+        ...pack.reportGroups,
         ...lineAmounts({
           priceRupees: pack.priceRupees,
           packs: count,
@@ -475,6 +478,13 @@ export class OrdersService {
 function customerLine({
   variantId: _variantId,
   hsnCode: _hsnCode,
+  productId: _productId,
+  topCategoryId: _topCategoryId,
+  topCategoryName: _topCategoryName,
+  subcategoryId: _subcategoryId,
+  subcategoryName: _subcategoryName,
+  brandId: _brandId,
+  brandName: _brandName,
   ...line
 }: PricedLine): OrderLine {
   return line;

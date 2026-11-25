@@ -430,6 +430,7 @@ describe('OrderPaymentsService.settle', () => {
       tx,
       PAYMENT_ID,
       captured.id,
+      'UPI',
       NOW,
     );
     expect(tx.order.updateMany).toHaveBeenNthCalledWith(2, {
@@ -459,6 +460,30 @@ describe('OrderPaymentsService.settle', () => {
       committed.mock.invocationCallOrder[0] <
         notifications.wake.mock.invocationCallOrder[0],
     ).toBe(true);
+  });
+
+  it('records how it was paid, as Razorpay names it (part 15C)', async () => {
+    const { service, tx, payments } = setup();
+    payments.razorpayPayment
+      .mockResolvedValueOnce({ ...captured, method: 'card' })
+      .mockResolvedValueOnce({ ...captured, method: 'bank_transfer' });
+
+    await service.settle(captured.id, NOW);
+    expect(payments.markPaid).toHaveBeenLastCalledWith(
+      tx,
+      PAYMENT_ID,
+      captured.id,
+      'CARD',
+      NOW,
+    );
+    await service.settle(captured.id, NOW);
+    expect(payments.markPaid).toHaveBeenLastCalledWith(
+      tx,
+      PAYMENT_ID,
+      captured.id,
+      'OTHER',
+      NOW,
+    );
   });
 
   it('changes nothing for a payment that is not captured', async () => {
@@ -556,6 +581,7 @@ describe('OrderPaymentsService.settle', () => {
       tx,
       PAYMENT_ID,
       captured.id,
+      'UPI',
       NOW,
     );
     expect(tx.order.updateMany).toHaveBeenLastCalledWith({
