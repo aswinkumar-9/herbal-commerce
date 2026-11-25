@@ -4,8 +4,9 @@ import { json } from './fake-api';
 
 // The Sales page's report as the API sends it.
 
-export const SALES = (from: string, to: string) =>
-  `GET /v1/staff/reports/sales?from=${from}&to=${to}`;
+// With a filter's parameters after the days, as "&productId=…".
+export const SALES = (from: string, to: string, filter = '') =>
+  `GET /v1/staff/reports/sales?from=${from}&to=${to}${filter}`;
 
 // The page opens on the last 30 days: on 25 Nov 2026, from 27 Oct.
 export const LAST_30 = SALES('2026-10-27', '2026-11-25');
@@ -44,6 +45,7 @@ export function reportOf(
 ): SalesReport {
   return {
     period: { from, to },
+    filters: { product: null, category: null, brand: null },
     previousPeriod: periodBefore({ from, to }),
     refreshedAt: '2026-11-25T06:40:00.000Z',
     totals: SOME,

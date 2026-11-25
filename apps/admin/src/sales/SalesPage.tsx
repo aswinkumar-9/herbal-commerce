@@ -28,40 +28,111 @@ import {
   periodChoice,
 } from './sales-periods';
 import type { DateField, Period, PeriodChoice, Preset } from './sales-periods';
+import { DownloadReport } from './DownloadReport';
 import { SalesBreakdown } from './SalesBreakdown';
+import { SalesFilterBar } from './SalesFilterBar';
+import { filterFrom, filterParams, isFiltered } from './sales-filters';
+import type { FilterKind, FilterMatch, SalesFilter } from './sales-filters';
 import { useSalesReport } from './sales-queries';
 import { useIndiaToday } from './use-india-today';
 
+// The period as the address keeps it: nothing for the default.
+function periodParams(choice: PeriodChoice): Record<string, string> {
+  if (choice.kind === 'dates') {
+    return { from: choice.period.from, to: choice.period.to };
+  }
+  return choice.preset === DEFAULT_PRESET ? {} : { period: choice.preset.name };
+}
+
+// What each filter in use is called: as the search found it, else as the
+// report names it once it has come.
+function filterNames(
+  filter: SalesFilter,
+  found: Record<string, string>,
+  report: SalesReport | undefined,
+): Partial<Record<FilterKind, string>> {
+  const named = report?.filters;
+  const category =
+    named?.category && named.category.categoryId === filter.category
+      ? named.category
+      : null;
+  const reported: Partial<Record<FilterKind, string | null>> = {
+    product:
+      named?.product?.productId === filter.product
+        ? named?.product?.name
+        : null,
+    category: category?.name
+      ? category.parentName
+        ? `${category.parentName} › ${category.name}`
+        : category.name
+      : null,
+    brand: named?.brand?.brandId === filter.brand ? named?.brand?.name : null,
+  };
+  const names: Partial<Record<FilterKind, string>> = {};
+  for (const kind of ['product', 'category', 'brand'] as const) {
+    const id = filter[kind];
+    const name = id ? (found[`${kind}:${id}`] ?? reported[kind]) : null;
+    if (id) {
+      names[kind] = name ?? (report ? 'Not found' : '…');
+    }
+  }
+  return names;
+}
+
 // A period's sales, for Super Users (part 15D, ADR 0047): the totals, each
-// beside the period of the same length just before. The period lives in
-// the address, so a link or a reload shows the same one.
+// beside the period of the same length just before, narrowed or not to a
+// product, a category or a brand. The period and the filters live in the
+// address, so a link or a reload shows the same.
 export function SalesPage() {
   usePageTitle('Sales');
   const [params, setParams] = useSearchParams();
   const today = useIndiaToday();
   const choice = periodChoice(params, today);
   const { period } = choice;
-  const report = useSalesReport(period);
+  const filter = filterFrom(params);
+  const report = useSalesReport(period, filter);
+  // The names of what the search found, by kind and ID.
+  const [found, setFound] = useState<Record<string, string>>({});
+
+  function show(
+    periodPart: Record<string, string>,
+    filterPart: SalesFilter = filter,
+  ) {
+    setParams(
+      { ...periodPart, ...filterParams(filterPart) },
+      { replace: true },
+    );
+  }
 
   function showPreset(preset: Preset) {
-    setParams(preset === DEFAULT_PRESET ? {} : { period: preset.name }, {
-      replace: true,
-    });
+    show(preset === DEFAULT_PRESET ? {} : { period: preset.name });
   }
 
   function showDates({ from, to }: Period) {
-    setParams({ from, to }, { replace: true });
+    show({ from, to });
+  }
+
+  function choose(match: FilterMatch) {
+    setFound((now) => ({ ...now, [`${match.kind}:${match.id}`]: match.name }));
+    show(periodParams(choice), { ...filter, [match.kind]: match.id });
+  }
+
+  function remove(kind: FilterKind) {
+    show(periodParams(choice), { ...filter, [kind]: undefined });
   }
 
   return (
     <section className="max-w-5xl">
-      <header>
-        <h1 className="text-2xl font-semibold">Sales</h1>
-        <p className="mt-1 text-ink-muted">
-          What customers paid for, less what was refunded, by the day in India
-          it happened. Each period is compared with the one of the same length
-          just before it.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-4">
+        <div className="max-w-2xl">
+          <h1 className="text-2xl font-semibold">Sales</h1>
+          <p className="mt-1 text-ink-muted">
+            What customers paid for, less what was refunded, by the day in India
+            it happened. Each period is compared with the one of the same length
+            just before it.
+          </p>
+        </div>
+        <DownloadReport period={period} filter={filter} />
       </header>
 
       <PeriodPicker
@@ -69,6 +140,14 @@ export function SalesPage() {
         today={today}
         onPreset={showPreset}
         onDates={showDates}
+      />
+
+      <SalesFilterBar
+        filter={filter}
+        names={filterNames(filter, found, report.data)}
+        onChoose={choose}
+        onRemove={remove}
+        onClear={() => show(periodParams(choice), {})}
       />
 
       <div className="mt-4 flex flex-wrap justify-between gap-x-6 gap-y-1 text-sm">
@@ -103,7 +182,7 @@ export function SalesPage() {
             report.isPlaceholderData ? 'opacity-60' : ''
           }`}
         >
-          <Figures report={report.data} />
+          <Figures report={report.data} filtered={isFiltered(filter)} />
         </div>
       ) : null}
     </section>
@@ -344,7 +423,14 @@ function Figure({
   );
 }
 
-function Figures({ report }: { report: SalesReport }) {
+function Figures({
+  report,
+  filtered,
+}: {
+  report: SalesReport;
+  // Narrowed to some products: every figure is theirs alone.
+  filtered: boolean;
+}) {
   const { totals: now, previousTotals: before } = report;
   const rupeesChange = (pick: (totals: SalesTotals) => number) =>
     changeFrom(pick(now), pick(before), signedRupees);
@@ -361,15 +447,27 @@ function Figures({ report }: { report: SalesReport }) {
             label="Sales"
             value={signedRupees(now.salesRupees)}
             change={rupeesChange((totals) => totals.salesRupees)}
-            note="What the products sold for, without GST, less refunds."
+            note={
+              filtered
+                ? 'What these products sold for, without GST, less refunds.'
+                : 'What the products sold for, without GST, less refunds.'
+            }
           />
           <dl className="mt-5 grid grid-cols-3 gap-3 border-t border-line pt-4 text-sm">
             <Part label="GST" value={signedRupees(now.gstRupees)} />
-            <Part label="Delivery" value={signedRupees(now.deliveryRupees)} />
+            {now.deliveryRupees === null ? (
+              <Part
+                label="Delivery"
+                value="Not split"
+                note="Charged on whole orders"
+              />
+            ) : (
+              <Part label="Delivery" value={signedRupees(now.deliveryRupees)} />
+            )}
             <Part
-              label="Paid in all"
+              label={filtered ? 'Paid for these' : 'Paid in all'}
               value={signedRupees(now.paidRupees)}
-              note="With GST and delivery"
+              note={filtered ? 'With GST' : 'With GST and delivery'}
             />
           </dl>
         </div>
@@ -378,13 +476,19 @@ function Figures({ report }: { report: SalesReport }) {
             label="New customers"
             value={count(now.newCustomers)}
             change={countChange((totals) => totals.newCustomers)}
-            note="Paid for the first time."
+            note={
+              filtered
+                ? 'Paid for the first time, with these in.'
+                : 'Paid for the first time.'
+            }
           />
           <Figure
             label="Returning customers"
             value={count(now.returningCustomers)}
             change={countChange((totals) => totals.returningCustomers)}
-            note="Had paid before."
+            note={
+              filtered ? 'Had paid before, for anything.' : 'Had paid before.'
+            }
           />
         </div>
         <div className={TILE}>
@@ -392,7 +496,11 @@ function Figures({ report }: { report: SalesReport }) {
             label="Orders"
             value={count(now.orders)}
             change={countChange((totals) => totals.orders)}
-            note="Paid in the period."
+            note={
+              filtered
+                ? 'Paid in the period, with these in.'
+                : 'Paid in the period.'
+            }
           />
         </div>
         <div className={TILE}>
@@ -407,7 +515,11 @@ function Figures({ report }: { report: SalesReport }) {
               now.averageOrderRupees,
               before.averageOrderRupees,
             )}
-            note="Its products without GST, before any refund."
+            note={
+              filtered
+                ? 'These products in an order, without GST, before any refund.'
+                : 'Its products without GST, before any refund.'
+            }
           />
         </div>
         <div className={TILE}>
@@ -415,14 +527,20 @@ function Figures({ report }: { report: SalesReport }) {
             label="Refunds"
             value={signedRupees(now.refundedRupees)}
             change={rupeesChange((totals) => totals.refundedRupees)}
-            note={`${counted(now.refundedOrders, 'order', 'orders')} refunded in the period, everything included.`}
+            note={
+              filtered
+                ? `${counted(now.refundedOrders, 'order', 'orders')} with these in refunded in the period: what these came to, GST included.`
+                : `${counted(now.refundedOrders, 'order', 'orders')} refunded in the period, everything included.`
+            }
           />
         </div>
       </div>
       {quiet ? (
         <p className="mt-4 rounded-card border border-dashed border-line bg-surface p-5 text-center text-sm text-ink-muted">
-          Nothing was paid for or refunded in this period. Payments show here
-          within 5 minutes of being made.
+          {filtered
+            ? 'None of these were paid for or refunded in this period.'
+            : 'Nothing was paid for or refunded in this period.'}{' '}
+          Payments show here within 5 minutes of being made.
         </p>
       ) : (
         <SalesBreakdown report={report} />

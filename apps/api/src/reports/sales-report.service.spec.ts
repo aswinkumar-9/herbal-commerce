@@ -1,5 +1,9 @@
 import { PrismaService } from '../prisma/prisma.service';
-import { SalesReportService, TOP_LIMIT } from './sales-report.service';
+import {
+  MAX_REGISTER_LINES,
+  SalesReportService,
+  TOP_LIMIT,
+} from './sales-report.service';
 
 const P1 = '7d6c5b4a-3f2e-4d1c-8b0a-9f8e7d6c5b41';
 const P2 = '7d6c5b4a-3f2e-4d1c-8b0a-9f8e7d6c5b42';
@@ -138,10 +142,16 @@ function setup() {
         Promise.resolve(args.by.includes('day') ? DAYS : PLACES),
       ),
     },
-    dailyLineSale: { groupBy: jest.fn().mockResolvedValue(LINES) },
+    dailyLineSale: {
+      aggregate: jest.fn(),
+      groupBy: jest.fn().mockResolvedValue(LINES),
+    },
     $queryRaw: jest
       .fn()
       .mockResolvedValue([{ current: true, new: 2, returning: 1 }]),
+    product: { findUnique: jest.fn().mockResolvedValue(null) },
+    category: { findUnique: jest.fn().mockResolvedValue(null) },
+    brand: { findUnique: jest.fn().mockResolvedValue(null) },
   };
   const prisma = {
     $transaction: jest.fn(
@@ -169,6 +179,12 @@ describe('SalesReportService.sales', () => {
       to: '2026-10-31',
     });
     expect(report.refreshedAt).toBe(REFRESHED);
+    expect(report.filters).toEqual({
+      product: null,
+      category: null,
+      brand: null,
+    });
+    expect(tx.dailyLineSale.aggregate).not.toHaveBeenCalled();
     expect(tx.salesSummaryRefresh.findUnique).toHaveBeenCalledWith({
       where: { id: 1 },
       select: { refreshedAt: true },
@@ -249,7 +265,13 @@ describe('SalesReportService.sales', () => {
       TemplateStringsArray,
       ...unknown[],
     ];
-    expect(values).toEqual(['2026-10-07', '2026-11-01', '2026-11-25']);
+    expect(values.slice(0, 3)).toEqual([
+      '2026-10-07',
+      '2026-11-01',
+      '2026-11-25',
+    ]);
+    // No filter: every buyer.
+    expect(values.slice(3)).toEqual([false, ...Array(8).fill(null)]);
     const sql = strings.join('?');
     expect(sql).toContain('?::date - INTERVAL \'330 minutes\' AS "before"');
     expect(sql).toContain('(?::date + 1) - INTERVAL \'330 minutes\' AS "end"');
@@ -442,5 +464,633 @@ describe('SalesReportService.sales', () => {
 
     const { methods } = await reports.sales(NOVEMBER);
     expect(methods.map((entry) => entry.method)).toEqual(['CARD', null]);
+  });
+});
+
+// Ashwagandha's lines in November: 2 packs on the 3rd, one of them refunded
+// on the 20th, and one more on the 24th; one pack in October.
+const ASH_NOW = {
+  soldPacks: 3,
+  soldRupees: 1347,
+  soldGstRupees: 64,
+  refundedPacks: 1,
+  refundedRupees: 449,
+  refundedGstRupees: 21,
+};
+const ASH_BEFORE = {
+  ...LINE_NONE,
+  soldPacks: 1,
+  soldRupees: 449,
+  soldGstRupees: 21,
+};
+const ASH_DAYS = [
+  {
+    day: day('2026-11-03'),
+    _sum: { ...LINE_NONE, soldPacks: 2, soldRupees: 898, soldGstRupees: 43 },
+  },
+  {
+    day: day('2026-11-20'),
+    _sum: {
+      ...LINE_NONE,
+      refundedPacks: 1,
+      refundedRupees: 449,
+      refundedGstRupees: 21,
+    },
+  },
+  {
+    day: day('2026-11-24'),
+    _sum: { ...LINE_NONE, soldPacks: 1, soldRupees: 449, soldGstRupees: 21 },
+  },
+];
+const ASH_PLACES = [
+  {
+    deliveryState: 'Karnataka',
+    method: 'UPI',
+    _sum: {
+      soldPacks: 2,
+      soldRupees: 898,
+      soldGstRupees: 43,
+      refundedPacks: 1,
+      refundedRupees: 449,
+      refundedGstRupees: 21,
+    },
+  },
+  {
+    deliveryState: 'Kerala',
+    method: 'CARD',
+    _sum: { ...LINE_NONE, soldPacks: 1, soldRupees: 449, soldGstRupees: 21 },
+  },
+];
+// The orders with Ashwagandha in, paid or refunded, by day and place: two
+// periods' worth.
+const ASH_ORDERS = [
+  {
+    day: '2026-10-15',
+    state: 'Kerala',
+    method: 'UPI',
+    refunded: false,
+    orders: 1,
+  },
+  {
+    day: '2026-10-20',
+    state: 'Kerala',
+    method: 'UPI',
+    refunded: true,
+    orders: 1,
+  },
+  {
+    day: '2026-11-03',
+    state: 'Karnataka',
+    method: 'UPI',
+    refunded: false,
+    orders: 2,
+  },
+  {
+    day: '2026-11-20',
+    state: 'Karnataka',
+    method: 'UPI',
+    refunded: true,
+    orders: 1,
+  },
+  {
+    day: '2026-11-24',
+    state: 'Kerala',
+    method: 'CARD',
+    refunded: false,
+    orders: 1,
+  },
+];
+
+function filtered() {
+  const made = setup();
+  const { tx } = made;
+  tx.dailyLineSale.aggregate
+    .mockResolvedValueOnce({ _sum: ASH_NOW })
+    .mockResolvedValueOnce({ _sum: ASH_BEFORE });
+  tx.dailyLineSale.groupBy.mockImplementation((args: { by: string[] }) =>
+    Promise.resolve(
+      args.by.includes('day')
+        ? ASH_DAYS
+        : args.by.includes('deliveryState')
+          ? ASH_PLACES
+          : LINES.slice(0, 2),
+    ),
+  );
+  // The customers' query, then the orders'.
+  tx.$queryRaw.mockImplementation((strings: TemplateStringsArray) =>
+    Promise.resolve(
+      strings.join('?').includes('"firsts"')
+        ? [
+            { current: true, new: 1, returning: 1 },
+            { current: false, new: 1, returning: 0 },
+          ]
+        : ASH_ORDERS,
+    ),
+  );
+  return made;
+}
+
+const queryOf = (tx: ReturnType<typeof setup>['tx'], i: number) => {
+  const [strings, ...values] = tx.$queryRaw.mock.calls[i] as [
+    TemplateStringsArray,
+    ...unknown[],
+  ];
+  return { sql: strings.join('?'), values };
+};
+
+describe('SalesReportService.sales, narrowed to some products', () => {
+  it('counts only their lines: without GST, less refunds, with their GST and no delivery', async () => {
+    const { reports, tx } = filtered();
+
+    const report = await reports.sales({ ...NOVEMBER, productId: P1 });
+    expect(report.totals).toEqual({
+      salesRupees: 1347 - 64 - (449 - 21),
+      gstRupees: 64 - 21,
+      deliveryRupees: null,
+      paidRupees: 855 + 43,
+      // The orders with it in, paid in the period, and refunded in it.
+      orders: 3,
+      // Its 1283 before refunds over 3 orders, to the nearest rupee.
+      averageOrderRupees: 428,
+      refundedOrders: 1,
+      refundedRupees: 449,
+      newCustomers: 1,
+      returningCustomers: 1,
+    });
+    expect(report.previousTotals).toEqual({
+      salesRupees: 428,
+      gstRupees: 21,
+      deliveryRupees: null,
+      paidRupees: 449,
+      orders: 1,
+      averageOrderRupees: 428,
+      refundedOrders: 1,
+      refundedRupees: 0,
+      newCustomers: 1,
+      returningCustomers: 0,
+    });
+    // Whole orders' summaries say nothing of one product.
+    expect(tx.dailyOrderSale.aggregate).not.toHaveBeenCalled();
+    expect(tx.dailyOrderSale.groupBy).not.toHaveBeenCalled();
+  });
+
+  it('reads their lines only, a category with its subcategories, a brand, or those together', async () => {
+    const inNovember = {
+      day: { gte: day('2026-11-01'), lte: day('2026-11-25') },
+    };
+    const { reports, tx } = filtered();
+    await reports.sales({ ...NOVEMBER, productId: P1 });
+    expect(tx.dailyLineSale.aggregate.mock.calls.map(([args]) => args)).toEqual(
+      [
+        { where: { ...inNovember, productId: P1 }, _sum: expect.any(Object) },
+        {
+          where: {
+            day: { gte: day('2026-10-07'), lte: day('2026-10-31') },
+            productId: P1,
+          },
+          _sum: expect.any(Object),
+        },
+      ],
+    );
+    for (const [args] of tx.dailyLineSale.groupBy.mock.calls) {
+      expect((args as { where: object }).where).toEqual({
+        ...inNovember,
+        productId: P1,
+      });
+    }
+
+    const second = filtered();
+    await second.reports.sales({
+      ...NOVEMBER,
+      categoryId: WELLNESS,
+      brandId: HIMALAYA,
+    });
+    expect(second.tx.dailyLineSale.groupBy.mock.calls[0][0]).toMatchObject({
+      where: {
+        ...inNovember,
+        brandId: HIMALAYA,
+        OR: [{ topCategoryId: WELLNESS }, { subcategoryId: WELLNESS }],
+      },
+    });
+  });
+
+  it('counts the orders with them in from the payments and refunds, in India’s days, up to the last rebuild', async () => {
+    const { reports, tx } = filtered();
+
+    await reports.sales({ ...NOVEMBER, categoryId: WELLNESS });
+    const { sql, values } = queryOf(tx, 1);
+    expect(values).toEqual([
+      '2026-10-07',
+      '2026-11-25',
+      '2026-11-25 06:40:00.000',
+      '2026-10-07',
+      '2026-11-25',
+      '2026-11-25 06:40:00.000',
+      null,
+      null,
+      WELLNESS,
+      WELLNESS,
+      WELLNESS,
+      null,
+      null,
+    ]);
+    expect(sql).toContain('p."paidAt" < ?::timestamp');
+    expect(sql).toContain('r."createdAt" < ?::timestamp');
+    expect(sql).toContain('(p."paidAt" + INTERVAL \'330 minutes\')::date');
+    expect(sql).toContain('ON p."razorpayPaymentId" = r."razorpayPaymentId"');
+    expect(sql).toContain('i."topCategoryId" = ?::uuid');
+    expect(sql).toContain('i."subcategoryId" = ?::uuid');
+  });
+
+  it('counts customers who bought them, up to the last rebuild', async () => {
+    const { reports, tx } = filtered();
+
+    await reports.sales({ ...NOVEMBER, brandId: HIMALAYA });
+    const { sql, values } = queryOf(tx, 0);
+    expect(values).toEqual([
+      '2026-10-07',
+      '2026-11-01',
+      '2026-11-25',
+      true,
+      '2026-11-25 06:40:00.000',
+      null,
+      null,
+      null,
+      null,
+      null,
+      HIMALAYA,
+      HIMALAYA,
+    ]);
+    expect(sql).toContain('i."brandId" = ?::uuid');
+  });
+
+  it('counts no orders before the summaries were ever made', async () => {
+    const { reports, tx } = filtered();
+    tx.salesSummaryRefresh.findUnique.mockResolvedValue(null);
+
+    const report = await reports.sales({ ...NOVEMBER, productId: P1 });
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(queryOf(tx, 0).values[4]).toBeNull();
+    expect(report.totals.orders).toBe(0);
+    expect(report.totals.averageOrderRupees).toBeNull();
+  });
+
+  it('keeps a state paid for in two ways apart in each', async () => {
+    const { reports, tx } = filtered();
+    tx.dailyLineSale.groupBy.mockImplementation((args: { by: string[] }) =>
+      Promise.resolve(
+        args.by.includes('deliveryState')
+          ? ['UPI', 'CARD'].map((method) => ({
+              deliveryState: 'Goa',
+              method,
+              _sum: { ...LINE_NONE, soldRupees: 449, soldGstRupees: 21 },
+            }))
+          : [],
+      ),
+    );
+    tx.$queryRaw.mockResolvedValue([]);
+
+    const report = await reports.sales({ ...NOVEMBER, productId: P1 });
+    expect(report.states).toEqual([
+      { state: 'Goa', salesRupees: 856, orders: 0 },
+    ]);
+    expect(report.methods).toEqual([
+      { method: 'CARD', salesRupees: 428, orders: 0 },
+      { method: 'UPI', salesRupees: 428, orders: 0 },
+    ]);
+  });
+
+  it('gives each day, state and method their sales and the orders with them in', async () => {
+    const { reports } = filtered();
+
+    const report = await reports.sales({ ...NOVEMBER, productId: P1 });
+    const points = report.series.points.filter(
+      (point) => point.salesRupees !== 0 || point.orders !== 0,
+    );
+    expect(points).toEqual([
+      { start: '2026-11-03', salesRupees: 855, orders: 2 },
+      { start: '2026-11-20', salesRupees: -428, orders: 0 },
+      { start: '2026-11-24', salesRupees: 428, orders: 1 },
+    ]);
+    expect(report.states).toEqual([
+      { state: 'Kerala', salesRupees: 428, orders: 1 },
+      { state: 'Karnataka', salesRupees: 427, orders: 2 },
+    ]);
+    expect(report.methods).toEqual([
+      { method: 'CARD', salesRupees: 428, orders: 1 },
+      { method: 'UPI', salesRupees: 427, orders: 2 },
+    ]);
+    expect(report.products.map((product) => product.name)).toEqual([
+      'Ashwagandha Capsules 60',
+    ]);
+  });
+
+  it('names the filters as the catalog does now', async () => {
+    const { reports, tx } = filtered();
+    tx.product.findUnique.mockResolvedValue({ name: 'Ashwagandha 60s' });
+    tx.category.findUnique.mockResolvedValue({
+      name: 'Immunity',
+      parent: { name: 'Wellness' },
+    });
+    tx.brand.findUnique.mockResolvedValue({ name: 'Himalaya Wellness' });
+
+    const { filters } = await reports.sales({
+      ...NOVEMBER,
+      productId: P1,
+      categoryId: IMMUNITY,
+      brandId: HIMALAYA,
+    });
+    expect(filters).toEqual({
+      product: { productId: P1, name: 'Ashwagandha 60s' },
+      category: {
+        categoryId: IMMUNITY,
+        name: 'Immunity',
+        parentName: 'Wellness',
+      },
+      brand: { brandId: HIMALAYA, name: 'Himalaya Wellness' },
+    });
+    expect(tx.category.findUnique).toHaveBeenCalledWith({
+      where: { id: IMMUNITY },
+      select: { name: true, parent: { select: { name: true } } },
+    });
+  });
+
+  it('names one gone from the catalog as it last sold, and a top category without a parent', async () => {
+    const { reports } = filtered();
+
+    const gone = await reports.sales({
+      ...NOVEMBER,
+      productId: P1,
+      categoryId: IMMUNITY,
+      brandId: HIMALAYA,
+    });
+    expect(gone.filters.product).toEqual({
+      productId: P1,
+      name: 'Ashwagandha Capsules 60',
+    });
+    expect(gone.filters.brand).toEqual({ brandId: HIMALAYA, name: 'Himalaya' });
+
+    const second = filtered();
+    const subcategory = await second.reports.sales({
+      ...NOVEMBER,
+      categoryId: IMMUNITY,
+    });
+    expect(subcategory.filters.category).toEqual({
+      categoryId: IMMUNITY,
+      name: 'Immunity',
+      parentName: 'Wellness',
+    });
+
+    const third = filtered();
+    third.tx.category.findUnique.mockResolvedValue({
+      name: 'Wellness',
+      parent: null,
+    });
+    const top = await third.reports.sales({
+      ...NOVEMBER,
+      categoryId: WELLNESS,
+    });
+    expect(top.filters.category).toEqual({
+      categoryId: WELLNESS,
+      name: 'Wellness',
+      parentName: null,
+    });
+  });
+});
+
+// The register's rows as the database gives them: order B paid with two
+// lines and a delivery charge, then refunded; order J paid, one line.
+const registerRow = (fields: object) => ({
+  at: '2026-11-20 00:00:00',
+  sortAt: new Date('2026-11-19T18:30:00.000Z'),
+  refunded: false,
+  reference: 'BBBBBBBBBB',
+  state: 'Kerala',
+  method: 'CARD',
+  deliveryRupees: 49,
+  position: 0,
+  productName: 'Ashwagandha Capsules',
+  sku: 'ASH-60',
+  topCategoryName: 'Wellness',
+  subcategoryName: 'Immunity',
+  brandName: 'Himalaya',
+  gstRate: 5,
+  packs: 1,
+  lineTotalRupees: 449,
+  gstRupees: 21,
+  ...fields,
+});
+const B_SOLD = [
+  registerRow({}),
+  registerRow({
+    position: 1,
+    productName: 'Tulsi Tea',
+    sku: 'TUL-100',
+    gstRate: 18,
+    packs: 2,
+    lineTotalRupees: 398,
+    gstRupees: 61,
+  }),
+];
+const J_SOLD = registerRow({
+  reference: 'JJJJJJJJJJ',
+  state: 'Goa',
+  method: 'UPI',
+  deliveryRupees: 0,
+});
+const B_REFUNDED = registerRow({
+  at: '2026-11-21 00:30:00',
+  sortAt: new Date('2026-11-20T19:00:00.000Z'),
+  refunded: true,
+});
+
+function exporting(registerRows: object[]) {
+  const made = setup();
+  made.tx.$queryRaw.mockImplementation((strings: TemplateStringsArray) => {
+    const sql = strings.join('?');
+    return Promise.resolve(
+      sql.includes('"lineTotalRupees"')
+        ? registerRows
+        : sql.includes('"firsts"')
+          ? [{ current: true, new: 2, returning: 1 }]
+          : [],
+    );
+  });
+  return made;
+}
+
+describe('SalesReportService.forExport', () => {
+  it('lists every product and brand, and gives every day of the period its figures', async () => {
+    const { reports, tx } = exporting([]);
+    const many = Array.from({ length: TOP_LIMIT + 2 }, (_, i) => ({
+      ...LINES[2],
+      productId: numbered(P2.slice(0, -2), i),
+      productName: `Product ${i}`,
+      brandId: numbered(HIMALAYA.slice(0, -2), i),
+      brandName: `Brand ${i}`,
+    }));
+    tx.dailyLineSale.groupBy.mockResolvedValue(many);
+
+    const found = await reports.forExport(NOVEMBER);
+    expect(found?.report.products).toHaveLength(TOP_LIMIT + 2);
+    expect(found?.report.brands).toHaveLength(TOP_LIMIT + 2);
+    expect(found?.days).toHaveLength(25);
+    expect(found?.days[0]).toEqual({
+      day: '2026-11-01',
+      salesRupees: 0,
+      gstRupees: 0,
+      deliveryRupees: 0,
+      paidRupees: 0,
+      orders: 0,
+      refundedOrders: 0,
+      refundedRupees: 0,
+    });
+    // The 3rd: 2 orders, 1000 with 100 of GST.
+    expect(found?.days[2]).toEqual({
+      day: '2026-11-03',
+      salesRupees: 900,
+      gstRupees: 100,
+      deliveryRupees: 0,
+      paidRupees: 1000,
+      orders: 2,
+      refundedOrders: 0,
+      refundedRupees: 0,
+    });
+    expect(found?.days[19]).toMatchObject({
+      day: '2026-11-20',
+      salesRupees: -428,
+      refundedOrders: 1,
+      refundedRupees: 449,
+    });
+  });
+
+  it('registers each line, a refund below 0, and each order’s delivery after its last line', async () => {
+    const { reports, tx } = exporting([...B_SOLD, J_SOLD, B_REFUNDED]);
+
+    const found = await reports.forExport(NOVEMBER);
+    expect(
+      found?.register.map((line) => [
+        line.kind,
+        line.reference,
+        line.product?.name ?? 'delivery',
+        line.packs,
+        line.priceRupees,
+        line.gstRupees,
+        line.totalRupees,
+      ]),
+    ).toEqual([
+      ['SALE', 'BBBBBBBBBB', 'Ashwagandha Capsules', 1, 428, 21, 449],
+      ['SALE', 'BBBBBBBBBB', 'Tulsi Tea', 2, 337, 61, 398],
+      ['SALE', 'BBBBBBBBBB', 'delivery', 0, 49, 0, 49],
+      // J has no delivery charge: no line for it.
+      ['SALE', 'JJJJJJJJJJ', 'Ashwagandha Capsules', 1, 428, 21, 449],
+      ['REFUND', 'BBBBBBBBBB', 'Ashwagandha Capsules', -1, -428, -21, -449],
+      ['REFUND', 'BBBBBBBBBB', 'delivery', 0, -49, 0, -49],
+    ]);
+    expect(found?.register[0]).toMatchObject({
+      at: '2026-11-20 00:00:00',
+      state: 'Kerala',
+      method: 'CARD',
+      product: {
+        sku: 'ASH-60',
+        categoryName: 'Wellness',
+        subcategoryName: 'Immunity',
+        brandName: 'Himalaya',
+        gstRate: 5,
+      },
+    });
+
+    const register = tx.$queryRaw.mock.calls.find(([strings]) =>
+      (strings as TemplateStringsArray).join('?').includes('"lineTotalRupees"'),
+    ) as [TemplateStringsArray, ...unknown[]];
+    const [strings, ...values] = register;
+    expect(values).toEqual([
+      '2026-11-01',
+      '2026-11-25',
+      '2026-11-25 06:40:00.000',
+      '2026-11-01',
+      '2026-11-25',
+      '2026-11-25 06:40:00.000',
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      null,
+      MAX_REGISTER_LINES + 1,
+    ]);
+    const sql = strings.join('?');
+    expect(sql).toContain('ON p."razorpayPaymentId" = r."razorpayPaymentId"');
+    expect(sql).toContain(
+      'ORDER BY e."at", o."reference", e."refunded", i."position"',
+    );
+  });
+
+  it('gives an order paid and refunded at the same moment a delivery line for each', async () => {
+    const { reports } = exporting([
+      registerRow({}),
+      registerRow({ refunded: true }),
+    ]);
+
+    const found = await reports.forExport(NOVEMBER);
+    expect(
+      found?.register.map((line) => [
+        line.kind,
+        line.product ? 'line' : 'delivery',
+      ]),
+    ).toEqual([
+      ['SALE', 'line'],
+      ['SALE', 'delivery'],
+      ['REFUND', 'line'],
+      ['REFUND', 'delivery'],
+    ]);
+  });
+
+  it('keeps delivery out of a narrowed register, and asks for the filter’s lines only', async () => {
+    const { reports, tx } = exporting([...B_SOLD, B_REFUNDED]);
+    tx.dailyLineSale.aggregate.mockResolvedValue({ _sum: LINE_NONE });
+    tx.dailyLineSale.groupBy.mockImplementation((args: { by: string[] }) =>
+      Promise.resolve(
+        args.by.includes('day') || args.by.includes('deliveryState')
+          ? []
+          : LINES,
+      ),
+    );
+
+    const found = await reports.forExport({ ...NOVEMBER, productId: P1 });
+    expect(found?.register.map((line) => line.product?.name)).toEqual([
+      'Ashwagandha Capsules',
+      'Tulsi Tea',
+      'Ashwagandha Capsules',
+    ]);
+    // Each day narrowed: no delivery.
+    expect(found?.days[0]?.deliveryRupees).toBeNull();
+    const register = tx.$queryRaw.mock.calls.find(([strings]) =>
+      (strings as TemplateStringsArray).join('?').includes('"lineTotalRupees"'),
+    ) as [TemplateStringsArray, ...unknown[]];
+    expect(register.slice(7, 9)).toEqual([P1, P1]);
+  });
+
+  it('gives nothing to register before the summaries were ever made, and refuses one too long', async () => {
+    const empty = exporting([J_SOLD]);
+    empty.tx.salesSummaryRefresh.findUnique.mockResolvedValue(null);
+    expect((await empty.reports.forExport(NOVEMBER))?.register).toEqual([]);
+    expect(
+      empty.tx.$queryRaw.mock.calls.some(([strings]) =>
+        (strings as TemplateStringsArray)
+          .join('?')
+          .includes('"lineTotalRupees"'),
+      ),
+    ).toBe(false);
+
+    const long = exporting(
+      Array.from({ length: MAX_REGISTER_LINES + 1 }, () => J_SOLD),
+    );
+    await expect(long.reports.forExport(NOVEMBER)).resolves.toBeNull();
+    const fits = exporting(
+      Array.from({ length: MAX_REGISTER_LINES }, () => J_SOLD),
+    );
+    await expect(fits.reports.forExport(NOVEMBER)).resolves.not.toBeNull();
   });
 });

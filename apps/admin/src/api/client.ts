@@ -31,6 +31,8 @@ export interface RequestOptions {
   signal?: AbortSignal;
   // Sign-in, renewal and sign-out go without the access token.
   anonymous?: boolean;
+  // What the answer may be: JSON unless a file is asked for.
+  accept?: string;
 }
 
 type Listener = () => void;
@@ -67,6 +69,36 @@ export async function apiRequest(
     throw await failure(response);
   }
   return options.schema ? read(response, options.schema) : undefined;
+}
+
+// A file the API gives to keep, such as a report: its contents and the name
+// the API gave it. It must be of the type asked for, so an error page is
+// never saved as the file, and its name only plain letters, digits, dots
+// and dashes, so it can never point anywhere but the downloads folder.
+export async function apiDownload(
+  path: string,
+  type: string,
+  signal?: AbortSignal,
+): Promise<{ file: Blob; fileName: string }> {
+  const response = await authorised(false, (token) =>
+    send(path, signal ? { accept: type, signal } : { accept: type }, token),
+  );
+  if (!response.ok) {
+    throw await failure(response);
+  }
+  if (!(response.headers.get('Content-Type') ?? '').startsWith(type)) {
+    throw new ApiError(
+      response.status,
+      'The server sent an answer the console does not understand.',
+    );
+  }
+  const named = /filename="([^"]+)"/.exec(
+    response.headers.get('Content-Disposition') ?? '',
+  )?.[1];
+  return {
+    file: await response.blob(),
+    fileName: named && /^[\w.-]+$/.test(named) ? named : 'download',
+  };
 }
 
 export interface UploadOptions<T> {
@@ -156,7 +188,9 @@ async function send(
   token: string | null,
 ): Promise<Response> {
   checkPath(path);
-  const headers = new Headers({ Accept: 'application/json' });
+  const headers = new Headers({
+    Accept: options.accept ?? 'application/json',
+  });
   if (token !== null) {
     headers.set('Authorization', `Bearer ${token}`);
   }

@@ -1,5 +1,7 @@
 import { z } from 'zod';
-import { apiRequest } from '../api/client';
+import { apiDownload, apiRequest } from '../api/client';
+import { filterParams } from './sales-filters';
+import type { SalesFilter } from './sales-filters';
 import type { Period } from './sales-periods';
 
 // A period's sales, for Super Users only (part 15D, ADR 0047), compared
@@ -7,6 +9,9 @@ import type { Period } from './sales-periods';
 // summaries, rebuilt every 5 minutes: refreshedAt says when they last were.
 
 const SALES = '/v1/staff/reports/sales';
+const SALES_EXPORT = '/v1/staff/reports/sales/export';
+export const XLSX_TYPE =
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 const rupees = z.int();
 const count = z.int().nonnegative();
@@ -17,7 +22,8 @@ const totalsSchema = z.object({
   // was refunded: below 0 when more went back than was sold.
   salesRupees: rupees,
   gstRupees: rupees,
-  deliveryRupees: rupees,
+  // None for some products only: delivery is charged on a whole order.
+  deliveryRupees: rupees.nullable(),
   // What customers paid, less what went back.
   paidRupees: rupees,
   orders: count,
@@ -44,8 +50,19 @@ export const PAYMENT_METHODS = [
 ] as const;
 export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
 
+const named = z.string().nullable();
+
 const reportSchema = z.object({
   period,
+  // What the report was narrowed to, named as the catalog names it now,
+  // else as it last sold.
+  filters: z.object({
+    product: z.object({ productId: z.string(), name: named }).nullable(),
+    category: z
+      .object({ categoryId: z.string(), name: named, parentName: named })
+      .nullable(),
+    brand: z.object({ brandId: z.string(), name: named }).nullable(),
+  }),
   previousPeriod: period,
   refreshedAt: z.iso.datetime().nullable(),
   totals: totalsSchema,
@@ -108,11 +125,23 @@ export type SalesReport = z.infer<typeof reportSchema>;
 
 export function getSalesReport(
   { from, to }: Period,
+  filter: SalesFilter,
   signal?: AbortSignal,
 ): Promise<SalesReport> {
-  const search = new URLSearchParams({ from, to });
+  const search = new URLSearchParams({ from, to, ...filterParams(filter) });
   return apiRequest(`${SALES}?${search.toString()}`, {
     schema: reportSchema,
     signal,
   });
+}
+
+// The same period and filter as an Excel file (part 15D): a summary, each
+// day, each grouping and the register of every line sold or refunded. The
+// API writes each download to the audit log.
+export function downloadSalesReport(
+  { from, to }: Period,
+  filter: SalesFilter,
+): Promise<{ file: Blob; fileName: string }> {
+  const search = new URLSearchParams({ from, to, ...filterParams(filter) });
+  return apiDownload(`${SALES_EXPORT}?${search.toString()}`, XLSX_TYPE);
 }

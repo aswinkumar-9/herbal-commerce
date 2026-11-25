@@ -6,6 +6,16 @@ import {
   within,
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  BRANDS,
+  CATEGORIES,
+  HAIR,
+  HIMALAYA,
+  SHAMPOO,
+  brandsOf,
+  categoriesOf,
+  productsOf,
+} from '../test/catalog-fixtures';
 import { heldBack, openSignedIn } from '../test/console';
 import { ASHA, RAVI, json, offline } from '../test/fake-api';
 import {
@@ -390,5 +400,347 @@ describe('today in India', () => {
     expect(result.current).toBe('2026-11-25');
     act(() => vi.advanceTimersByTime(2_000));
     expect(result.current).toBe('2026-11-26');
+  });
+});
+
+const ASH = {
+  ...SHAMPOO,
+  id: '7d6c5b4a-3f2e-4d1c-8b0a-9f8e7d6c5b41',
+  name: 'Ashwagandha Capsules',
+};
+const OILS = {
+  ...HAIR,
+  id: '1a2b3c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d',
+  name: 'Hair Oils',
+  slug: 'hair-oils',
+  parentId: HAIR.id,
+};
+// Ashwagandha alone: its lines' GST, no delivery.
+const ASH_ONLY = {
+  ...SOME,
+  salesRupees: 855,
+  gstRupees: 43,
+  deliveryRupees: null,
+  paidRupees: 898,
+  orders: 2,
+  averageOrderRupees: 428,
+  refundedOrders: 0,
+  refundedRupees: 0,
+};
+const NAMED_ASH = {
+  product: { productId: ASH.id, name: 'Ashwagandha Capsules' },
+  category: null,
+  brand: null,
+};
+const SEARCH_BOX = 'Narrow to a product, category or brand';
+const narrowedTo = () =>
+  [...screen.getByRole('list', { name: 'Narrowed to' }).children]
+    .map((chip) => chip.textContent)
+    .filter((text) => text !== 'Show all sales');
+
+describe('narrowing the Sales page', () => {
+  it('finds a product, category or brand by name, and shows only its sales', async () => {
+    const { router, user, api } = openSales('/sales', {
+      'GET /v1/staff/products?q=ash&limit=5': productsOf([ASH]),
+      [CATEGORIES]: categoriesOf([HAIR, OILS]),
+      [BRANDS]: brandsOf([HIMALAYA]),
+      [SALES('2026-10-27', '2026-11-25', `&productId=${ASH.id}`)]: salesOf(
+        '2026-10-27',
+        '2026-11-25',
+        { filters: NAMED_ASH, totals: ASH_ONLY },
+      ),
+      [SALES('2026-01-01', '2026-11-25', `&productId=${ASH.id}`)]: salesOf(
+        '2026-01-01',
+        '2026-11-25',
+        { filters: NAMED_ASH, totals: ASH_ONLY },
+      ),
+    });
+    await figure('Sales');
+    // The catalog is asked for only once a search starts.
+    expect(api.to('GET', '/v1/staff/categories')).toHaveLength(0);
+
+    await user.type(screen.getByRole('searchbox', { name: SEARCH_BOX }), 'ash');
+    const matches = await screen.findByRole('list', { name: 'Matches' });
+    expect(
+      within(matches)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(['Ashwagandha CapsulesProduct']);
+    expect(screen.getByText('1 match')).toBeInTheDocument();
+
+    await user.click(within(matches).getByRole('button'));
+    expect(router.state.location.search).toBe(`?productId=${ASH.id}`);
+    expect(screen.getByRole('searchbox', { name: SEARCH_BOX })).toHaveValue('');
+    expect(
+      screen.queryByRole('list', { name: 'Matches' }),
+    ).not.toBeInTheDocument();
+    expect(narrowedTo()).toEqual(['Product: Ashwagandha Capsules']);
+
+    // Every figure is its alone: no delivery, what was paid for it.
+    await waitFor(() =>
+      expect(screen.getByText('Not split')).toBeInTheDocument(),
+    );
+    expect(screen.getByText('Paid for these').nextSibling).toHaveTextContent(
+      '₹898',
+    );
+    expect(await figure('Orders')).toHaveTextContent(
+      'Paid in the period, with these in.',
+    );
+    expect(await figure('Sales')).toHaveTextContent(
+      'What these products sold for, without GST, less refunds.',
+    );
+
+    // Another period keeps the filter.
+    await user.click(chip('This year'));
+    expect(router.state.location.search).toBe(
+      `?period=this-year&productId=${ASH.id}`,
+    );
+    await waitFor(() =>
+      expect(
+        api.to(
+          'GET',
+          SALES('2026-01-01', '2026-11-25', `&productId=${ASH.id}`).slice(4),
+        ),
+      ).toHaveLength(1),
+    );
+
+    // And taking it off shows every sale again.
+    await user.click(
+      screen.getByRole('button', { name: 'Show every product' }),
+    );
+    expect(router.state.location.search).toBe('?period=this-year');
+    expect(
+      screen.queryByRole('list', { name: 'Narrowed to' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('finds categories with their top category, and brands, as well as products', async () => {
+    const { user } = openSales('/sales', {
+      'GET /v1/staff/products?q=hair&limit=5': productsOf([]),
+      [CATEGORIES]: categoriesOf([HAIR, OILS]),
+      [BRANDS]: brandsOf([HIMALAYA]),
+    });
+    await figure('Sales');
+
+    await user.type(
+      screen.getByRole('searchbox', { name: SEARCH_BOX }),
+      'hair',
+    );
+    const matches = await screen.findByRole('list', { name: 'Matches' });
+    expect(
+      within(matches)
+        .getAllByRole('button')
+        .map((button) => button.textContent),
+    ).toEqual(['Hair CareCategory', 'Hair Care › Hair OilsCategory']);
+
+    await user.clear(screen.getByRole('searchbox', { name: SEARCH_BOX }));
+    await user.type(screen.getByRole('searchbox', { name: SEARCH_BOX }), 'zzz');
+    expect(
+      await screen.findByText('No product, category or brand has these words.'),
+    ).toBeInTheDocument();
+  });
+
+  it('opens on the filters the address names, as the report names them, and shows all sales again', async () => {
+    const filter = `&categoryId=${OILS.id}&brandId=${HIMALAYA.id}`;
+    const { router, user } = openSales(
+      `/sales?period=this-year&categoryId=${OILS.id}&brandId=${HIMALAYA.id}`,
+      {
+        [SALES('2026-01-01', '2026-11-25')]: salesOf(
+          '2026-01-01',
+          '2026-11-25',
+        ),
+        [SALES('2026-01-01', '2026-11-25', filter)]: salesOf(
+          '2026-01-01',
+          '2026-11-25',
+          {
+            filters: {
+              product: null,
+              category: {
+                categoryId: OILS.id,
+                name: 'Hair Oils',
+                parentName: 'Hair Care',
+              },
+              brand: { brandId: HIMALAYA.id, name: 'Himalaya' },
+            },
+            totals: { ...ASH_ONLY },
+          },
+        ),
+      },
+    );
+
+    await figure('Sales');
+    await waitFor(() =>
+      expect(narrowedTo()).toEqual([
+        'Category: Hair Care › Hair Oils',
+        'Brand: Himalaya',
+      ]),
+    );
+
+    // Every sale again, in the same period.
+    await user.click(screen.getByRole('button', { name: 'Show all sales' }));
+    expect(router.state.location.search).toBe('?period=this-year');
+  });
+
+  it('keeps the days chosen when narrowing, and says when a filter names nothing known', async () => {
+    const GONE = '9f8e7d6c-5b4a-4f3e-8d2c-1b0a9f8e7d6c';
+    const days = (filter: string) => SALES('2026-11-01', '2026-11-10', filter);
+    const { router, user } = openSales(
+      `/sales?from=2026-11-01&to=2026-11-10&brandId=${GONE}`,
+      {
+        [days(`&brandId=${GONE}`)]: salesOf('2026-11-01', '2026-11-10', {
+          filters: {
+            product: null,
+            category: null,
+            brand: { brandId: GONE, name: null },
+          },
+        }),
+        'GET /v1/staff/products?q=hima&limit=5': productsOf([]),
+        [CATEGORIES]: categoriesOf([HAIR]),
+        [BRANDS]: brandsOf([HIMALAYA]),
+        [days(`&brandId=${HIMALAYA.id}`)]: salesOf('2026-11-01', '2026-11-10'),
+      },
+    );
+
+    await figure('Sales');
+    await waitFor(() => expect(narrowedTo()).toEqual(['Brand: Not found']));
+
+    await user.type(
+      screen.getByRole('searchbox', { name: SEARCH_BOX }),
+      'hima',
+    );
+    await user.click(
+      within(await screen.findByRole('list', { name: 'Matches' })).getByRole(
+        'button',
+      ),
+    );
+    expect(router.state.location.search).toBe(
+      `?from=2026-11-01&to=2026-11-10&brandId=${HIMALAYA.id}`,
+    );
+    // Named as the search found it, though the report names none.
+    expect(narrowedTo()).toEqual(['Brand: Himalaya']);
+  });
+
+  it('adds a filter of another kind to the one in use', async () => {
+    const { router, user } = openSales(`/sales?productId=${ASH.id}`, {
+      [SALES('2026-10-27', '2026-11-25', `&productId=${ASH.id}`)]: salesOf(
+        '2026-10-27',
+        '2026-11-25',
+        { filters: NAMED_ASH, totals: ASH_ONLY },
+      ),
+      'GET /v1/staff/products?q=oils&limit=5': productsOf([]),
+      [CATEGORIES]: categoriesOf([HAIR, OILS]),
+      [BRANDS]: brandsOf([HIMALAYA]),
+      [SALES(
+        '2026-10-27',
+        '2026-11-25',
+        `&productId=${ASH.id}&categoryId=${OILS.id}`,
+      )]: salesOf('2026-10-27', '2026-11-25', {
+        filters: { ...NAMED_ASH, category: null },
+        totals: ASH_ONLY,
+      }),
+    });
+    await figure('Sales');
+
+    await user.type(
+      screen.getByRole('searchbox', { name: SEARCH_BOX }),
+      'oils',
+    );
+    await user.click(
+      within(await screen.findByRole('list', { name: 'Matches' })).getByRole(
+        'button',
+        { name: /Hair Oils/ },
+      ),
+    );
+    expect(router.state.location.search).toBe(
+      `?productId=${ASH.id}&categoryId=${OILS.id}`,
+    );
+    expect(narrowedTo()).toEqual([
+      'Product: Ashwagandha Capsules',
+      'Category: Hair Care › Hair Oils',
+    ]);
+  });
+});
+
+const EXPORT = (search: string) =>
+  `GET /v1/staff/reports/sales/export?${search}`;
+const excel = (name: string) => () =>
+  new Response('PK', {
+    status: 200,
+    headers: {
+      'Content-Type':
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'Content-Disposition': `attachment; filename="${name}"`,
+    },
+  });
+
+// What the page handed the browser to save: the link clicked, its file.
+function savedFiles() {
+  const saved: { name: string; url: string }[] = [];
+  vi.spyOn(URL, 'createObjectURL').mockImplementation(() => 'blob:report');
+  vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined);
+  vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(
+    function click(this: HTMLAnchorElement) {
+      saved.push({ name: this.download, url: this.href });
+    },
+  );
+  return saved;
+}
+
+describe('downloading the Sales report', () => {
+  it('saves the period and filters shown as an Excel file, and says so', async () => {
+    const saved = savedFiles();
+    const { user, api } = openSales(`/sales?period=today&productId=${ASH.id}`, {
+      [SALES('2026-11-25', '2026-11-25', `&productId=${ASH.id}`)]: salesOf(
+        '2026-11-25',
+        '2026-11-25',
+        { filters: NAMED_ASH, totals: ASH_ONLY },
+      ),
+      [EXPORT(`from=2026-11-25&to=2026-11-25&productId=${ASH.id}`)]: excel(
+        'herbal-commerce-sales-2026-11-25-to-2026-11-25-narrowed.xlsx',
+      ),
+    });
+    await figure('Sales');
+
+    await user.click(screen.getByRole('button', { name: 'Download as Excel' }));
+    expect(
+      await screen.findByText(
+        'Downloaded herbal-commerce-sales-2026-11-25-to-2026-11-25-narrowed.xlsx',
+      ),
+    ).toBeInTheDocument();
+    expect(saved).toEqual([
+      {
+        name: 'herbal-commerce-sales-2026-11-25-to-2026-11-25-narrowed.xlsx',
+        url: 'blob:report',
+      },
+    ]);
+    // The link is gone from the page at once.
+    expect(document.querySelector('a[download]')).toBeNull();
+    expect(api.unexpected).toEqual([]);
+  });
+
+  it('says why when the file could not be made, and makes it on another try', async () => {
+    const saved = savedFiles();
+    const { user } = openSales('/sales', {
+      [EXPORT('from=2026-10-27&to=2026-11-25')]: [
+        () =>
+          json(400, {
+            message:
+              'More than 1,00,000 lines were sold or refunded in this period: download a shorter one',
+          }),
+        excel('herbal-commerce-sales-2026-10-27-to-2026-11-25.xlsx'),
+      ],
+    });
+    await figure('Sales');
+
+    const button = screen.getByRole('button', { name: 'Download as Excel' });
+    await user.click(button);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'The file could not be made. More than 1,00,000 lines were sold or refunded in this period: download a shorter one',
+    );
+    expect(saved).toEqual([]);
+
+    await user.click(button);
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
   });
 });

@@ -45,4 +45,35 @@ describe('salesReportQuerySchema', () => {
       ['to', 'Choose at most 3660 days'],
     ]);
   });
+
+  it('narrows to a product, a category and a brand by their IDs, in small letters', () => {
+    expect(
+      salesReportQuerySchema.parse({
+        from: '2026-11-01',
+        to: '2026-11-25',
+        productId: '7D6C5B4A-3F2E-4D1C-8B0A-9F8E7D6C5B41',
+        categoryId: '2e3f4a5b-6c7d-4e8f-9a0b-1c2d3e4f5a61',
+        brandId: '8C9D0E1F-2A3B-4C4D-8E5F-6A7B8C9D0E11',
+      }),
+    ).toEqual({
+      from: '2026-11-01',
+      to: '2026-11-25',
+      productId: '7d6c5b4a-3f2e-4d1c-8b0a-9f8e7d6c5b41',
+      categoryId: '2e3f4a5b-6c7d-4e8f-9a0b-1c2d3e4f5a61',
+      brandId: '8c9d0e1f-2a3b-4c4d-8e5f-6a7b8c9d0e11',
+    });
+    expect(
+      refusals({
+        from: '2026-11-01',
+        to: '2026-11-25',
+        productId: 'ashwagandha',
+        categoryId: '',
+        brandId: '1',
+      }),
+    ).toEqual([
+      ['productId', 'Choose a product by its ID'],
+      ['categoryId', 'Choose a category by its ID'],
+      ['brandId', 'Choose a brand by its ID'],
+    ]);
+  });
 });

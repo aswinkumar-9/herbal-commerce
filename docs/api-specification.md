@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.37.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.38.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -2707,7 +2707,7 @@ Query parameters, all optional:
 | `limit` | Whole number, 1 to 100, default 50 | Entries per page |
 | `before` | UUID | The `nextBefore` of the previous page: continue just after it |
 | `action` | Like `thing.verb`, for example `admin.removed` | Only this action |
-| `kind` | `accounts`, `sign_ins`, `orders`, `catalog`, `stock` or `policies`, else `Use accounts, sign_ins, orders, catalog, stock or policies` | Only one kind of change (since part 12G, ADR 0038): `accounts` is every `admin.` action, `super_user.created` and `staff.mfa_set_up`; `sign_ins` is `staff.signed_in`; `orders` every `order.` action; `catalog` every `category.`, `product.`, `variant.` and `image.` action; `stock` every `batch.` and `stock.` action; since part 14B, `policies` every `policy.` action |
+| `kind` | `accounts`, `sign_ins`, `orders`, `catalog`, `stock`, `policies` or `reports`, else `Use accounts, sign_ins, orders, catalog, stock, policies or reports` | Only one kind of change (since part 12G, ADR 0038): `accounts` is every `admin.` action, `super_user.created` and `staff.mfa_set_up`; `sign_ins` is `staff.signed_in`; `orders` every `order.` action; `catalog` every `category.`, `product.`, `variant.` and `image.` action; `stock` every `batch.` and `stock.` action; since part 14B, `policies` every `policy.` action; since part 15D, `reports` every `report.` action |
 | `actorId` | UUID | Only what this account did |
 | `targetId` | 1 to 100 characters | Only entries about this target, for example an Admin's, a category's, a product's, a pack's, an image's, a batch's or an order's ID |
 
@@ -2742,7 +2742,7 @@ Response `200`:
 - `before` and `after`: the relevant fields before and after the change, never a password, secret or token.
 - `nextBefore`: send it as `?before=` to get the next, older page. It is `null` on the last page.
 
-Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way, since part 4C `variant.created`, `variant.updated` and `variant.deleted` for pack sizes, since part 4D `image.created`, `image.updated` and `image.deleted` for product images, since part 5 `batch.received`, `batch.updated` and `stock.changed` for stock (with the quantity before and after, the change, the reason and the note), and since part 9 `order.packed`, `order.shipped` (with the courier and tracking number), `order.delivered`, `order.shipment_corrected` (with only the fields that changed) and `order.cancelled` (with the status before, and the refund's ID for a paid order) for orders, and since part 12G `admin.authenticator_reset` (with when the new link ends) and `order.refund_given_back` (on the order, with the refund's ID, the amount, the time and the note), and since part 14B `policy.draft_saved`, `policy.draft_discarded` and `policy.published` (see "Policy pages (Super Users only)"), and since part 15A `brand.created`, `brand.updated` and `brand.deleted`. Since part 15A, a category entry also keeps `parentId`, the top category it sits in, and a product entry `otherCategoryIds`, the other categories it is also shown in; a product moved within one of those is a `product.updated` with `otherCategoryPosition` (the category and its place) before and after. Since part 12G, an Admin who sets up their app from an emailed link writes `staff.mfa_set_up` as the actor. A price change is a `variant.updated` with the old and new price. A `product.deleted` entry also keeps the product's packs and images, in `before.variants` and `before.images`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
+Actions today: `super_user.created`, `staff.mfa_set_up`, `staff.signed_in`, `admin.invited`, `admin.invite_accepted`, `admin.invitation_resent`, `admin.disabled`, `admin.enabled`, `admin.removed`, since part 4A `category.created`, `category.updated` (with only the fields that changed) and `category.deleted` (with what was deleted), since part 4B `product.created`, `product.updated` and `product.deleted`, which work the same way, since part 4C `variant.created`, `variant.updated` and `variant.deleted` for pack sizes, since part 4D `image.created`, `image.updated` and `image.deleted` for product images, since part 5 `batch.received`, `batch.updated` and `stock.changed` for stock (with the quantity before and after, the change, the reason and the note), and since part 9 `order.packed`, `order.shipped` (with the courier and tracking number), `order.delivered`, `order.shipment_corrected` (with only the fields that changed) and `order.cancelled` (with the status before, and the refund's ID for a paid order) for orders, and since part 12G `admin.authenticator_reset` (with when the new link ends) and `order.refund_given_back` (on the order, with the refund's ID, the amount, the time and the note), and since part 14B `policy.draft_saved`, `policy.draft_discarded` and `policy.published` (see "Policy pages (Super Users only)"), since part 15A `brand.created`, `brand.updated` and `brand.deleted`, and since part 15D `report.sales_exported` (see "Reports (Super Users only)"). Since part 15A, a category entry also keeps `parentId`, the top category it sits in, and a product entry `otherCategoryIds`, the other categories it is also shown in; a product moved within one of those is a `product.updated` with `otherCategoryPosition` (the category and its place) before and after. Since part 12G, an Admin who sets up their app from an emailed link writes `staff.mfa_set_up` as the actor. A price change is a `variant.updated` with the old and new price. A `product.deleted` entry also keeps the product's packs and images, in `before.variants` and `before.images`. A development database may also hold `dev.append_only_check`, the entry that tested the append-only triggers in part 3B-1.
 
 Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` and `403` (as for the Admin endpoints); `429` (the 600 per minute limit).
 
@@ -2849,14 +2849,17 @@ A period's sales, compared with the period of the same length just before, for t
 
 Read from the daily sales summaries (ADR 0046), which a job rebuilds every 5 minutes, so the answer can be up to about 5 minutes behind: `refreshedAt` says when they were last rebuilt. The customers are counted from the payments themselves. Everything is read in one snapshot, so the totals, the series and the lists always agree.
 
-Query parameters, both needed:
+Query parameters, `from` and `to` needed:
 
 | Parameter | Rules | Meaning |
 |---|---|---|
 | `from` | A date such as `2026-11-01`, else `Use a date such as 2026-11-25` | The period's first day in India |
 | `to` | The same, on or after `from` (else `The period starts after it ends`), at most 3660 days on (else `Choose at most 3660 days`) | Its last day, included. A day still to come simply has no sales yet |
+| `productId` | Optional, a UUID, else `Choose a product by its ID` | Only this product's sales (since part 15D's filters) |
+| `categoryId` | Optional, a UUID, else `Choose a category by its ID` | Only this category's: a top category with its subcategories, or a subcategory |
+| `brandId` | Optional, a UUID, else `Choose a brand by its ID` | Only this brand's |
 
-Any other parameter is ignored.
+The filters combine: a category and a brand give that brand's products in that category. An ID nothing sold under simply gives a report of nothing. Any other parameter is ignored.
 
 The rules (the owner's, 2026-11-23 and 2026-11-25):
 - a payment counts on the day in India it was paid, and its refund comes off on the day it was made. A refund of a payment that never counted changes nothing;
@@ -2866,10 +2869,18 @@ The rules (the owner's, 2026-11-23 and 2026-11-25):
 - `refundedOrders` and `refundedRupees` are the refunds made in the period, everything included;
 - `newCustomers` paid for the first time ever in the period; `returningCustomers` had paid before it.
 
+With a filter, every figure, the series and every list count only the order lines of the products it keeps (the owner's choice, 2026-11-25):
+- `salesRupees`, `gstRupees` and `refundedRupees` are those lines', and `paidRupees` is their sales and GST together;
+- `deliveryRupees` is `null`: delivery is charged on a whole order, not on its products;
+- `orders` and `refundedOrders` are the orders with one of those lines in, paid or refunded in the period, and `averageOrderRupees` what those lines came to in such an order, without GST, before any refund;
+- the customers are those who paid for such an order; new still means paying for the first time ever, for anything;
+- the orders and customers are counted from the payments up to `refreshedAt`, so they always agree with the summaries the rupees come from. Before the summaries were ever made, there are none.
+
 Response `200`:
 ```json
 {
   "period": { "from": "2026-11-01", "to": "2026-11-25" },
+  "filters": { "product": null, "category": null, "brand": null },
   "previousPeriod": { "from": "2026-10-07", "to": "2026-10-31" },
   "refreshedAt": "2026-11-25T06:40:00.000Z",
   "totals": {
@@ -2916,6 +2927,7 @@ Response `200`:
   ]
 }
 ```
+- `filters`: what the report was narrowed to, each `null` when not asked for: `product` is `{ "productId", "name" }`, `category` is `{ "categoryId", "name", "parentName" }` (`parentName` is the top category of a subcategory, else `null`), and `brand` is `{ "brandId", "name" }`. Each is named as the catalog names it now, else as it last sold in the period, else `null`.
 - `refreshedAt`: `null` until the summaries are first filled, a minute after the API first starts.
 - `series`: every day, week or month of the period, in order, those with nothing too. Days for up to 62 days, weeks for up to 182, months beyond. A week starts on Monday and a month on the 1st, but the first starts with the period. `start` is its first day.
 - `products` and `brands`: the best 10. `categories`, `states` and `methods`: all of them. Each list is the best first, equal ones by name, those without a name last.
@@ -2925,6 +2937,22 @@ Response `200`:
 - A `method` of `null` is "Not recorded": a payment made before part 15C.
 
 Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` and `403` (as for the Admin endpoints); `429` (the 600 per minute limit).
+
+### GET `/v1/staff/reports/sales/export`
+
+The same report as an Excel workbook (`.xlsx`) to keep, as a company's sales report reads (since part 15D, the owner's choice on 2026-11-25, ADR 0047). Needs a **Super User's** staff access token. Takes the same parameters as `GET /v1/staff/reports/sales`, with the same rules and errors.
+
+Response `200`, `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `Content-Disposition: attachment; filename="herbal-commerce-sales-2026-11-01-to-2026-11-25.xlsx"` (with `-narrowed` before `.xlsx` when filtered), `Cache-Control: no-store`. Its sheets:
+- **Summary**: the period, the period before, what it is narrowed to, when the figures were last worked out, when and by whom the file was made, then each figure of `totals` beside `previousTotals`, the change, and the change as a share when the period before had some and this one is not below 0. Notes say what the figures count;
+- **Sales by day**: every day of the period, even those with nothing: orders, sales, GST, delivery (not when narrowed), paid, orders refunded and refunds, with a total;
+- **By product** and **By brand**: all of them, not only the best 10; **By category**: each category's row ("All") then its subcategories'; **By state** and **By payment method**: with their orders;
+- **Sales register**: one row for each line sold or refunded in the period, oldest first, at its date and time in India: the type (`Sale`, `Refund`, and without a filter `Delivery charge` and `Delivery refunded` after an order's lines), the order's reference, the product, SKU, category, subcategory, brand, state, payment method, packs, price without GST, GST rate, GST and total. A refund is below 0. Only up to `refreshedAt`, so it adds up to the totals exactly; with a filter, only its products' lines. No customer details: no names, emails, phones or addresses.
+
+Amounts are whole rupees, as numbers formatted in rupees, and the totals are SUM formulas that Excel works out again when the file opens. Text that a spreadsheet could take for a formula (starting with `=`, `+`, `-`, `@`, a tab or a return) starts with an apostrophe. GST invoice numbers and the CGST, SGST and IGST split are not in it until the company is registered.
+
+Each download is written to the audit log as `report.sales_exported` (`targetType` `report`, no `targetId`), with `after` holding `from`, `to`, any `productId`, `categoryId` and `brandId`, and `registerLines`, the number of lines in the register. Reading the report on the page is not audited.
+
+Errors: as for `GET /v1/staff/reports/sales`, and `400 More than 1,00,000 lines were sold or refunded in this period: download a shorter one` when the register would be longer than 100,000 lines.
 
 ## Not yet implemented
 

@@ -1,8 +1,13 @@
 import { RequestMethod } from '@nestjs/common';
-import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
+import {
+  HEADERS_METADATA,
+  METHOD_METADATA,
+  PATH_METADATA,
+} from '@nestjs/common/constants';
 import { Reflector } from '@nestjs/core';
 import { STAFF_ONLY } from '../auth/staff-only.decorator';
 import { SUPER_USER_ONLY } from '../auth/super-user-only.decorator';
+import type { SalesExportService } from './sales-export.service';
 import type { SalesReportService } from './sales-report.service';
 import { StaffReportsController } from './staff-reports.controller';
 
@@ -12,6 +17,7 @@ describe('StaffReportsController', () => {
     const reports = { sales: jest.fn().mockResolvedValue(report) };
     const controller = new StaffReportsController(
       reports as unknown as SalesReportService,
+      {} as SalesExportService,
     );
 
     const period = { from: '2026-11-01', to: '2026-11-25' };
@@ -31,5 +37,41 @@ describe('StaffReportsController', () => {
     const reflector = new Reflector();
     expect(reflector.get(STAFF_ONLY, StaffReportsController)).toBe(true);
     expect(reflector.get(SUPER_USER_ONLY, StaffReportsController)).toBe(true);
+  });
+
+  it('gives the same as an Excel file at GET /v1/staff/reports/sales/export, never kept on the way', async () => {
+    const file = Buffer.from('xlsx');
+    const exports = {
+      salesWorkbook: jest.fn().mockResolvedValue({
+        fileName: 'herbal-commerce-sales-2026-11-01-to-2026-11-25.xlsx',
+        file,
+      }),
+    };
+    const controller = new StaffReportsController(
+      {} as SalesReportService,
+      exports as unknown as SalesExportService,
+    );
+    const context = { actorId: 'staff-1', ip: '203.0.113.7', requestId: 'r1' };
+
+    const period = { from: '2026-11-01', to: '2026-11-25' };
+    const streamed = await controller.exportSales(period, context);
+    expect(exports.salesWorkbook).toHaveBeenCalledWith(period, context);
+    expect(streamed.getHeaders()).toEqual({
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      disposition:
+        'attachment; filename="herbal-commerce-sales-2026-11-01-to-2026-11-25.xlsx"',
+      length: 4,
+    });
+
+    const handler = (
+      StaffReportsController.prototype as unknown as Record<string, object>
+    ).exportSales;
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(
+      RequestMethod.GET,
+    );
+    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe('sales/export');
+    expect(Reflect.getMetadata(HEADERS_METADATA, handler)).toEqual([
+      { name: 'Cache-Control', value: 'no-store' },
+    ]);
   });
 });
