@@ -9,6 +9,7 @@ import {
 } from '../test/audit-fixtures';
 import type { AuditEntry } from './audit-api';
 import {
+  KIND_NAMES,
   changedFields,
   indiaDay,
   indiaTime,
@@ -474,5 +475,52 @@ describe('what changed', () => {
     // 20:00 in UTC is already the next day in India.
     expect(indiaDay('2026-11-19T20:00:00.000Z')).toBe('2026-11-20');
     expect(indiaTime('2026-11-19T20:00:00.000Z')).toBe('01:30');
+  });
+});
+
+describe('a report downloaded', () => {
+  const download = {
+    action: 'report.sales_exported',
+    targetType: 'report',
+    targetId: null,
+    subject: null,
+    actorId: RAVI_PERSON.id,
+    actor: RAVI_PERSON,
+    before: null,
+  };
+
+  it('says which period, and whether it was narrowed', () => {
+    expect(
+      said({
+        ...download,
+        after: { from: '2026-11-01', to: '2026-11-25', registerLines: 12 },
+      }),
+    ).toBe('Ravi Kumar downloaded the sales report of 1–25 Nov 2026');
+    expect(
+      said({
+        ...download,
+        after: {
+          from: '2026-11-25',
+          to: '2026-11-25',
+          productId: 'p1',
+          brandId: 'b1',
+          registerLines: 2,
+        },
+      }),
+    ).toBe(
+      'Ravi Kumar downloaded the sales report of 25 Nov 2026, narrowed to a product and a brand',
+    );
+    expect(said({ ...download, after: null })).toBe(
+      'Ravi Kumar downloaded the sales report',
+    );
+    expect(
+      changedFields(
+        entryOf({
+          ...download,
+          after: { from: '2026-11-01', to: '2026-11-25', registerLines: 12 },
+        }),
+      ).map((field) => field.label),
+    ).toEqual(['First day', 'Last day', 'Lines in the register']);
+    expect(KIND_NAMES.reports).toBe('Reports downloaded');
   });
 });

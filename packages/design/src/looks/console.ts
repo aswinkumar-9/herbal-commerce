@@ -27,6 +27,11 @@ export const consoleLook: Look = {
      soft and raised, lit from above.
    - Wells (inset-shadow-well): fields look pressed into the page.
    - Pressed (inset-shadow-pressed): a chosen filter, or a button held down.
+   - Charts (part 15D, ADR 0047): bars in \`series\`, lighter under the
+     pointer (\`series-hover\`); gridlines in \`line\`, the zero line in
+     \`line-strong\`, every label in the ink colours. The series green is
+     checked like a chart colour (lightness, chroma and 3:1 on the card), so
+     it is not the main green, which reads nearly grey in a chart.
    Components use the colour names (bg-canvas, text-ink, bg-primary ...),
    never raw colours, so both themes follow.`,
   colors: {
@@ -50,6 +55,8 @@ export const consoleLook: Look = {
       warning: '#8a5a12',
       'warning-soft': '#fbf0dc',
       focus: '#3f8f5c',
+      series: '#1f7a55',
+      'series-hover': '#2a8c63',
     },
     dark: {
       canvas: '#111613',
@@ -71,6 +78,8 @@ export const consoleLook: Look = {
       warning: '#e3b363',
       'warning-soft': '#33281a',
       focus: '#86c99d',
+      series: '#3fa874',
+      'series-hover': '#5cbd8a',
     },
   },
   effects: {
@@ -321,7 +330,25 @@ export const consoleLook: Look = {
       fore: 'line-strong',
       back: 'surface',
       min: CONTRAST.ui,
-      what: "a field's edge on a card, a switch's track",
+      what: "a field's edge on a card, a switch's track, a chart's zero line",
+    },
+    {
+      fore: 'series',
+      back: 'surface',
+      min: CONTRAST.ui,
+      what: "a chart's bars on a card",
+    },
+    {
+      fore: 'series',
+      back: 'surface-muted',
+      min: CONTRAST.ui,
+      what: "a chart's bars on a muted box",
+    },
+    {
+      fore: 'series-hover',
+      back: 'surface',
+      min: CONTRAST.ui,
+      what: "a chart's bar under the pointer",
     },
     {
       fore: 'line-strong',

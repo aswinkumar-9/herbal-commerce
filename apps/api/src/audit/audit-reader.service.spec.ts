@@ -217,6 +217,7 @@ describe('AuditReaderService.list', () => {
     await service.list({ limit: 50, kind: 'catalog' });
     await service.list({ limit: 50, kind: 'stock' });
     await service.list({ limit: 50, kind: 'policies' });
+    await service.list({ limit: 50, kind: 'reports' });
 
     const asked = prisma.auditLog.findMany.mock.calls.map(([q]) => q.where);
     expect(asked[0]).toEqual({
@@ -243,6 +244,7 @@ describe('AuditReaderService.list', () => {
       { action: { startsWith: 'stock.' } },
     ]);
     expect(asked[5].OR).toEqual([{ action: { startsWith: 'policy.' } }]);
+    expect(asked[6].OR).toEqual([{ action: { startsWith: 'report.' } }]);
   });
 
   it('says what each target is called now, with what it belongs to, one query for each kind (ADR 0038)', async () => {

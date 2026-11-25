@@ -10,6 +10,7 @@ import {
   signed,
 } from '../stock/stock-display';
 import type { StockReason } from '../stock/stock-api';
+import { periodName } from '../sales/sales-display';
 import type { AuditEntry, AuditFields, AuditKind } from './audit-api';
 
 // The audit log in words (ADR 0038): one sentence for each entry, such as
@@ -23,6 +24,7 @@ export const KIND_NAMES: Record<AuditKind, string> = {
   catalog: 'Catalog',
   stock: 'Stock',
   policies: 'Policy pages',
+  reports: 'Reports downloaded',
 };
 
 // The thing an entry is about, and its page.
@@ -339,6 +341,31 @@ export function tell(entry: AuditEntry): Told {
         ],
       };
     }
+    case 'report.sales_exported': {
+      const from = text(entry.after, 'from');
+      const to = text(entry.after, 'to');
+      const narrowed = (
+        [
+          ['productId', 'a product'],
+          ['categoryId', 'a category'],
+          ['brandId', 'a brand'],
+        ] as const
+      )
+        .filter(([key]) => text(entry.after, key) !== null)
+        .map(([, name]) => name);
+      const report =
+        from && to
+          ? `downloaded the sales report of ${periodName({ from, to })}`
+          : 'downloaded the sales report';
+      return {
+        who,
+        words: [
+          narrowed.length > 0
+            ? `${report}, narrowed to ${narrowed.join(' and ')}`
+            : report,
+        ],
+      };
+    }
     default:
       return { who, words: [`did “${entry.action}”`] };
   }
@@ -425,6 +452,9 @@ const FIELD_NAMES: Record<string, string> = {
   revision: 'Revision',
   version: 'Version',
   characters: 'Characters',
+  from: 'First day',
+  to: 'Last day',
+  registerLines: 'Lines in the register',
 };
 
 const MOMENT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;

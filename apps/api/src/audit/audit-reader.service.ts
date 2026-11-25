@@ -40,6 +40,7 @@ const KINDS = {
   ],
   // The website's policy pages (ADR 0040).
   policies: [{ action: { startsWith: 'policy.' } }],
+  reports: [{ action: { startsWith: 'report.' } }],
 } satisfies Record<string, Prisma.AuditLogWhereInput[]>;
 export type AuditKind = keyof typeof KINDS;
 export const AUDIT_KINDS = Object.keys(KINDS) as [AuditKind, ...AuditKind[]];

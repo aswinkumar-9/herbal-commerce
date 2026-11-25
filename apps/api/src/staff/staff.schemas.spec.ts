@@ -183,6 +183,7 @@ describe('auditLogQuerySchema', () => {
       'catalog',
       'stock',
       'policies',
+      'reports',
     ]) {
       expect(auditLogQuerySchema.parse({ kind })).toEqual({ limit: 50, kind });
     }

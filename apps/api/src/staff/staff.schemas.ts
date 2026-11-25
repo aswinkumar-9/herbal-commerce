@@ -89,7 +89,7 @@ export const auditLogQuerySchema = z.object({
   kind: z
     .enum(
       AUDIT_KINDS,
-      'Use accounts, sign_ins, orders, catalog, stock or policies',
+      'Use accounts, sign_ins, orders, catalog, stock, policies or reports',
     )
     .optional(),
 });

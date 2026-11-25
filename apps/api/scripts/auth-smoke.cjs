@@ -252,6 +252,19 @@ async function main() {
       })
     ).status === 401,
   );
+  const salesReport = '/v1/staff/reports/sales?from=2026-11-01&to=2026-11-25';
+  check(
+    'a customer access token cannot read the sales report on GET /v1/staff/reports/sales',
+    (await call('GET', salesReport, { token: login.body.accessToken }))
+      .status === 401,
+  );
+  const salesExport =
+    '/v1/staff/reports/sales/export?from=2026-11-01&to=2026-11-25';
+  check(
+    'a customer access token cannot download the sales report on GET /v1/staff/reports/sales/export',
+    (await call('GET', salesExport, { token: login.body.accessToken }))
+      .status === 401,
+  );
 
   // Accepting an invitation is public, but only a real link works. (A real
   // invitation is tried by hand: only a signed-in Super User can send one.)

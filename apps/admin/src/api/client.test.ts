@@ -3,7 +3,13 @@ import { z } from 'zod';
 import { fakeApi, json, offline, tokens } from '../test/fake-api';
 import { accessToken, setAccessToken } from './access-token';
 import { ApiError } from './api-error';
-import { apiRequest, apiUpload, onSessionLost, renewSession } from './client';
+import {
+  apiDownload,
+  apiRequest,
+  apiUpload,
+  onSessionLost,
+  renewSession,
+} from './client';
 
 const REFRESH = 'POST /v1/staff/auth/refresh';
 const thing = z.object({ name: z.string() });
@@ -394,5 +400,57 @@ describe('an upload', () => {
       apiUpload(PATH, photo(), { schema: thing, signal: before.signal }),
     ).rejects.toMatchObject({ name: 'AbortError' });
     expect(api.sent).toHaveLength(1);
+  });
+});
+
+describe('a download', () => {
+  const XLSX =
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const EXPORT = '/v1/staff/reports/sales/export?from=2026-11-01&to=2026-11-25';
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const file = (type: string, name: string) => () =>
+    new Response('PK', {
+      status: 200,
+      headers: {
+        'Content-Type': type,
+        'Content-Disposition': `attachment; filename="${name}"`,
+      },
+    });
+
+  it('takes a file of the type asked for, with the token, by the name the API gave it', async () => {
+    const name = 'herbal-commerce-sales-2026-11-01-to-2026-11-25.xlsx';
+    const api = fakeApi({ [`GET ${EXPORT}`]: file(XLSX, name) });
+    setAccessToken('t1');
+
+    const { file: got, fileName } = await apiDownload(EXPORT, XLSX);
+    expect(fileName).toBe(name);
+    expect(await got.text()).toBe('PK');
+    const [request] = api.sent;
+    expect(request?.authorization).toBe('Bearer t1');
+    expect(new Headers(request?.init.headers).get('Accept')).toBe(XLSX);
+    expect(request?.init.cache).toBe('no-store');
+  });
+
+  it('never saves an answer of another type, and never a name that could point elsewhere', async () => {
+    fakeApi({
+      'GET /v1/staff/wrong': file('text/html', 'page.html'),
+      'GET /v1/staff/odd': file(XLSX, '../../evil.xlsx'),
+      'GET /v1/staff/refused': () => json(400, { message: 'Too long' }),
+    });
+    setAccessToken('t1');
+
+    await expect(apiDownload('/v1/staff/wrong', XLSX)).rejects.toThrow(
+      'The server sent an answer the console does not understand.',
+    );
+    await expect(apiDownload('/v1/staff/odd', XLSX)).resolves.toMatchObject({
+      fileName: 'download',
+    });
+    const refused = apiDownload('/v1/staff/refused', XLSX);
+    await expect(refused).rejects.toBeInstanceOf(ApiError);
+    await expect(refused).rejects.toThrow('Too long');
   });
 });

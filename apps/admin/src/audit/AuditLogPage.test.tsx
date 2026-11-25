@@ -254,6 +254,35 @@ describe('the audit log', () => {
     ).toBeNull();
   });
 
+  it('shows the reports downloaded, a kind of its own', async () => {
+    const DOWNLOADED = entryOf({
+      action: 'report.sales_exported',
+      actorId: RAVI_PERSON.id,
+      actor: RAVI_PERSON,
+      targetType: 'report',
+      targetId: null,
+      subject: null,
+      before: null,
+      after: { from: '2026-11-01', to: '2026-11-19', registerLines: 40 },
+    });
+    const { user, router } = openLog('/audit-log', {
+      [AUDIT('?kind=reports')]: auditOf([DOWNLOADED]),
+    });
+    await dayList('19 Nov 2026');
+
+    await user.click(
+      screen.getByRole('button', { name: 'Reports downloaded' }),
+    );
+    await waitFor(() =>
+      expect(router.state.location.search).toBe('?kind=reports'),
+    );
+    expect(
+      await screen.findByText(
+        sentence('Ravi Kumar downloaded the sales report of 1–19 Nov 2026'),
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('says when nothing matches, and clears the filters', async () => {
     const { user, router } = openLog('/audit-log?kind=stock', {
       [AUDIT('?kind=stock')]: auditOf([]),
