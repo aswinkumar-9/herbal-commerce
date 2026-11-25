@@ -1,10 +1,25 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { contrast, over, parseHex } from '../src/color.ts';
-import { COLOR_TOKENS, CONTRAST } from '../src/foundations.ts';
+import { contrast, oklch, over, parseHex } from '../src/color.ts';
+import { CHART_COLOUR, COLOR_TOKENS, CONTRAST } from '../src/foundations.ts';
 import { LOOKS } from '../src/index.ts';
 
 const THEMES = ['light', 'dark'] as const;
+
+test('the chart colour rule turns away the console’s main greens, which read nearly grey or too light in a chart', () => {
+  const console = LOOKS.find((look) => look.name === 'console');
+  assert.ok(console);
+  const light = oklch(console.colors.light.primary ?? '');
+  const dark = oklch(console.colors.dark.primary ?? '');
+  assert.ok(
+    light.c < CHART_COLOUR.chroma,
+    `light chroma ${light.c.toFixed(3)}`,
+  );
+  assert.ok(
+    dark.l > CHART_COLOUR.dark.lightness[1],
+    `dark lightness ${dark.l.toFixed(3)}`,
+  );
+});
 
 for (const look of LOOKS) {
   test(`${look.name}: every colour is a hex value, the same names in both themes`, () => {
@@ -33,6 +48,19 @@ for (const look of LOOKS) {
       test(name, pair.gap ? { todo: pair.gap } : {}, () => {
         const ratio = contrast(colour(pair.fore), colour(pair.back));
         assert.ok(ratio >= pair.min, `${ratio.toFixed(2)}:1`);
+      });
+    }
+
+    // A chart's series colours (series, series-2 ...), not their hover.
+    const series = Object.keys(palette).filter((name) =>
+      /^series(-\d+)?$/.test(name),
+    );
+    for (const name of series) {
+      test(`${look.name}, ${theme}: the chart colour ${name} reads as a colour, neither too light nor too dark`, () => {
+        const { l, c } = oklch(colour(name));
+        const [low, high] = CHART_COLOUR[theme].lightness;
+        assert.ok(l >= low && l <= high, `lightness ${l.toFixed(3)}`);
+        assert.ok(c >= CHART_COLOUR.chroma, `chroma ${c.toFixed(3)}`);
       });
     }
 

@@ -142,6 +142,16 @@ export const CONTRAST = {
   ui: 3,
 } as const;
 
+// A chart's series colour must read as a colour and stand out on its card
+// in both themes (part 15D, ADR 0047): OKLCH lightness within the theme's
+// band, and chroma at least the floor, below which a hue reads as grey.
+// The bands are the data-viz method's.
+export const CHART_COLOUR = {
+  light: { lightness: [0.43, 0.77] },
+  dark: { lightness: [0.48, 0.67] },
+  chroma: 0.1,
+} as const;
+
 // The colours every look names, so a page reads the same names whatever
 // look it wears. Each look gives each a value in the light and dark theme.
 export const COLOR_TOKENS = [

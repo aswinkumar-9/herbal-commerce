@@ -10,6 +10,11 @@
      soft and raised, lit from above.
    - Wells (inset-shadow-well): fields look pressed into the page.
    - Pressed (inset-shadow-pressed): a chosen filter, or a button held down.
+   - Charts (part 15D, ADR 0047): bars in `series`, lighter under the
+     pointer (`series-hover`); gridlines in `line`, the zero line in
+     `line-strong`, every label in the ink colours. The series green is
+     checked like a chart colour (lightness, chroma and 3:1 on the card), so
+     it is not the main green, which reads nearly grey in a chart.
    Components use the colour names (bg-canvas, text-ink, bg-primary ...),
    never raw colours, so both themes follow. */
 
@@ -34,6 +39,8 @@
   --warning: #8a5a12;
   --warning-soft: #fbf0dc;
   --focus: #3f8f5c;
+  --series: #1f7a55;
+  --series-hover: #2a8c63;
 
   /* The glow behind the page: faint, so text on the page keeps its contrast. */
   --glow-green: rgb(46 106 68 / 0.08);
@@ -85,6 +92,8 @@
     --warning: #e3b363;
     --warning-soft: #33281a;
     --focus: #86c99d;
+    --series: #3fa874;
+    --series-hover: #5cbd8a;
 
     --glow-green: rgb(109 187 136 / 0.07);
     --glow-amber: rgb(217 166 86 / 0.045);
@@ -124,6 +133,8 @@
   --color-warning: var(--warning);
   --color-warning-soft: var(--warning-soft);
   --color-focus: var(--focus);
+  --color-series: var(--series);
+  --color-series-hover: var(--series-hover);
   --radius-card: 1rem;
   --radius-control: 0.75rem;
   /* Raised clay: chips, then buttons and rows, then cards, then what floats
