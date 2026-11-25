@@ -641,6 +641,8 @@ model Payment {
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
   refunds Refund[]
 
+  // For the sales summaries: a few days' payments (part 15C).
+  @@index([paidAt])
   @@map("payments")
 }
 
@@ -713,6 +715,8 @@ model Refund {
   @@index([givenBackById])
   // For the job that asks Razorpay again.
   @@index([status, createdAt])
+  // For the sales summaries: a few days' refunds (part 15C).
+  @@index([createdAt])
   @@map("refunds")
 }
 
@@ -826,4 +830,67 @@ model PolicyVersion {
   @@unique([kind, version])
   @@index([publishedById])
   @@map("policy_versions")
+}
+
+// What was sold each day in India, for the reports (part 15C, ADR 0046).
+// Filled only by the database's rebuild_sales_summaries(), from the paid
+// payments and their refunds: a payment counts on the day it was paid, its
+// refund is taken off on the day the refund was made. The API rebuilds the
+// recent days every 5 minutes; past days never change.
+
+// Each day's order lines, by what they are reported under, as the order
+// line keeps it (none for a line whose pack size was deleted before part
+// 15C), the state they went to and how they were paid (none: "Not
+// recorded"). The rupees are the lines' totals, GST included, as the orders
+// show them; and the GST inside.
+model DailyLineSale {
+  id                String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  day               DateTime       @db.Date
+  deliveryState     String
+  method            PaymentMethod?
+  productId         String?        @db.Uuid
+  productName       String
+  topCategoryId     String?        @db.Uuid
+  topCategoryName   String?
+  subcategoryId     String?        @db.Uuid
+  subcategoryName   String?
+  brandId           String?        @db.Uuid
+  brandName         String?
+  soldPacks         Int
+  soldRupees        Int
+  soldGstRupees     Int
+  refundedPacks     Int
+  refundedRupees    Int
+  refundedGstRupees Int
+
+  @@index([day])
+  @@map("daily_line_sales")
+}
+
+// Each day's orders, by the state they went to and how they were paid: the
+// delivery charge belongs to an order, not to its lines.
+model DailyOrderSale {
+  id                     String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  day                    DateTime       @db.Date
+  deliveryState          String
+  method                 PaymentMethod?
+  soldOrders             Int
+  soldItemsRupees        Int
+  soldGstRupees          Int
+  soldDeliveryRupees     Int
+  refundedOrders         Int
+  refundedItemsRupees    Int
+  refundedGstRupees      Int
+  refundedDeliveryRupees Int
+
+  @@index([day])
+  @@map("daily_order_sales")
+}
+
+// When the summaries were last rebuilt: one row, once they have been.
+model SalesSummaryRefresh {
+  id          Int      @id @default(1)
+  refreshedAt DateTime
+
+  @@map("sales_summary_refreshes")
 }
