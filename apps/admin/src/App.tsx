@@ -23,6 +23,7 @@ import { OrderPage } from './orders/OrderPage';
 import { OrdersLayout } from './orders/OrdersLayout';
 import { OrdersPage } from './orders/OrdersPage';
 import { RefundsPage } from './orders/RefundsPage';
+import { SalesPage } from './sales/SalesPage';
 import { OverviewPage } from './pages/OverviewPage';
 import { SignInPage } from './pages/SignInPage';
 import { SetupLinkPage } from './setup/SetupLinkPage';
@@ -91,6 +92,7 @@ export const routes = createRoutesFromElements(
         <Route path="orders/:id" element={<OrderPage />} />
         {forEveryone.map(comingSoon)}
         <Route element={<RequireRole only="SUPER_USER" />}>
+          <Route path="sales" element={<SalesPage />} />
           <Route path="admins" element={<AdminsPage />} />
           <Route path="audit-log" element={<AuditLogPage />} />
           <Route path="policies" element={<PoliciesPage />} />

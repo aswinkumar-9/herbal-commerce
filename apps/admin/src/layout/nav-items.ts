@@ -1,5 +1,6 @@
 import {
   Boxes,
+  ChartColumn,
   FileText,
   LayoutDashboard,
   Package,
@@ -50,6 +51,13 @@ export const NAV_ITEMS: NavItem[] = [
     icon: ShoppingBag,
     badge: ToPackCount,
     summary: 'Packing, shipping, delivery, cancellations and refunds.',
+  },
+  {
+    to: '/sales',
+    label: 'Sales',
+    icon: ChartColumn,
+    role: 'SUPER_USER',
+    summary: 'Sales over any period, compared with the period before.',
   },
   {
     to: '/admins',
