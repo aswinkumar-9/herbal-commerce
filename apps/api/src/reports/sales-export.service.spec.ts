@@ -33,7 +33,23 @@ const REPORT = {
 const CONTEXT = { actorId: 'staff-2', ip: '203.0.113.7', requestId: 'req-1' };
 const PERIOD = { from: '2026-11-20', to: '2026-11-21' };
 
-function setup(found: unknown = { report: REPORT, days: [], register: [] }) {
+const NO_DETAIL = {
+  products: [],
+  categories: [],
+  subcategories: [],
+  brands: [],
+  states: [],
+  methods: [],
+};
+
+function setup(
+  found: unknown = {
+    report: REPORT,
+    days: [],
+    detail: NO_DETAIL,
+    register: [],
+  },
+) {
   const reports = { forExport: jest.fn().mockResolvedValue(found) };
   const prisma = {
     user: {

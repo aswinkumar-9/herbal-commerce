@@ -964,6 +964,111 @@ describe('SalesReportService.forExport', () => {
     });
   });
 
+  it('gives each grouping in full beside the period before, from the same summaries', async () => {
+    const { reports, tx } = exporting([]);
+
+    const found = await reports.forExport(NOVEMBER);
+    // The summaries give the same rows for both periods here.
+    expect(found?.detail.products[0]).toEqual({
+      productId: P1,
+      name: 'Ashwagandha Capsules 60',
+      categoryName: 'Wellness',
+      subcategoryName: 'Immunity',
+      brandName: 'Himalaya',
+      recorded: true,
+      soldPacks: 3,
+      refundedPacks: 1,
+      grossRupees: 1283,
+      refundRupees: 428,
+      salesRupees: 855,
+      gstRupees: 43,
+      previousSalesRupees: 855,
+    });
+    // Each state's orders as the report counts them.
+    expect(
+      found?.detail.states.map((state) => [
+        state.state,
+        state.orders,
+        state.salesRupees,
+        state.deliveryRupees,
+        state.previousSalesRupees,
+      ]),
+    ).toEqual([
+      ['Karnataka', 3, 1350, 0, 1350],
+      ['Kerala', 1, -158, 0, -158],
+    ]);
+    const before = { day: { gte: day('2026-10-07'), lte: day('2026-10-31') } };
+    expect(tx.dailyLineSale.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        by: expect.arrayContaining(['productId', 'brandName']),
+        where: before,
+      }),
+    );
+    expect(tx.dailyOrderSale.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        by: ['deliveryState', 'method'],
+        where: before,
+      }),
+    );
+  });
+
+  it('gives each state and method of a narrowed file only the filter’s lines, without delivery', async () => {
+    const { reports, tx } = exporting([]);
+    tx.dailyLineSale.aggregate.mockResolvedValue({ _sum: LINE_NONE });
+    tx.dailyLineSale.groupBy.mockImplementation((args: { by: string[] }) =>
+      Promise.resolve(
+        args.by.includes('day')
+          ? []
+          : args.by.includes('deliveryState')
+            ? [
+                {
+                  deliveryState: 'Kerala',
+                  method: 'UPI',
+                  _sum: {
+                    ...LINE_NONE,
+                    soldPacks: 1,
+                    soldRupees: 449,
+                    soldGstRupees: 21,
+                  },
+                },
+              ]
+            : LINES,
+      ),
+    );
+
+    const found = await reports.forExport({ ...NOVEMBER, productId: P1 });
+    expect(found?.detail.states).toEqual([
+      expect.objectContaining({
+        state: 'Kerala',
+        salesRupees: 428,
+        gstRupees: 21,
+        deliveryRupees: null,
+        paidRupees: 449,
+        previousSalesRupees: 428,
+      }),
+    ]);
+    expect(tx.dailyLineSale.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        by: ['deliveryState', 'method'],
+        where: {
+          day: { gte: day('2026-10-07'), lte: day('2026-10-31') },
+          productId: P1,
+        },
+      }),
+    );
+    // Each product of the filter only, in both periods.
+    expect(tx.dailyLineSale.groupBy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        by: expect.arrayContaining(['productId', 'brandName']),
+        where: {
+          day: { gte: day('2026-10-07'), lte: day('2026-10-31') },
+          productId: P1,
+        },
+      }),
+    );
+    expect(tx.dailyOrderSale.groupBy).not.toHaveBeenCalled();
+  });
+
   it('registers each line, a refund below 0, and each order’s delivery after its last line', async () => {
     const { reports, tx } = exporting([...B_SOLD, J_SOLD, B_REFUNDED]);
 

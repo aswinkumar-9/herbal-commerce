@@ -3,6 +3,7 @@ import type { Prisma } from '../generated/prisma/client';
 import type { PaymentMethod } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
 import type { SalesReportQuery } from './reports.schemas';
+import { detailOf, type PlaceSums, type SalesDetail } from './sales-detail';
 import {
   addDays,
   barOf,
@@ -401,14 +402,15 @@ export class SalesReportService {
   }
 
   // The same for a download (ADR 0047): every product and brand, every
-  // day's figures, and the register of each line sold or refunded, with
-  // each order's delivery charge when nothing is filtered. All in one
-  // snapshot, and the register only up to when the summaries were last
-  // rebuilt, so it adds up to the totals. Null when the register would be
-  // longer than MAX_REGISTER_LINES.
+  // day's figures, each grouping in full beside the period before, and the
+  // register of each line sold or refunded, with each order's delivery
+  // charge when nothing is filtered. All in one snapshot, and the register
+  // only up to when the summaries were last rebuilt, so it adds up to the
+  // totals. Null when the register would be longer than MAX_REGISTER_LINES.
   forExport(query: SalesReportQuery): Promise<{
     report: SalesReport;
     days: SalesDay[];
+    detail: SalesDetail;
     register: RegisterLine[];
   } | null> {
     return this.prisma.$transaction(
@@ -418,6 +420,7 @@ export class SalesReportService {
         if (register === null) {
           return null;
         }
+        const detail = await this.detail(tx, query, report);
         const byDay = new Map(days.map((day) => [day.day, day]));
         const every = daysBetween(query.from, query.to).map(
           (day) =>
@@ -429,10 +432,88 @@ export class SalesReportService {
                 : totalsOf({}, undefined),
             ),
         );
-        return { report, days: every, register };
+        return { report, days: every, detail, register };
       },
       { isolationLevel: 'RepeatableRead' },
     );
+  }
+
+  // Each grouping's lines, and each state's and method's, in the period and
+  // the one before: of every order, or of the filter's products only.
+  private async detail(
+    tx: Prisma.TransactionClient,
+    { from, to, ...asked }: SalesReportQuery,
+    report: SalesReport,
+  ): Promise<SalesDetail> {
+    const filter = filterOf(asked);
+    const within = (period: Period) => ({
+      day: { gte: dateOf(period.from), lte: dateOf(period.to) },
+    });
+    const linesIn = (period: Period) =>
+      tx.dailyLineSale.groupBy({
+        by: [
+          'productId',
+          'productName',
+          'topCategoryId',
+          'topCategoryName',
+          'subcategoryId',
+          'subcategoryName',
+          'brandId',
+          'brandName',
+        ],
+        where: { ...within(period), ...linesOf(filter) },
+        _sum: LINE_SUMS,
+        _max: { day: true },
+      });
+    const placesIn = async (period: Period): Promise<PlaceSums[]> =>
+      filter
+        ? (
+            await tx.dailyLineSale.groupBy({
+              by: ['deliveryState', 'method'],
+              where: { ...within(period), ...linesOf(filter) },
+              _sum: LINE_SUMS,
+            })
+          ).map((row) => ({
+            state: row.deliveryState,
+            method: row.method,
+            grossRupees:
+              zero(row._sum.soldRupees) - zero(row._sum.soldGstRupees),
+            refundRupees:
+              zero(row._sum.refundedRupees) - zero(row._sum.refundedGstRupees),
+            gstRupees:
+              zero(row._sum.soldGstRupees) - zero(row._sum.refundedGstRupees),
+            deliveryRupees: null,
+          }))
+        : (
+            await tx.dailyOrderSale.groupBy({
+              by: ['deliveryState', 'method'],
+              where: within(period),
+              _sum: ORDER_SUMS,
+            })
+          ).map((row) => ({
+            state: row.deliveryState,
+            method: row.method,
+            grossRupees:
+              zero(row._sum.soldItemsRupees) - zero(row._sum.soldGstRupees),
+            refundRupees:
+              zero(row._sum.refundedItemsRupees) -
+              zero(row._sum.refundedGstRupees),
+            gstRupees:
+              zero(row._sum.soldGstRupees) - zero(row._sum.refundedGstRupees),
+            deliveryRupees:
+              zero(row._sum.soldDeliveryRupees) -
+              zero(row._sum.refundedDeliveryRupees),
+          }));
+    const period = { from, to };
+    return detailOf({
+      lines: await linesIn(period),
+      previousLines: await linesIn(report.previousPeriod),
+      places: await placesIn(period),
+      previousPlaces: await placesIn(report.previousPeriod),
+      states: report.states,
+      methods: report.methods,
+      narrowed: filter !== null,
+    });
   }
 
   private async read(
