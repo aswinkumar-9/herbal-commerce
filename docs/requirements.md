@@ -124,8 +124,8 @@ For Super Users, an interactive dashboard:
 | For | Missing today |
 |---|---|
 | Profit and loss | Any cost. A stock batch has no purchase or making cost (open decision 2). |
-| Payment method | The method (UPI, card, netbanking, wallet) and Razorpay's fee are not stored. Razorpay sends both with each payment. |
-| Category, subcategory and product | An order line keeps the product's name and SKU, but not the product or its category at the time of the sale. Planned for part 15C. |
+| Payment method | Done in part 15C: each payment keeps its method (UPI, card, net banking, wallet, EMI, pay later or other) from Razorpay's own record, set once when it is paid. Payments made before have none: "Not recorded" (ADR 0046). Razorpay's fee is not stored yet: it comes with profit and loss, by the owner's choice on 2026-11-24. |
+| Category, subcategory and product | Done in part 15C: each order line keeps the product, the top category and subcategory of its main category, and its brand, each by ID and name, as they were when it was placed. The lines placed before took them from the catalog on 2026-11-24, by the owner's choice (ADR 0046). |
 | Subcategory | Done in part 15A: two levels, a category and its subcategories (ADR 0044). |
 | Brand, vendor or supplier | Brands done in part 15A: a list staff keep, one or none per product (ADR 0044). Vendors and suppliers are not wanted (the owner, 2026-11-23). Multi-vendor is deferred (section 6), and D1 rules out dealers. A supplier per stock batch would fit products bought from makers. |
 | Division | Not stored. It can come from the PIN code, with India Post's directory. Orders keep the city, state and PIN code. |
@@ -141,11 +141,11 @@ These are best added before launch: an order placed without them can't be report
 - reports group sales by category and subcategory (two levels), brand, and place as the whole country, then the state. Not by division, city or supplier;
 - a product in more than one category counts under its one main category.
 
-Part 15A added the catalog's side of these (ADR 0044), and part 15B showed them on the website (ADR 0045). The owner's choices on 2026-11-24: the brand shows on a product's page only, a link to the shop filtered by it, and the shop's search finds a product by its brand's name too.
+Part 15A added the catalog's side of these (ADR 0044), and part 15B showed them on the website (ADR 0045). The owner's choices on 2026-11-24: the brand shows on a product's page only, a link to the shop filtered by it, and the shop's search finds a product by its brand's name too. Part 15C added the data the reports are made from (ADR 0046), by the owner's choices on 2026-11-24: all three migrations, the old orders grouped by the catalog as it is now, Razorpay's fee later, and summaries no more than 5 minutes behind.
 
 **How it will be built:**
 - Super Users only, with each export written to the audit log.
-- Reports read daily summaries, counted in Indian time, not the live order tables, so the shop stays fast.
+- Reports read daily summaries, counted in Indian time, not the live order tables, so the shop stays fast. Done in part 15C: rebuilt by a job every 5 minutes, by the state, the payment method, and each line's product, category, subcategory and brand (ADR 0046).
 - Amounts in whole rupees, as everywhere.
 - CSV and Excel files never start a cell with `=`, `+`, `-` or `@` unescaped, so a spreadsheet can't run a cell as a formula.
 - PDFs are made by the API, so they look the same every time.

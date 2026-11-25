@@ -5,6 +5,7 @@
 - Updated: 2026-11-09 (part 8: orders are paid through Razorpay, and an expired order may still be paid late, see ADR 0027)
 - Updated: 2026-11-10 (part 9: staff see orders and take paid ones through packed, shipped and delivered, and an order may be cancelled until it ships, see ADR 0028)
 - Updated: 2026-11-11 (part 10: the customer is emailed when an order is paid, packed, shipped, delivered or cancelled, see ADR 0029)
+- Updated: 2026-11-25 (part 15C: each order line keeps the product, top category, subcategory and brand its sale is reported under, as they were when it was placed, see ADR 0046)
 
 ## Context
 
