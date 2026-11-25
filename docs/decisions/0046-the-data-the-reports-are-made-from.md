@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 15C)
 - Date: 2026-11-25
+- Updated: 2026-11-25 (part 15D: the Sales page and its Excel download read the summaries, and say when they were rebuilt, see ADR 0047)
 
 ## Context
 

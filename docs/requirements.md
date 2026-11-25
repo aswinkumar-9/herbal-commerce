@@ -141,15 +141,23 @@ These are best added before launch: an order placed without them can't be report
 - reports group sales by category and subcategory (two levels), brand, and place as the whole country, then the state. Not by division, city or supplier;
 - a product in more than one category counts under its one main category.
 
-Part 15A added the catalog's side of these (ADR 0044), and part 15B showed them on the website (ADR 0045). The owner's choices on 2026-11-24: the brand shows on a product's page only, a link to the shop filtered by it, and the shop's search finds a product by its brand's name too. Part 15C added the data the reports are made from (ADR 0046), by the owner's choices on 2026-11-24: all three migrations, the old orders grouped by the catalog as it is now, Razorpay's fee later, and summaries no more than 5 minutes behind.
+Part 15A added the catalog's side of these (ADR 0044), and part 15B showed them on the website (ADR 0045). The owner's choices on 2026-11-24: the brand shows on a product's page only, a link to the shop filtered by it, and the shop's search finds a product by its brand's name too. Part 15C added the data the reports are made from (ADR 0046), by the owner's choices on 2026-11-24: all three migrations, the old orders grouped by the catalog as it is now, Razorpay's fee later, and summaries no more than 5 minutes behind. Part 15D added the Sales page (ADR 0047), by the owner's choices on 2026-11-25:
+- its own menu item, for Super Users only;
+- Sales without GST as the headline;
+- the totals beside the period before, new and returning customers, a chart over time and top lists;
+- preset periods or any days;
+- filters by product, category and brand;
+- an Excel download with a dashboard of charts, every grouping in full and a register of every line.
+
+The download has no customer details. Invoice numbers and the GST split wait until the company is registered.
 
 **How it will be built:**
-- Super Users only, with each export written to the audit log.
+- Super Users only, with each export written to the audit log. Done in part 15D for the sales report and its Excel download (ADR 0047).
 - Reports read daily summaries, counted in Indian time, not the live order tables, so the shop stays fast. Done in part 15C: rebuilt by a job every 5 minutes, by the state, the payment method, and each line's product, category, subcategory and brand (ADR 0046).
 - Amounts in whole rupees, as everywhere.
-- CSV and Excel files never start a cell with `=`, `+`, `-` or `@` unescaped, so a spreadsheet can't run a cell as a formula.
+- CSV and Excel files never start a cell with `=`, `+`, `-` or `@` unescaped, so a spreadsheet can't run a cell as a formula. Done in part 15D for Excel, a tab and a return included (ADR 0047).
 - PDFs are made by the API, so they look the same every time.
-- Charts run under the console's security policy, checked in a real browser.
+- Charts run under the console's security policy, checked in a real browser. Done in part 15D: our own SVG charts, driven in headless Chrome without a violation (ADR 0047).
 
 ### 10.2 The website and the apps
 

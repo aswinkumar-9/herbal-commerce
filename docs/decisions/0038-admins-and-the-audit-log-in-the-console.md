@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 12G)
 - Date: 2026-11-20
+- Updated: 2026-11-25 (part 15D: a new kind of change, "Reports downloaded", for each download of the sales report, see ADR 0047)
 
 ## Context
 

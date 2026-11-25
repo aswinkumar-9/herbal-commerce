@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 13)
 - Date: 2026-11-20
+- Updated: 2026-11-25 (part 15D: the console's look has a chart green, `series` and `series-hover`, checked for its lightness, its chroma and 3:1 on the cards in both themes, see ADR 0047)
 
 ## Context
 
