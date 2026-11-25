@@ -818,14 +818,18 @@ describe('PaymentsService', () => {
   });
 
   describe('markPaid', () => {
-    it('records the Razorpay payment that paid, and when, only on an unpaid payment', async () => {
+    it('records the Razorpay payment that paid, how, and when, only on an unpaid payment', async () => {
       const { service, tx, txMock } = setup();
 
-      await service.markPaid(tx, PAYMENT_ID, 'pay_First000001', NOW);
+      await service.markPaid(tx, PAYMENT_ID, 'pay_First000001', 'UPI', NOW);
 
       expect(txMock.payment.updateMany).toHaveBeenCalledWith({
         where: { id: PAYMENT_ID, razorpayPaymentId: null },
-        data: { razorpayPaymentId: 'pay_First000001', paidAt: NOW },
+        data: {
+          razorpayPaymentId: 'pay_First000001',
+          method: 'UPI',
+          paidAt: NOW,
+        },
       });
     });
 
@@ -834,7 +838,7 @@ describe('PaymentsService', () => {
       txMock.payment.updateMany.mockResolvedValueOnce({ count: 0 });
 
       await expect(
-        service.markPaid(tx, PAYMENT_ID, 'pay_First000001', NOW),
+        service.markPaid(tx, PAYMENT_ID, 'pay_First000001', 'UPI', NOW),
       ).rejects.toThrow('The payment was paid already');
     });
   });

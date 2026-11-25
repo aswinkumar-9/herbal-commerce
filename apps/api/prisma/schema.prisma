@@ -622,22 +622,39 @@ model OrderItem {
 // What a customer pays an order with, at Razorpay (ADR 0027): one for each
 // order, made when the customer first chooses to pay. Money in whole rupees.
 model Payment {
-  id                String    @id @default(uuid()) @db.Uuid
-  orderId           String    @unique @db.Uuid
+  id                String         @id @default(uuid()) @db.Uuid
+  orderId           String         @unique @db.Uuid
   // Razorpay's order, such as "order_RB58MiP5SPFYyM", for the order's total.
-  razorpayOrderId   String    @unique
+  razorpayOrderId   String         @unique
   amountRupees      Int
   // The Razorpay payment that paid the order, and when, once one has.
-  razorpayPaymentId String?   @unique
+  razorpayPaymentId String?        @unique
   paidAt            DateTime?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  // How it was paid, as Razorpay said when it was settled (part 15C, ADR
+  // 0046). Set with the payment, never changed; none on payments paid
+  // before part 15C ("Not recorded" in reports).
+  method            PaymentMethod?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
 
   // An order is never deleted, and neither is its payment.
   order   Order    @relation(fields: [orderId], references: [id], onDelete: Restrict)
   refunds Refund[]
 
   @@map("payments")
+}
+
+// How a customer paid, as Razorpay names it (part 15C, ADR 0046).
+enum PaymentMethod {
+  UPI
+  CARD
+  NETBANKING
+  WALLET
+  // Card EMI, and EMI without a card.
+  EMI
+  PAY_LATER
+  // Any other way Razorpay takes, such as a bank transfer.
+  OTHER
 }
 
 // Why money goes back to a customer.
