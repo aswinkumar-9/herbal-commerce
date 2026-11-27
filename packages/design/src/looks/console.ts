@@ -32,6 +32,18 @@ export const consoleLook: Look = {
      \`line-strong\`, every label in the ink colours. The series green is
      checked like a chart colour (lightness, chroma and 3:1 on the card), so
      it is not the main green, which reads nearly grey in a chart.
+   - Parts of a whole (part 15E): \`series-1\` to \`series-7\`, in that order
+     round a donut, each a part's own colour wherever it shows, and
+     \`series-other\` for what was not recorded. The data-viz method's eight
+     hues less red, which says "worse", violet before green so that every
+     neighbour, the last beside the first included, passes its colour-blind
+     and normal-vision checks in both themes. Three light ones are under 3:1
+     on a card, so a donut always lists each part's figures beside it.
+   - A calendar of days (part 15E): \`heat-1\` to \`heat-4\`, one green from
+     little to most, each step clearly lighter or darker than the last; a
+     day with nothing sold is \`surface-muted\`.
+   - Changes on the period before (part 15E): \`good\` text when a figure got
+     better, \`danger\` when worse, always beside its arrow and its words.
    Components use the colour names (bg-canvas, text-ink, bg-primary ...),
    never raw colours, so both themes follow.`,
   colors: {
@@ -57,6 +69,19 @@ export const consoleLook: Look = {
       focus: '#3f8f5c',
       series: '#1f7a55',
       'series-hover': '#2a8c63',
+      'series-1': '#2a78d6',
+      'series-2': '#eb6834',
+      'series-3': '#1baf7a',
+      'series-4': '#eda100',
+      'series-5': '#e87ba4',
+      'series-6': '#6250d6',
+      'series-7': '#008300',
+      'series-other': '#7f8d82',
+      'heat-1': '#afdec5',
+      'heat-2': '#6dbf97',
+      'heat-3': '#2f9c6f',
+      'heat-4': '#00774d',
+      good: '#007049',
     },
     dark: {
       canvas: '#111613',
@@ -80,6 +105,19 @@ export const consoleLook: Look = {
       focus: '#86c99d',
       series: '#3fa874',
       'series-hover': '#5cbd8a',
+      'series-1': '#3987e5',
+      'series-2': '#d95926',
+      'series-3': '#199e70',
+      'series-4': '#c98500',
+      'series-5': '#d55181',
+      'series-6': '#9085e9',
+      'series-7': '#0ca30c',
+      'series-other': '#64746a',
+      'heat-1': '#1b4733',
+      'heat-2': '#1e6a4a',
+      'heat-3': '#269669',
+      'heat-4': '#50c490',
+      good: '#5ec596',
     },
   },
   effects: {
@@ -349,6 +387,75 @@ export const consoleLook: Look = {
       back: 'surface',
       min: CONTRAST.ui,
       what: "a chart's bar under the pointer",
+    },
+    {
+      fore: 'series-1',
+      back: 'surface',
+      min: CONTRAST.ui,
+      what: 'a part of a donut, blue',
+    },
+    {
+      fore: 'series-2',
+      back: 'surface',
+      min: CONTRAST.ui,
+      what: 'a part of a donut, orange',
+    },
+    {
+      fore: 'series-3',
+      back: 'surface',
+      min: CONTRAST.ui,
+      what: 'a part of a donut, aqua',
+      gap: "Under 3:1 in the light theme: a donut lists every part's figures beside it (the data-viz relief rule).",
+    },
+    {
+      fore: 'series-4',
+      back: 'surface',
+      min: CONTRAST.ui,
+      what: 'a part of a donut, yellow',
+      gap: "Under 3:1 in the light theme: a donut lists every part's figures beside it (the data-viz relief rule).",
+    },
+    {
+      fore: 'series-5',
+      back: 'surface',
+      min: CONTRAST.ui,
+      what: 'a part of a donut, magenta',
+      gap: "Under 3:1 in the light theme: a donut lists every part's figures beside it (the data-viz relief rule).",
+    },
+    {
+      fore: 'series-6',
+      back: 'surface',
+      min: CONTRAST.ui,
+      what: 'a part of a donut, violet',
+    },
+    {
+      fore: 'series-7',
+      back: 'surface',
+      min: CONTRAST.ui,
+      what: 'a part of a donut, green',
+    },
+    {
+      fore: 'series-other',
+      back: 'surface',
+      min: CONTRAST.ui,
+      what: 'a part of a donut not recorded',
+    },
+    {
+      fore: 'good',
+      back: 'surface',
+      min: CONTRAST.text,
+      what: 'a change for the better on a card',
+    },
+    {
+      fore: 'good',
+      back: 'surface-muted',
+      min: CONTRAST.text,
+      what: 'a change for the better on a muted box',
+    },
+    {
+      fore: 'danger',
+      back: 'surface-muted',
+      min: CONTRAST.text,
+      what: 'a change for the worse on a muted box',
     },
     {
       fore: 'line-strong',

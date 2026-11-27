@@ -66,6 +66,9 @@ function openSales(path = '/sales', answers: Answers = {}) {
 const figure = async (name: string) =>
   (await screen.findByRole('heading', { name, level: 2 }))
     .parentElement as HTMLElement;
+// A figure's change on the period before: its arrow and words.
+const change = (figure: HTMLElement) =>
+  figure.querySelector('svg.lucide')?.closest('p') as HTMLElement;
 // Which way a figure's change points, by its icon: the words say it too.
 const trend = (figure: HTMLElement) => {
   const icon = figure.querySelector('svg.lucide');
@@ -109,6 +112,11 @@ describe('the Sales page', () => {
     expect(sales).toHaveTextContent('₹1,374');
     expect(sales).toHaveTextContent('Up 37% from ₹1,000');
     expect(trend(sales)).toBe('trending-up');
+    // Up is for the better: green, and said so to screen readers.
+    expect(change(sales)).toHaveClass('text-good');
+    expect(change(sales)).toHaveTextContent(
+      'Up 37% from ₹1,000, for the better',
+    );
     expect(sales).toHaveTextContent(
       'What the products sold for, without GST, less refunds.',
     );
@@ -121,11 +129,17 @@ describe('the Sales page', () => {
     const orders = await figure('Orders');
     expect(orders).toHaveTextContent('4Same as before, 4');
     expect(trend(orders)).toBe('minus');
+    // No change: the quiet ink, and nothing more said.
+    expect(change(orders)).toHaveClass('text-ink-muted');
+    expect(change(orders)).toHaveTextContent(/^Same as before, 4$/);
     expect(await figure('Average order')).toHaveTextContent(
       '₹451Up 13% from ₹400',
     );
     const refunds = await figure('Refunds');
     expect(refunds).toHaveTextContent('₹498Up ₹498 from ₹0');
+    // More refunded is for the worse: red.
+    expect(change(refunds)).toHaveClass('text-danger');
+    expect(change(refunds)).toHaveTextContent('for the worse');
     expect(refunds).toHaveTextContent('1 order refunded in the period');
     expect(await figure('New customers')).toHaveTextContent('2Up 100% from 1');
     expect(await figure('Returning customers')).toHaveTextContent(

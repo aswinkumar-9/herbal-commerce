@@ -7,6 +7,7 @@ import {
   counted,
   periodBefore,
   periodName,
+  toneOf,
   updatedName,
 } from './sales-display';
 
@@ -134,5 +135,21 @@ describe('words', () => {
     expect(updatedName('2026-11-24T18:30:00.000Z', '2026-11-25')).toBe(
       'today at 00:00',
     );
+  });
+});
+
+describe('whether a change is for the better', () => {
+  it('is better up for most figures, down for refunds, and neither when nothing moved or there is nothing to compare', () => {
+    const up = changeFrom(1200, 1000, signedRupees);
+    const down = changeFrom(800, 1000, signedRupees);
+    expect(toneOf(up, 'up')).toBe('better');
+    expect(toneOf(down, 'up')).toBe('worse');
+    expect(toneOf(up, 'down')).toBe('worse');
+    expect(toneOf(down, 'down')).toBe('better');
+    expect(toneOf(changeFrom(3, 3, count), 'up')).toBe('neutral');
+    expect(toneOf(changeFrom(3, 3, count), 'down')).toBe('neutral');
+    expect(toneOf(averageChange(451, null), 'up')).toBe('neutral');
+    // Past 0 either way still has a direction.
+    expect(toneOf(changeFrom(-428, 0, signedRupees), 'up')).toBe('worse');
   });
 });

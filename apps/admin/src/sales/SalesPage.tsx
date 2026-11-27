@@ -14,6 +14,7 @@ import type { SalesReport, SalesTotals } from './sales-api';
 import {
   averageChange,
   changeFrom,
+  toneOf,
   count,
   counted,
   periodBefore,
@@ -375,7 +376,23 @@ function DatesForm({
 const TILE =
   'rounded-card border border-line bg-surface p-5 shadow-clay inset-shadow-clay';
 
-function ChangeLine({ change }: { change: Change }) {
+// Green when it got better, red when worse, the quiet ink otherwise; its
+// arrow and words say which way, and screen readers hear whether that is
+// for the better.
+const TONES = {
+  better: { colour: 'text-good', words: ', for the better' },
+  worse: { colour: 'text-danger', words: ', for the worse' },
+  neutral: { colour: 'text-ink-muted', words: '' },
+} as const;
+
+function ChangeLine({
+  change,
+  better,
+}: {
+  change: Change;
+  better: 'up' | 'down';
+}) {
+  const tone = TONES[toneOf(change, better)];
   const Icon =
     change.direction === 'up'
       ? TrendingUp
@@ -385,11 +402,14 @@ function ChangeLine({ change }: { change: Change }) {
           ? Minus
           : null;
   return (
-    <p className="mt-1 flex items-start gap-1.5 text-sm text-ink-muted">
+    <p className={`mt-1 flex items-start gap-1.5 text-sm ${tone.colour}`}>
       {Icon ? (
         <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
       ) : null}
-      <span>{change.words}</span>
+      <span>
+        {change.words}
+        {tone.words ? <span className="sr-only">{tone.words}</span> : null}
+      </span>
     </p>
   );
 }
@@ -400,12 +420,15 @@ function Figure({
   label,
   value,
   change,
+  better = 'up',
   note,
   size = 'md',
 }: {
   label: string;
   value: string;
   change: Change;
+  // Which way is for the better: up, but for refunds.
+  better?: 'up' | 'down';
   note?: string;
   size?: 'lg' | 'md';
 }) {
@@ -417,7 +440,7 @@ function Figure({
       >
         {value}
       </p>
-      <ChangeLine change={change} />
+      <ChangeLine change={change} better={better} />
       {note ? <p className="mt-2 text-xs text-ink-muted">{note}</p> : null}
     </div>
   );
@@ -527,6 +550,7 @@ function Figures({
             label="Refunds"
             value={signedRupees(now.refundedRupees)}
             change={rupeesChange((totals) => totals.refundedRupees)}
+            better="down"
             note={
               filtered
                 ? `${counted(now.refundedOrders, 'order', 'orders')} with these in refunded in the period: what these came to, GST included.`

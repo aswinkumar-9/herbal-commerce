@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
+  arcPath,
   columnPath,
+  heatBounds,
+  heatStep,
   labelledColumns,
+  linePath,
   scaleFor,
+  shareName,
   signedRupees,
   tickFormat,
 } from './chart-scale';
@@ -102,5 +107,67 @@ describe('labelledColumns', () => {
 
   it('labels nothing when there is nothing', () => {
     expect(labelledColumns(0, 6).size).toBe(0);
+  });
+});
+
+describe('linePath', () => {
+  it('moves to the first point and draws to each next, rounded to a hundredth', () => {
+    expect(
+      linePath([
+        { x: 10, y: 20 },
+        { x: 30.123, y: 5.006 },
+        { x: 50, y: 40 },
+      ]),
+    ).toBe('M10 20 L30.12 5.01 L50 40');
+    expect(linePath([{ x: 1, y: 2 }])).toBe('M1 2');
+    expect(linePath([])).toBeNull();
+  });
+});
+
+describe('arcPath', () => {
+  it('draws a piece of a ring clockwise from 12 o’clock, the long way round only past half', () => {
+    // A quarter, from 12 to 3 o'clock, of a ring between 80 and 60.
+    expect(arcPath(100, 100, 80, 60, 0, Math.PI / 2)).toBe(
+      'M100 20 A80 80 0 0 1 180 100 L160 100 A60 60 0 0 0 100 40 Z',
+    );
+    // Three quarters goes the long way.
+    expect(arcPath(100, 100, 80, 60, 0, (3 * Math.PI) / 2)).toContain(
+      'A80 80 0 1 1',
+    );
+  });
+});
+
+describe('shareName', () => {
+  it('says a share in whole percent, a tiny one as less than 1%', () => {
+    expect(shareName(62, 100)).toBe('62%');
+    expect(shareName(2, 3)).toBe('67%');
+    expect(shareName(1, 1000)).toBe('less than 1%');
+    expect(shareName(5, 1000)).toBe('1%');
+    expect(shareName(0, 100)).toBe('0%');
+    expect(shareName(5, 0)).toBe('0%');
+  });
+});
+
+describe('a calendar’s steps', () => {
+  it('tops each of four steps at a quarter more of the most sold in a day', () => {
+    expect(heatBounds(1000)).toEqual([250, 500, 750, 1000]);
+    expect(heatBounds(1001)).toEqual([251, 501, 751, 1001]);
+    expect(heatBounds(0)).toEqual([0, 0, 0, 0]);
+  });
+
+  it('puts nothing sold, or less, in no step, and each day in the first step it doesn’t pass', () => {
+    const bounds = heatBounds(1000);
+    expect(heatStep(0, bounds)).toBe(0);
+    expect(heatStep(-428, bounds)).toBe(0);
+    expect(heatStep(1, bounds)).toBe(1);
+    expect(heatStep(250, bounds)).toBe(1);
+    expect(heatStep(251, bounds)).toBe(2);
+    expect(heatStep(750, bounds)).toBe(3);
+    expect(heatStep(751, bounds)).toBe(4);
+    expect(heatStep(1000, bounds)).toBe(4);
+    // Above the top, as a day added later could be: the last step.
+    expect(heatStep(5000, bounds)).toBe(4);
+    // A small most still keeps every day it holds.
+    expect(heatStep(1, heatBounds(1))).toBe(1);
   });
 });

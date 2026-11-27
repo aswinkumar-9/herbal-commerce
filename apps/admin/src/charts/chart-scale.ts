@@ -124,3 +124,67 @@ export function labelledColumns(n: number, room: number): Set<number> {
   shown.add(last);
   return shown;
 }
+
+// Coordinates rounded to a hundredth of a pixel, so paths stay short.
+const px = (value: number) => Math.round(value * 100) / 100;
+
+// A line through points, left to right (part 15E): none without points.
+export function linePath(
+  points: readonly { x: number; y: number }[],
+): string | null {
+  if (points.length === 0) {
+    return null;
+  }
+  return points
+    .map(({ x, y }, i) => `${i === 0 ? 'M' : 'L'}${px(x)} ${px(y)}`)
+    .join(' ');
+}
+
+// A piece of a ring around (cx, cy), between two radii, from one angle to
+// another (part 15E). Angles are in radians, clockwise from 12 o'clock.
+export function arcPath(
+  cx: number,
+  cy: number,
+  outer: number,
+  inner: number,
+  from: number,
+  to: number,
+): string {
+  const at = (radius: number, angle: number) =>
+    `${px(cx + radius * Math.sin(angle))} ${px(cy - radius * Math.cos(angle))}`;
+  const large = to - from > Math.PI ? 1 : 0;
+  return [
+    `M${at(outer, from)}`,
+    `A${outer} ${outer} 0 ${large} 1 ${at(outer, to)}`,
+    `L${at(inner, to)}`,
+    `A${inner} ${inner} 0 ${large} 0 ${at(inner, from)}`,
+    'Z',
+  ].join(' ');
+}
+
+// A part's share of the whole, as a person says it: "62%", and "less than
+// 1%" for a part too small to round to 1 (part 15E).
+export function shareName(part: number, whole: number): string {
+  if (whole <= 0 || part <= 0) {
+    return '0%';
+  }
+  const share = Math.round((part / whole) * 100);
+  return share === 0 ? 'less than 1%' : `${share}%`;
+}
+
+// The top of each of a calendar's four steps, from the most sold in a day
+// (part 15E): a quarter of it, a half, three quarters and all of it, in
+// whole rupees.
+export function heatBounds(most: number): number[] {
+  return [1, 2, 3, 4].map((step) => Math.ceil((Math.max(0, most) * step) / 4));
+}
+
+// The step a day falls in: 0 for nothing sold, or less than nothing, else
+// the first step whose top it doesn't pass.
+export function heatStep(value: number, bounds: readonly number[]): number {
+  if (value <= 0) {
+    return 0;
+  }
+  const step = bounds.findIndex((top) => value <= top);
+  return step === -1 ? bounds.length : step + 1;
+}

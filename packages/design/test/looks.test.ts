@@ -64,6 +64,34 @@ for (const look of LOOKS) {
       });
     }
 
+    // A calendar's steps (heat-1, heat-2 ...): one hue, from little to
+    // most, lighter to darker in the light theme and darker to lighter in
+    // the dark one, each clearly apart from the last, the first from a day
+    // with nothing.
+    const heat = Object.keys(palette)
+      .filter((name) => /^heat-\d+$/.test(name))
+      .sort();
+    if (heat.length > 0) {
+      test(`${look.name}, ${theme}: the calendar's steps go one way in one hue, each clearly apart`, () => {
+        const sign = theme === 'light' ? -1 : 1;
+        const steps = ['surface-muted', ...heat].map((name) =>
+          oklch(colour(name)),
+        );
+        for (let i = 1; i < steps.length; i += 1) {
+          const step = (steps[i]?.l ?? 0) - (steps[i - 1]?.l ?? 0);
+          assert.ok(
+            sign * step >= 0.06,
+            `${heat[i - 1]}: lightness ${step.toFixed(3)}`,
+          );
+        }
+        const hues = steps.slice(1).map((step) => step.h);
+        assert.ok(
+          Math.max(...hues) - Math.min(...hues) <= 10,
+          `hues ${hues.map((h) => h.toFixed(0)).join(', ')}`,
+        );
+      });
+    }
+
     // The worst the glass can show through: black under it in the light
     // theme, white in the dark one.
     const under = theme === 'light' ? '#000000' : '#ffffff';
