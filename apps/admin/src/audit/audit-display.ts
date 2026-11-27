@@ -349,6 +349,8 @@ export function tell(entry: AuditEntry): Told {
           ['productId', 'a product'],
           ['categoryId', 'a category'],
           ['brandId', 'a brand'],
+          ['state', 'a state'],
+          ['method', 'a payment method'],
         ] as const
       )
         .filter(([key]) => text(entry.after, key) !== null)

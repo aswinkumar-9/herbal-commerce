@@ -1,44 +1,79 @@
 import { isId } from '../catalog/catalog-api';
 import type { Brand, Category } from '../catalog/catalog-api';
 import { categoryLabel } from '../catalog/category-tree';
+import { PAYMENT_METHODS } from './sales-api';
 
 // What the Sales page may be narrowed to (part 15D, ADR 0047): a product, a
 // category (a top one with its subcategories, or a subcategory) and a
-// brand, together or apart. Each by its ID, in the address as the API
-// takes them, so a link shows the same sales.
+// brand, and since part 15E the state the orders went to and how they were
+// paid, together or apart. The catalog's by ID, all in the address as the
+// API takes them, so a link shows the same sales.
 
-export const FILTER_KINDS = ['product', 'category', 'brand'] as const;
+export const FILTER_KINDS = [
+  'product',
+  'category',
+  'brand',
+  'state',
+  'method',
+] as const;
 export type FilterKind = (typeof FILTER_KINDS)[number];
 
 export const FILTER_PARAMS: Record<FilterKind, string> = {
   product: 'productId',
   category: 'categoryId',
   brand: 'brandId',
+  state: 'state',
+  method: 'method',
 };
 
 export const FILTER_NAMES: Record<FilterKind, string> = {
   product: 'Product',
   category: 'Category',
   brand: 'Brand',
+  state: 'State',
+  method: 'Payment method',
 };
+
+// The payments made before part 15C, which kept no method.
+export const NOT_RECORDED_METHOD = 'NOT_RECORDED';
+// Read when asked, not as this file loads: the API's file needs this one.
+const isMethod = (method: string) =>
+  method === NOT_RECORDED_METHOD ||
+  (PAYMENT_METHODS as readonly string[]).includes(method);
 
 export type SalesFilter = Partial<Record<FilterKind, string>>;
 
-// The filter the address asks for: anything that can't be an ID is left
-// out, as a link from before might have it.
+// The filter the address asks for: anything that can't be an ID or a way of
+// paying is left out, as a link from before might have it. A state is kept
+// as written: the API knows India's states, and says so of one it doesn't.
 export function filterFrom(params: URLSearchParams): SalesFilter {
   const filter: SalesFilter = {};
-  for (const kind of FILTER_KINDS) {
+  for (const kind of ['product', 'category', 'brand'] as const) {
     const id = params.get(FILTER_PARAMS[kind]);
     if (isId(id)) {
       filter[kind] = id.toLowerCase();
     }
+  }
+  const state = params.get('state')?.trim();
+  if (state && state.length <= 60) {
+    filter.state = state;
+  }
+  const method = params.get('method');
+  if (method && isMethod(method)) {
+    filter.method = method;
   }
   return filter;
 }
 
 export const isFiltered = (filter: SalesFilter) =>
   FILTER_KINDS.some((kind) => filter[kind] !== undefined);
+
+// Narrowed to some products: every figure is theirs alone, and delivery,
+// charged on whole orders, is not split.
+export const keepsProducts = (filter: SalesFilter) =>
+  filter.product !== undefined ||
+  filter.category !== undefined ||
+  filter.brand !== undefined;
 
 // The filter as the address and the API take it.
 export function filterParams(filter: SalesFilter): Record<string, string> {

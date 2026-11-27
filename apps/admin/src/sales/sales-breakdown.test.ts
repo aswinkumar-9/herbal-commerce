@@ -2,18 +2,29 @@ import { describe, expect, it } from 'vitest';
 import { reportOf } from '../test/sales-fixtures';
 import {
   brandItems,
+  calendarDays,
   categoryItems,
+  columnLabel,
+  linePoints,
   methodItems,
+  methodParts,
   productItems,
+  ringFits,
   seriesColumns,
   signedCount,
   stateItems,
 } from './sales-breakdown';
 
-const point = (start: string, salesRupees: number, orders: number) => ({
+const point = (
+  start: string,
+  salesRupees: number,
+  orders: number,
+  previous = { salesRupees: 0, orders: 0 },
+) => ({
   start,
   salesRupees,
   orders,
+  previous,
 });
 
 describe('the columns over time', () => {
@@ -129,6 +140,7 @@ describe('the lists', () => {
         value: 855,
         figure: '₹855',
         note: '2 packs',
+        pickable: true,
       },
       {
         key: 'name:Old Tulsi Tea',
@@ -136,6 +148,8 @@ describe('the lists', () => {
         value: 120,
         figure: '₹120',
         note: '1 pack',
+        // Known by its name only: nothing to narrow to.
+        pickable: false,
       },
       {
         key: 'p3',
@@ -143,6 +157,7 @@ describe('the lists', () => {
         value: -90,
         figure: '−₹90',
         note: '−1 pack',
+        pickable: true,
       },
     ]);
   });
@@ -175,13 +190,23 @@ describe('the lists', () => {
         name: 'Wellness',
         value: 855,
         figure: '₹855',
-        children: [{ key: 'c2', name: 'Immunity', value: 600, figure: '₹600' }],
+        pickable: true,
+        children: [
+          {
+            key: 'c2',
+            name: 'Immunity',
+            value: 600,
+            figure: '₹600',
+            pickable: true,
+          },
+        ],
       },
       {
         key: 'not-recorded',
         name: 'Not recorded',
         value: 40,
         figure: '₹40',
+        pickable: false,
         children: [],
       },
     ]);
@@ -198,10 +223,13 @@ describe('the lists', () => {
       }),
     );
 
-    expect(items.map(({ key, name }) => ({ key, name }))).toEqual([
-      { key: 'b1', name: 'Himalaya' },
-      { key: 'no-brand', name: 'No brand' },
-      { key: 'not-recorded', name: 'Not recorded' },
+    expect(
+      items.map(({ key, name, pickable }) => ({ key, name, pickable })),
+    ).toEqual([
+      { key: 'b1', name: 'Himalaya', pickable: true },
+      // Neither is a brand to narrow to.
+      { key: 'no-brand', name: 'No brand', pickable: false },
+      { key: 'not-recorded', name: 'Not recorded', pickable: false },
     ]);
   });
 
@@ -223,20 +251,23 @@ describe('the lists', () => {
         value: 1350,
         figure: '₹1,350',
         note: '3 orders',
+        pickable: true,
       },
     ]);
     expect(
-      methodItems(report).map(({ key, name, figure, note }) => [
+      methodItems(report).map(({ key, name, figure, note, pickable }) => [
         key,
         name,
         figure,
         note,
+        pickable,
       ]),
     ).toEqual([
-      ['UPI', 'UPI', '₹1,170', '3 orders'],
-      ['NETBANKING', 'Net banking', '₹200', '1 order'],
-      ['PAY_LATER', 'Pay later', '₹100', '1 order'],
-      ['not-recorded', 'Not recorded', '−₹428', '0 orders'],
+      ['UPI', 'UPI', '₹1,170', '3 orders', true],
+      ['NETBANKING', 'Net banking', '₹200', '1 order', true],
+      ['PAY_LATER', 'Pay later', '₹100', '1 order', true],
+      // The payments that kept none can be narrowed to.
+      ['not-recorded', 'Not recorded', '−₹428', '0 orders', true],
     ]);
   });
 
@@ -244,5 +275,106 @@ describe('the lists', () => {
     expect(signedCount(-2, 'pack', 'packs')).toBe('−2 packs');
     expect(signedCount(1500, 'pack', 'packs')).toBe('1,500 packs');
     expect(signedCount(0, 'pack', 'packs')).toBe('0 packs');
+  });
+});
+
+describe('the bars of part 15E', () => {
+  it('name quarters by their months and financial years from April', () => {
+    expect(columnLabel('quarter', '2026-10-01')).toBe('Oct–Dec 2026');
+    // A first quarter cut to the period still names the whole quarter.
+    expect(columnLabel('quarter', '2026-02-15')).toBe('Jan–Mar 2026');
+    expect(columnLabel('year', '2026-04-01')).toBe('FY 2026–27');
+    expect(columnLabel('year', '2026-01-01')).toBe('FY 2025–26');
+    expect(columnLabel('year', '2099-04-01')).toBe('FY 2099–00');
+  });
+
+  it('put each bar beside the same days of the period before', () => {
+    const points = linePoints(
+      reportOf('2026-11-01', '2026-11-14', {
+        series: {
+          unit: 'week',
+          points: [
+            point('2026-11-01', 449, 1, { salesRupees: 300, orders: 1 }),
+            point('2026-11-02', 900, 2),
+            point('2026-11-09', -428, 0, { salesRupees: 120, orders: 2 }),
+          ],
+        },
+      }),
+    );
+    expect(points.map((p) => [p.label, p.value, p.previous])).toEqual([
+      ['1 Nov', 449, 300],
+      ['2 Nov', 900, 0],
+      ['9 Nov', -428, 120],
+    ]);
+    // Fourteen days earlier.
+    expect(points[0]?.readout).toBe(
+      '1 Nov 2026: ₹449 from 1 order. 18 Oct 2026: ₹300 from 1 order',
+    );
+    expect(points[2]?.readout).toBe(
+      '9–14 Nov 2026: −₹428 from 0 orders. 26–31 Oct 2026: ₹120 from 2 orders',
+    );
+    expect(points[2]?.cells).toEqual([
+      '9–14 Nov 2026',
+      '−₹428',
+      '0',
+      '26–31 Oct 2026',
+      '₹120',
+      '2',
+    ]);
+  });
+
+  it('give each day of the calendar its weekday, and none for a period too long', () => {
+    const days = calendarDays(
+      reportOf('2026-11-01', '2026-11-02', {
+        calendar: [
+          { day: '2026-11-01', salesRupees: 0, orders: 0 },
+          { day: '2026-11-02', salesRupees: 1250, orders: 3 },
+        ],
+      }),
+    );
+    expect(days?.map((day) => day.readout)).toEqual([
+      'Sunday 1 Nov 2026: ₹0 from 0 orders',
+      'Monday 2 Nov 2026: ₹1,250 from 3 orders',
+    ]);
+    expect(days?.[1]?.cells).toEqual(['2 Nov 2026', 'Monday', '₹1,250', '3']);
+    expect(calendarDays(reportOf('2020-01-01', '2026-11-25'))).toBeNull();
+  });
+
+  it('keep each way of paying in its own place and colour round the ring, the unrecorded last in grey', () => {
+    const parts = methodParts(
+      reportOf('2026-11-01', '2026-11-25', {
+        methods: [
+          { method: null, salesRupees: 169, orders: 1 },
+          { method: 'PAY_LATER', salesRupees: 100, orders: 1 },
+          { method: 'UPI', salesRupees: 1170, orders: 3 },
+          { method: 'OTHER', salesRupees: 50, orders: 1 },
+        ],
+      }),
+    );
+    expect(parts.map(({ key, name, colour }) => [key, name, colour])).toEqual([
+      ['UPI', 'UPI', 1],
+      ['PAY_LATER', 'Pay later', 6],
+      ['OTHER', 'Other', 7],
+      ['not-recorded', 'Not recorded', 'other'],
+    ]);
+    expect(parts[0]?.figure).toBe('₹1,170 · 3 orders');
+    expect(parts.every((part) => part.pickable)).toBe(true);
+  });
+
+  it('draw a ring only for two to six parts, none below 0', () => {
+    const part = (value: number) => ({
+      key: String(value),
+      name: String(value),
+      value,
+      colour: 1 as const,
+      figure: '',
+    });
+    expect(ringFits([part(10), part(5)])).toBe(true);
+    expect(ringFits([part(10), part(0)])).toBe(false);
+    expect(ringFits([part(10), part(5), part(-1)])).toBe(false);
+    expect(ringFits([1, 2, 3, 4, 5, 6].map(part))).toBe(true);
+    expect(ringFits([1, 2, 3, 4, 5, 6, 7].map(part))).toBe(false);
+    // Nothing at all is a part of 0 too.
+    expect(ringFits([part(0), part(0), part(4), part(3)])).toBe(true);
   });
 });

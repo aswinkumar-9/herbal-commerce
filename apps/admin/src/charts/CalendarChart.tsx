@@ -47,9 +47,10 @@ const MONTHS = [
   'Dec',
 ];
 
-// Room for the weekdays on the left and the months on top.
+// Room for the weekdays on the left and the months on top, the months'
+// names and the weekdays' a pixel in, so their letters stay inside.
 const LEFT = 32;
-const TOP = 18;
+const TOP = 20;
 // The card's colour between squares, as between columns.
 const GAP = 2;
 // A square never smaller than this, so it can be pointed at (the chart
@@ -206,7 +207,7 @@ export function CalendarChart({
           {[0, 2, 4].map((row) => (
             <text
               key={row}
-              x={0}
+              x={1}
               y={TOP + row * pitch + cell - 1}
               className="fill-ink-muted text-xs"
             >

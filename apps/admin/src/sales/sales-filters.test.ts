@@ -6,6 +6,7 @@ import {
   filterFrom,
   filterParams,
   isFiltered,
+  keepsProducts,
 } from './sales-filters';
 
 const PRODUCT = '7D6C5B4A-3F2E-4D1C-8B0A-9F8E7D6C5B41';
@@ -75,5 +76,30 @@ describe('a search of the categories and brands', () => {
     const found = catalogMatches('brand', [], many);
     expect(found).toHaveLength(MATCHES_SHOWN);
     expect(found[0]?.name).toBe('Brand 1');
+  });
+});
+
+describe('narrowing by place', () => {
+  it('takes a state as written and a way of paying the API knows, the unrecorded too', () => {
+    expect(
+      filterFrom(new URLSearchParams('state=Tamil+Nadu&method=UPI')),
+    ).toEqual({ state: 'Tamil Nadu', method: 'UPI' });
+    expect(filterFrom(new URLSearchParams('method=NOT_RECORDED'))).toEqual({
+      method: 'NOT_RECORDED',
+    });
+    expect(filterFrom(new URLSearchParams(`state=+&method=CASH`))).toEqual({});
+    expect(filterFrom(new URLSearchParams({ state: 'x'.repeat(61) }))).toEqual(
+      {},
+    );
+    expect(
+      filterParams({ product: 'p1', state: 'Kerala', method: 'CARD' }),
+    ).toEqual({ productId: 'p1', state: 'Kerala', method: 'CARD' });
+  });
+
+  it('says whether only some products are kept', () => {
+    expect(keepsProducts({ state: 'Kerala', method: 'UPI' })).toBe(false);
+    expect(keepsProducts({ brand: 'b1', state: 'Kerala' })).toBe(true);
+    expect(isFiltered({ method: 'UPI' })).toBe(true);
+    expect(isFiltered({})).toBe(false);
   });
 });

@@ -8,7 +8,7 @@ import { catalogKeys } from '../catalog/catalog-queries';
 import { getSalesReport } from './sales-api';
 import { MATCHES_SHOWN } from './sales-filters';
 import type { SalesFilter } from './sales-filters';
-import type { Period } from './sales-periods';
+import type { Period, Unit } from './sales-periods';
 
 // The summaries behind the report are rebuilt every 5 minutes, so the page
 // asks again as often while it is open.
@@ -16,17 +16,21 @@ export const SALES_REFRESH_MS = 5 * 60_000;
 
 export const salesKeys = {
   all: ['sales'] as const,
-  report: ({ from, to }: Period, filter: SalesFilter) =>
-    ['sales', from, to, filter] as const,
+  report: ({ from, to }: Period, filter: SalesFilter, unit?: Unit) =>
+    ['sales', from, to, filter, unit ?? 'chosen'] as const,
   products: (words: string) => ['sales', 'products', words] as const,
 };
 
-// A period's sales, narrowed or not. While another loads, the last one
-// stays on the page, dimmed.
-export function useSalesReport(period: Period, filter: SalesFilter) {
+// A period's sales, narrowed or not, its chart in the bars asked for. While
+// another loads, the last one stays on the page, dimmed.
+export function useSalesReport(
+  period: Period,
+  filter: SalesFilter,
+  unit?: Unit,
+) {
   return useQuery({
-    queryKey: salesKeys.report(period, filter),
-    queryFn: ({ signal }) => getSalesReport(period, filter, signal),
+    queryKey: salesKeys.report(period, filter, unit),
+    queryFn: ({ signal }) => getSalesReport(period, filter, unit, signal),
     placeholderData: keepPreviousData,
     refetchInterval: SALES_REFRESH_MS,
   });

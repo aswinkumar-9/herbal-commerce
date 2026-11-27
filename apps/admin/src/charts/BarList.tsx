@@ -11,7 +11,14 @@ export interface BarListItem {
   // Shown under it, a little in, on the same scale: a category's
   // subcategories.
   children?: BarListItem[];
+  // Whether choosing it means something (part 15E): what was not recorded
+  // can't be chosen.
+  pickable?: boolean;
 }
+
+// The pointer's and the keyboard's way to choose a row's name.
+export const PICK_BUTTON =
+  'min-w-0 truncate rounded text-left underline decoration-line-strong decoration-1 underline-offset-4 transition-colors duration-150 hover:text-primary hover:decoration-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus aria-pressed:text-primary-strong aria-pressed:decoration-primary aria-pressed:decoration-2';
 
 // Where 0 sits on the bars, and how far each value reaches, in percent of
 // the width: from the left edge, or further in when a value is below 0.
@@ -38,14 +45,19 @@ function reachOf(items: readonly BarListItem[]) {
 // figure, its bar under them on one shared scale, so rows compare at a
 // glance. One colour, as the rows are one series; every figure is printed,
 // so nothing is told by colour alone. Our own SVG, attributes only. A value
-// below 0 reaches left of a zero line.
+// below 0 reaches left of a zero line. Given `onPick` (part 15E), each
+// pickable row's name is a button that is pressed while it is chosen.
 export function BarList({
   label,
   items,
+  onPick,
+  picked,
 }: {
   // What the list ranks, for screen readers.
   label: string;
   items: BarListItem[];
+  onPick?: (item: BarListItem) => void;
+  picked?: (item: BarListItem) => boolean;
 }) {
   const reach = reachOf(items);
   const row = (item: BarListItem, nested: boolean) => {
@@ -53,11 +65,22 @@ export function BarList({
     return (
       <li key={item.key} className={nested ? 'pl-4' : ''}>
         <div className="flex items-baseline justify-between gap-3 text-sm">
-          <span
-            className={`min-w-0 truncate ${nested ? 'text-ink-muted' : 'font-medium'}`}
-          >
-            {item.name}
-          </span>
+          {onPick && item.pickable ? (
+            <button
+              type="button"
+              aria-pressed={picked?.(item) ?? false}
+              onClick={() => onPick(item)}
+              className={`${PICK_BUTTON} ${nested ? 'text-ink-muted' : 'font-medium'}`}
+            >
+              {item.name}
+            </button>
+          ) : (
+            <span
+              className={`min-w-0 truncate ${nested ? 'text-ink-muted' : 'font-medium'}`}
+            >
+              {item.name}
+            </span>
+          )}
           <span className="shrink-0 tabular-nums">
             <span className="font-medium">{item.figure}</span>
             {item.note ? (

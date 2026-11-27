@@ -2,7 +2,8 @@ import { z } from 'zod';
 import { apiDownload, apiRequest } from '../api/client';
 import { filterParams } from './sales-filters';
 import type { SalesFilter } from './sales-filters';
-import type { Period } from './sales-periods';
+import type { Period, Unit } from './sales-periods';
+import { UNITS } from './sales-periods';
 
 // A period's sales, for Super Users only (part 15D, ADR 0047), compared
 // with the period of the same length just before. Read from the daily
@@ -62,6 +63,12 @@ const reportSchema = z.object({
       .object({ categoryId: z.string(), name: named, parentName: named })
       .nullable(),
     brand: z.object({ brandId: z.string(), name: named }).nullable(),
+    // Since part 15E; an API from before sends neither.
+    state: z.object({ state: z.string() }).nullable().default(null),
+    method: z
+      .object({ method: z.enum(PAYMENT_METHODS).nullable() })
+      .nullable()
+      .default(null),
   }),
   previousPeriod: period,
   refreshedAt: z.iso.datetime().nullable(),
@@ -70,11 +77,24 @@ const reportSchema = z.object({
   // Every day, week or month of the period, in order, those with nothing
   // too.
   series: z.object({
-    unit: z.enum(['day', 'week', 'month']),
+    unit: z.enum(UNITS),
     points: z.array(
-      z.object({ start: z.iso.date(), salesRupees: rupees, orders: count }),
+      z.object({
+        start: z.iso.date(),
+        salesRupees: rupees,
+        orders: count,
+        // The same days of the period before (part 15E).
+        previous: z
+          .object({ salesRupees: rupees, orders: count })
+          .default({ salesRupees: 0, orders: 0 }),
+      }),
     ),
   }),
+  // Each day, for a calendar: none for a period over 366 days (part 15E).
+  calendar: z
+    .array(z.object({ day: z.iso.date(), salesRupees: rupees, orders: count }))
+    .nullable()
+    .default(null),
   // The best 10. No ID: a product sold before part 15C whose pack size
   // was deleted.
   products: z.array(
@@ -126,9 +146,15 @@ export type SalesReport = z.infer<typeof reportSchema>;
 export function getSalesReport(
   { from, to }: Period,
   filter: SalesFilter,
+  unit: Unit | undefined,
   signal?: AbortSignal,
 ): Promise<SalesReport> {
-  const search = new URLSearchParams({ from, to, ...filterParams(filter) });
+  const search = new URLSearchParams({
+    from,
+    to,
+    ...filterParams(filter),
+    ...(unit ? { unit } : {}),
+  });
   return apiRequest(`${SALES}?${search.toString()}`, {
     schema: reportSchema,
     signal,

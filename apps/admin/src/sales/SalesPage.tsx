@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { useId, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
+import { PageTabs } from '../layout/PageTabs';
 import { problemMessage } from '../api/problems';
 import { LoadFailed } from '../catalog/list-states';
 import { signedRupees } from '../charts/chart-scale';
@@ -27,12 +28,25 @@ import {
   PRESETS,
   datesProblems,
   periodChoice,
+  unitChoice,
 } from './sales-periods';
-import type { DateField, Period, PeriodChoice, Preset } from './sales-periods';
+import type {
+  DateField,
+  Period,
+  PeriodChoice,
+  Preset,
+  Unit,
+} from './sales-periods';
 import { DownloadReport } from './DownloadReport';
-import { SalesBreakdown } from './SalesBreakdown';
+import { SalesOverTime, SalesPlaces } from './SalesBreakdown';
 import { SalesFilterBar } from './SalesFilterBar';
-import { filterFrom, filterParams, isFiltered } from './sales-filters';
+import { METHOD_NAMES, NOT_RECORDED } from './sales-breakdown';
+import {
+  NOT_RECORDED_METHOD,
+  filterFrom,
+  filterParams,
+  keepsProducts,
+} from './sales-filters';
 import type { FilterKind, FilterMatch, SalesFilter } from './sales-filters';
 import { useSalesReport } from './sales-queries';
 import { useIndiaToday } from './use-india-today';
@@ -77,30 +91,61 @@ function filterNames(
       names[kind] = name ?? (report ? 'Not found' : '…');
     }
   }
+  // A state is its own name, and a way of paying is named as on the page.
+  if (filter.state) {
+    names.state = filter.state;
+  }
+  if (filter.method) {
+    names.method =
+      filter.method === NOT_RECORDED_METHOD
+        ? NOT_RECORDED
+        : (METHOD_NAMES[filter.method as keyof typeof METHOD_NAMES] ??
+          filter.method);
+  }
   return names;
 }
 
+export type SalesTab = 'overview' | 'places';
+
 // A period's sales, for Super Users (part 15D, ADR 0047): the totals, each
 // beside the period of the same length just before, narrowed or not to a
-// product, a category or a brand. The period and the filters live in the
-// address, so a link or a reload shows the same.
-export function SalesPage() {
-  usePageTitle('Sales');
+// product, a category or a brand, and since part 15E to a state or a way
+// of paying. Two tabs (part 15E): the overview, over time, and where the
+// sales went and what they were made of, each name a way to narrow the
+// page. The period, the filters and the chart's bars live in the address,
+// so a link, a reload or the other tab shows the same.
+export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
+  usePageTitle(tab === 'places' ? 'Sales by place and catalog' : 'Sales');
   const [params, setParams] = useSearchParams();
   const today = useIndiaToday();
   const choice = periodChoice(params, today);
   const { period } = choice;
   const filter = filterFrom(params);
-  const report = useSalesReport(period, filter);
-  // The names of what the search found, by kind and ID.
+  const unit = unitChoice(params, period);
+  const report = useSalesReport(period, filter, unit);
+  // The names of what the search found, or of what was chosen, by kind and
+  // ID.
   const [found, setFound] = useState<Record<string, string>>({});
+  const query = params.toString();
+  const tabs = [
+    { to: `/sales${query ? `?${query}` : ''}`, label: 'Overview', end: true },
+    {
+      to: `/sales/places${query ? `?${query}` : ''}`,
+      label: 'Places and catalog',
+    },
+  ];
 
   function show(
     periodPart: Record<string, string>,
     filterPart: SalesFilter = filter,
+    unitPart: Unit | undefined = unit,
   ) {
     setParams(
-      { ...periodPart, ...filterParams(filterPart) },
+      {
+        ...periodPart,
+        ...filterParams(filterPart),
+        ...(unitPart ? { unit: unitPart } : {}),
+      },
       { replace: true },
     );
   }
@@ -122,8 +167,19 @@ export function SalesPage() {
     show(periodParams(choice), { ...filter, [kind]: undefined });
   }
 
+  // A name chosen in a list: narrowed to it, or back to everything when it
+  // was already chosen.
+  function pick(kind: FilterKind, id: string, name: string) {
+    if (filter[kind] === id) {
+      remove(kind);
+      return;
+    }
+    choose({ kind, id, name });
+  }
+
   return (
     <section className="max-w-5xl">
+      <PageTabs label="Sales" tabs={tabs} layoutId="sales-tab" />
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-2xl">
           <h1 className="text-2xl font-semibold">Sales</h1>
@@ -183,7 +239,15 @@ export function SalesPage() {
             report.isPlaceholderData ? 'opacity-60' : ''
           }`}
         >
-          <Figures report={report.data} filtered={isFiltered(filter)} />
+          <Figures
+            report={report.data}
+            filtered={keepsProducts(filter)}
+            tab={tab}
+            today={today}
+            filter={filter}
+            onUnit={(chosen) => show(periodParams(choice), filter, chosen)}
+            onPick={pick}
+          />
         </div>
       ) : null}
     </section>
@@ -449,10 +513,20 @@ function Figure({
 function Figures({
   report,
   filtered,
+  tab,
+  today,
+  filter,
+  onUnit,
+  onPick,
 }: {
   report: SalesReport;
   // Narrowed to some products: every figure is theirs alone.
   filtered: boolean;
+  tab: SalesTab;
+  today: string;
+  filter: SalesFilter;
+  onUnit: (unit: Unit) => void;
+  onPick: (kind: FilterKind, id: string, name: string) => void;
 }) {
   const { totals: now, previousTotals: before } = report;
   const rupeesChange = (pick: (totals: SalesTotals) => number) =>
@@ -460,6 +534,22 @@ function Figures({
   const countChange = (pick: (totals: SalesTotals) => number) =>
     changeFrom(pick(now), pick(before), count);
   const quiet = now.orders === 0 && now.refundedOrders === 0;
+
+  const quietNote = quiet ? (
+    <p className="mt-4 rounded-card border border-dashed border-line bg-surface p-5 text-center text-sm text-ink-muted">
+      {filtered
+        ? 'None of these were paid for or refunded in this period.'
+        : 'Nothing was paid for or refunded in this period.'}{' '}
+      Payments show here within 5 minutes of being made.
+    </p>
+  ) : null;
+  if (tab === 'places') {
+    return (
+      quietNote ?? (
+        <SalesPlaces report={report} filter={filter} onPick={onPick} />
+      )
+    );
+  }
 
   return (
     <>
@@ -559,15 +649,8 @@ function Figures({
           />
         </div>
       </div>
-      {quiet ? (
-        <p className="mt-4 rounded-card border border-dashed border-line bg-surface p-5 text-center text-sm text-ink-muted">
-          {filtered
-            ? 'None of these were paid for or refunded in this period.'
-            : 'Nothing was paid for or refunded in this period.'}{' '}
-          Payments show here within 5 minutes of being made.
-        </p>
-      ) : (
-        <SalesBreakdown report={report} />
+      {quietNote ?? (
+        <SalesOverTime report={report} today={today} onUnit={onUnit} />
       )}
     </>
   );

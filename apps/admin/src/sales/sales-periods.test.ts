@@ -1,12 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_PRESET,
+  MAX_BARS,
   MAX_PERIOD_DAYS,
   PRESETS,
   addDays,
+  barStart,
+  barsIn,
   datesProblems,
   daysIn,
+  financialYearOf,
   periodChoice,
+  unitChoice,
 } from './sales-periods';
 
 const presets = (today: string) =>
@@ -22,6 +27,7 @@ describe('the periods a click away', () => {
       'this-month': { from: '2026-11-01', to: '2026-11-25' },
       'last-month': { from: '2026-10-01', to: '2026-10-31' },
       'this-year': { from: '2026-01-01', to: '2026-11-25' },
+      'this-financial-year': { from: '2026-04-01', to: '2026-11-25' },
     });
     expect(PRESETS.map((preset) => preset.label)).toEqual([
       'Today',
@@ -31,6 +37,7 @@ describe('the periods a click away', () => {
       'This month',
       'Last month',
       'This year',
+      'This financial year',
     ]);
     expect(DEFAULT_PRESET.name).toBe('last-30-days');
   });
@@ -42,6 +49,16 @@ describe('the periods a click away', () => {
       'this-month': { from: '2026-01-01', to: '2026-01-01' },
       'last-month': { from: '2025-12-01', to: '2025-12-31' },
       'this-year': { from: '2026-01-01', to: '2026-01-01' },
+      // January is in the financial year that began last April.
+      'this-financial-year': { from: '2025-04-01', to: '2026-01-01' },
+    });
+    expect(presets('2026-04-01')['this-financial-year']).toEqual({
+      from: '2026-04-01',
+      to: '2026-04-01',
+    });
+    expect(presets('2027-03-31')['this-financial-year']).toEqual({
+      from: '2026-04-01',
+      to: '2027-03-31',
     });
     expect(presets('2028-03-10')['last-month']).toEqual({
       from: '2028-02-01',
@@ -124,5 +141,53 @@ describe('the period in the address', () => {
         period: { from: '2026-10-27', to: today },
       });
     }
+  });
+});
+
+describe('the bars of the chart', () => {
+  it('start a financial year on the 1st of April', () => {
+    expect(financialYearOf('2026-11-27')).toBe('2026-04-01');
+    expect(financialYearOf('2026-04-01')).toBe('2026-04-01');
+    expect(financialYearOf('2026-03-31')).toBe('2025-04-01');
+    expect(financialYearOf('2027-01-15')).toBe('2026-04-01');
+  });
+
+  it('start each bar as the API does, never before the period', () => {
+    // 25 November 2026 is a Wednesday.
+    expect(barStart('2026-11-25', 'day', '2026-01-01')).toBe('2026-11-25');
+    expect(barStart('2026-11-25', 'week', '2026-01-01')).toBe('2026-11-23');
+    expect(barStart('2026-11-25', 'month', '2026-01-01')).toBe('2026-11-01');
+    expect(barStart('2026-11-25', 'quarter', '2026-01-01')).toBe('2026-10-01');
+    expect(barStart('2026-03-31', 'quarter', '2026-01-01')).toBe('2026-01-01');
+    expect(barStart('2026-11-25', 'year', '2020-01-01')).toBe('2026-04-01');
+    expect(barStart('2026-02-25', 'year', '2020-01-01')).toBe('2025-04-01');
+    expect(barStart('2026-11-25', 'week', '2026-11-24')).toBe('2026-11-24');
+    expect(barStart('2026-11-25', 'year', '2026-10-01')).toBe('2026-10-01');
+  });
+
+  it('count the bars of a period in each size', () => {
+    const november = { from: '2026-11-01', to: '2026-11-30' };
+    expect(barsIn(november, 'day')).toBe(30);
+    // From Sunday the 1st: that day, then four Mondays and the 30th's.
+    expect(barsIn(november, 'week')).toBe(6);
+    expect(barsIn(november, 'month')).toBe(1);
+    const years = { from: '2025-01-01', to: '2026-11-25' };
+    expect(barsIn(years, 'quarter')).toBe(8);
+    expect(barsIn(years, 'year')).toBe(3);
+    expect(barsIn({ from: '2024-01-01', to: '2024-12-31' }, 'day')).toBe(
+      MAX_BARS,
+    );
+  });
+
+  it('take the size the address asks for, unless the period has too many', () => {
+    const year = { from: '2024-01-01', to: '2024-12-31' };
+    const asked = (unit: string) => new URLSearchParams({ unit });
+    expect(unitChoice(asked('day'), year)).toBe('day');
+    expect(unitChoice(asked('quarter'), year)).toBe('quarter');
+    expect(
+      unitChoice(asked('day'), { from: '2024-01-01', to: '2025-01-01' }),
+    ).toBeUndefined();
+    expect(unitChoice(asked('hour'), year)).toBeUndefined();
+    expect(unitChoice(new URLSearchParams(), year)).toBeUndefined();
   });
 });

@@ -1,5 +1,6 @@
 import { render, screen, within } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it, vi } from 'vitest';
 import { BarList, type BarListItem } from './BarList';
 
 function item(
@@ -143,5 +144,65 @@ describe('BarList', () => {
       width: '25%',
       height: '4',
     });
+  });
+});
+
+describe('choosing a row', () => {
+  it('makes each pickable row’s name a button, pressed while chosen', async () => {
+    const user = userEvent.setup();
+    const onPick = vi.fn();
+    render(
+      <BarList
+        label="States"
+        items={[
+          {
+            key: 'Kerala',
+            name: 'Kerala',
+            value: 900,
+            figure: '₹900',
+            pickable: true,
+          },
+          {
+            key: 'Goa',
+            name: 'Goa',
+            value: 300,
+            figure: '₹300',
+            pickable: true,
+          },
+          { key: 'gone', name: 'Not recorded', value: 40, figure: '₹40' },
+        ]}
+        onPick={onPick}
+        picked={(item) => item.key === 'Goa'}
+      />,
+    );
+    const kerala = screen.getByRole('button', { name: 'Kerala' });
+    expect(kerala).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.getByRole('button', { name: 'Goa' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.queryByRole('button', { name: 'Not recorded' })).toBeNull();
+    await user.click(kerala);
+    expect(onPick).toHaveBeenCalledWith(
+      expect.objectContaining({ key: 'Kerala' }),
+    );
+  });
+
+  it('has no buttons without a way to choose', () => {
+    render(
+      <BarList
+        label="States"
+        items={[
+          {
+            key: 'Kerala',
+            name: 'Kerala',
+            value: 900,
+            figure: '₹900',
+            pickable: true,
+          },
+        ]}
+      />,
+    );
+    expect(screen.queryByRole('button')).toBeNull();
   });
 });

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { PICK_BUTTON } from './BarList';
 import { arcPath, shareName } from './chart-scale';
 
 // The design system's colours for parts of a whole (part 15E): seven hues,
@@ -45,6 +46,8 @@ export interface DonutPart {
   colour: PartColour;
   // Its figures, in the legend: "₹1,170 from 3 orders".
   figure: string;
+  // Whether choosing it means something (part 15E).
+  pickable?: boolean;
 }
 
 const SIZE = 176;
@@ -64,16 +67,22 @@ const GAP = 2;
 // figures and its share, so the drawing hides nothing and is itself hidden
 // from screen readers. Pointing at a part, or at its row, picks out both.
 // For parts that can be below 0, or for more than six, use bars instead.
+// Given `onPick`, each pickable part's name in the legend is a button that
+// is pressed while it is chosen.
 export function DonutChart({
   label,
   parts,
   total,
+  onPick,
+  picked,
 }: {
   // What the chart shows: the legend's name for screen readers.
   label: string;
   parts: DonutPart[];
   // In the middle: "₹2,450", and what it is, "in sales".
   total: { value: string; caption: string };
+  onPick?: (part: DonutPart) => void;
+  picked?: (part: DonutPart) => boolean;
 }) {
   const [active, setActive] = useState<string | null>(null);
   const whole = parts.reduce((sum, part) => sum + Math.max(0, part.value), 0);
@@ -93,7 +102,7 @@ export function DonutChart({
     active !== null && active !== key ? 'opacity-40' : '';
 
   return (
-    <figure className="flex min-w-0 flex-col items-center gap-4 sm:flex-row sm:items-start">
+    <figure className="flex min-w-0 flex-col items-center gap-4">
       <svg
         aria-hidden="true"
         width={SIZE}
@@ -158,19 +167,32 @@ export function DonutChart({
             key={part.key}
             onPointerEnter={() => setActive(part.key)}
             onPointerLeave={() => setActive(null)}
-            className={`flex items-baseline gap-2 rounded-lg px-2 py-1 transition-colors duration-150 ${active === part.key ? 'bg-surface-muted' : ''}`}
+            className={`flex items-start gap-2 rounded-lg px-2 py-1 transition-colors duration-150 ${active === part.key ? 'bg-surface-muted' : ''}`}
           >
             <span
               aria-hidden="true"
-              className={`size-2.5 shrink-0 translate-y-px rounded-sm ${SWATCHES[part.colour]}`}
+              className={`mt-1.5 size-2.5 shrink-0 rounded-sm ${SWATCHES[part.colour]}`}
             />
-            <span className="min-w-0 flex-1 break-words text-ink">
-              {part.name}
+            <span className="min-w-0 flex-1">
+              <span className="block break-words text-ink">
+                {onPick && part.pickable ? (
+                  <button
+                    type="button"
+                    aria-pressed={picked?.(part) ?? false}
+                    onClick={() => onPick(part)}
+                    className={PICK_BUTTON}
+                  >
+                    {part.name}
+                  </button>
+                ) : (
+                  part.name
+                )}
+              </span>
+              <span className="block text-xs text-ink-muted tabular-nums">
+                {part.figure}
+              </span>
             </span>
-            <span className="shrink-0 text-ink-muted tabular-nums">
-              {part.figure}
-            </span>
-            <span className="w-24 shrink-0 text-right font-medium tabular-nums">
+            <span className="shrink-0 text-right font-medium tabular-nums">
               {shareName(Math.max(0, part.value), whole)}
             </span>
           </li>

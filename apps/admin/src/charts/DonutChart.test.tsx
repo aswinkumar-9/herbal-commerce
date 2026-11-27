@@ -133,3 +133,32 @@ describe('DonutChart', () => {
     expect(rows()[1]).toHaveTextContent('less than 1%');
   });
 });
+
+describe('choosing a part', () => {
+  it('makes each pickable part’s name in the legend a button, pressed while chosen', () => {
+    const chosen: string[] = [];
+    render(
+      <DonutChart
+        label="Sales by payment method"
+        parts={METHODS.map((part) => ({
+          ...part,
+          pickable: part.key !== 'NONE',
+        }))}
+        total={{ value: '₹1,000', caption: 'in sales' }}
+        onPick={(part) => chosen.push(part.key)}
+        picked={(part) => part.key === 'CARD'}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'UPI' })).toHaveAttribute(
+      'aria-pressed',
+      'false',
+    );
+    expect(screen.getByRole('button', { name: 'Card' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    expect(screen.queryByRole('button', { name: 'Not recorded' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'UPI' }));
+    expect(chosen).toEqual(['UPI']);
+  });
+});
