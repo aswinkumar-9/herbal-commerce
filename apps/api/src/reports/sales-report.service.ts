@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { Prisma } from '../generated/prisma/client';
 import type { PaymentMethod } from '../generated/prisma/enums';
 import { PrismaService } from '../prisma/prisma.service';
-import type { SalesReportQuery } from './reports.schemas';
+import { NOT_RECORDED, type SalesReportQuery } from './reports.schemas';
 import { detailOf, type PlaceSums, type SalesDetail } from './sales-detail';
 import {
   addDays,
@@ -10,6 +10,8 @@ import {
   barsOf,
   dateOf,
   dayOf,
+  daysIn,
+  MAX_BARS,
   previousPeriod,
   type SeriesUnit,
   unitFor,
@@ -69,12 +71,15 @@ export interface SalesTotals {
 }
 
 // What the report is narrowed to, if anything: a product, a category (a
-// top one with its subcategories, or a subcategory), a brand, or those
-// together. Each named as the catalog names it now, else as it last sold.
+// top one with its subcategories, or a subcategory), a brand, the state the
+// orders went to, or how they were paid (part 15E), or those together. The
+// catalog's each named as the catalog names it now, else as it last sold.
 export interface SalesFilter {
   productId?: string | undefined;
   categoryId?: string | undefined;
   brandId?: string | undefined;
+  state?: string | undefined;
+  method?: PaymentMethod | typeof NOT_RECORDED | undefined;
 }
 export interface SalesFilters {
   product: { productId: string; name: string | null } | null;
@@ -84,6 +89,9 @@ export interface SalesFilters {
     parentName: string | null;
   } | null;
   brand: { brandId: string; name: string | null } | null;
+  state: { state: string } | null;
+  // No method: the payments that kept none.
+  method: { method: PaymentMethod | null } | null;
 }
 
 export interface SalesReport {
@@ -94,11 +102,21 @@ export interface SalesReport {
   refreshedAt: Date | null;
   totals: SalesTotals;
   previousTotals: SalesTotals;
-  // Each day's, week's or month's sales and orders, every one of them.
+  // Each day's, week's, month's, quarter's or financial year's sales and
+  // orders, every one of them, beside those of the same days of the period
+  // before: as many days earlier as the period is long.
   series: {
     unit: SeriesUnit;
-    points: { start: string; salesRupees: number; orders: number }[];
+    points: {
+      start: string;
+      salesRupees: number;
+      orders: number;
+      previous: { salesRupees: number; orders: number };
+    }[];
   };
+  // Each day's sales and orders, for a calendar: every day of a period of
+  // at most MAX_BARS days, none for a longer one.
+  calendar: { day: string; salesRupees: number; orders: number }[] | null;
   // A product without an ID is one sold before part 15C whose pack size
   // was deleted: it is known by its name only.
   products: {
@@ -146,6 +164,7 @@ interface Figures {
   totals: SalesTotals;
   previousTotals: SalesTotals;
   days: SalesDay[];
+  previousDays: SalesDay[];
   places: {
     state: string;
     method: PaymentMethod | null;
@@ -319,16 +338,50 @@ export function filterOf({
   productId,
   categoryId,
   brandId,
+  state,
+  method,
 }: SalesFilter): SalesFilter | null {
-  return productId || categoryId || brandId
-    ? { productId, categoryId, brandId }
+  return productId || categoryId || brandId || state || method
+    ? { productId, categoryId, brandId, state, method }
     : null;
 }
 
-// The summary rows of the products a filter keeps: a category keeps its
-// subcategories' too.
+// Whether a filter keeps some products only. Then the delivery charge,
+// which belongs to a whole order, is not split, and the orders are counted
+// from their lines.
+export const keepsProducts = (filter: SalesFilter | null): boolean =>
+  Boolean(filter?.productId ?? filter?.categoryId ?? filter?.brandId);
+
+// The summary rows of the orders a filter keeps by the state they went to
+// and how they were paid: both summaries keep these.
+function placeOf(filter: SalesFilter | null): {
+  deliveryState?: string;
+  method?: PaymentMethod | null;
+} {
+  return {
+    ...(filter?.state ? { deliveryState: filter.state } : {}),
+    ...(filter?.method
+      ? { method: filter.method === NOT_RECORDED ? null : filter.method }
+      : {}),
+  };
+}
+
+// The same for a query of the orders and payments themselves: whether to
+// keep one state, and one way of paying, none recorded included.
+function placeParams(filter: SalesFilter | null) {
+  return {
+    state: filter?.state ?? null,
+    methodKept: Boolean(filter?.method),
+    method:
+      filter?.method && filter.method !== NOT_RECORDED ? filter.method : null,
+  };
+}
+
+// The summary rows of the products a filter keeps, a category its
+// subcategories' too, of the orders it keeps by place.
 function linesOf(filter: SalesFilter | null): Prisma.DailyLineSaleWhereInput {
   return {
+    ...placeOf(filter),
     ...(filter?.productId ? { productId: filter.productId } : {}),
     ...(filter?.brandId ? { brandId: filter.brandId } : {}),
     ...(filter?.categoryId
@@ -427,7 +480,7 @@ export class SalesReportService {
             byDay.get(day) ??
             dayOfTotals(
               day,
-              filterOf(query)
+              keepsProducts(filterOf(query))
                 ? lineTotalsOf({}, { orders: 0, refundedOrders: 0 }, undefined)
                 : totalsOf({}, undefined),
             ),
@@ -466,7 +519,7 @@ export class SalesReportService {
         _max: { day: true },
       });
     const placesIn = async (period: Period): Promise<PlaceSums[]> =>
-      filter
+      keepsProducts(filter)
         ? (
             await tx.dailyLineSale.groupBy({
               by: ['deliveryState', 'method'],
@@ -487,7 +540,7 @@ export class SalesReportService {
         : (
             await tx.dailyOrderSale.groupBy({
               by: ['deliveryState', 'method'],
-              where: within(period),
+              where: { ...within(period), ...placeOf(filter) },
               _sum: ORDER_SUMS,
             })
           ).map((row) => ({
@@ -512,7 +565,7 @@ export class SalesReportService {
       previousPlaces: await placesIn(report.previousPeriod),
       states: report.states,
       methods: report.methods,
-      narrowed: filter !== null,
+      narrowed: keepsProducts(filter),
     });
   }
 
@@ -523,7 +576,8 @@ export class SalesReportService {
     limit: number | null,
   ): Promise<{ report: SalesReport; days: SalesDay[] }> {
     const previous = previousPeriod(from, to);
-    const unit = unitFor(from, to);
+    const unit = asked.unit ?? unitFor(from, to);
+    const length = daysIn(from, to);
     const bounds = { from, to, previousFrom: previous.from };
     const inPeriod = { day: { gte: dateOf(from), lte: dateOf(to) } };
     const filter = filterOf(asked);
@@ -534,9 +588,10 @@ export class SalesReportService {
     });
     const refreshedAt = refresh?.refreshedAt ?? null;
     const customers = await this.customers(tx, bounds, filter, refreshedAt);
-    const figures = filter
-      ? await this.filteredFigures(tx, bounds, filter, refreshedAt, customers)
-      : await this.allFigures(tx, bounds, customers);
+    const figures =
+      filter && keepsProducts(filter)
+        ? await this.filteredFigures(tx, bounds, filter, refreshedAt, customers)
+        : await this.allFigures(tx, bounds, filter, customers);
     const lines = await tx.dailyLineSale.groupBy({
       by: [
         'productId',
@@ -556,7 +611,12 @@ export class SalesReportService {
     const points = new Map(
       barsOf(from, to, unit).map((start) => [
         start,
-        { start, salesRupees: 0, orders: 0 },
+        {
+          start,
+          salesRupees: 0,
+          orders: 0,
+          previous: { salesRupees: 0, orders: 0 },
+        },
       ]),
     );
     for (const row of figures.days) {
@@ -566,6 +626,24 @@ export class SalesReportService {
         point.orders += row.orders;
       }
     }
+    // A day of the period before goes beside the day as many days later as
+    // the period is long.
+    for (const row of figures.previousDays) {
+      const point = points.get(barOf(addDays(row.day, length), unit, from));
+      if (point) {
+        point.previous.salesRupees += row.salesRupees;
+        point.previous.orders += row.orders;
+      }
+    }
+    const byDay = new Map(figures.days.map((row) => [row.day, row]));
+    const calendar =
+      length <= MAX_BARS
+        ? daysBetween(from, to).map((day) => ({
+            day,
+            salesRupees: byDay.get(day)?.salesRupees ?? 0,
+            orders: byDay.get(day)?.orders ?? 0,
+          }))
+        : null;
 
     const states = new Map<string, SalesReport['states'][number]>();
     const methods = new Map<string, SalesReport['methods'][number]>();
@@ -675,6 +753,7 @@ export class SalesReportService {
       totals: figures.totals,
       previousTotals: figures.previousTotals,
       series: { unit, points: [...points.values()] },
+      calendar,
       products: top(ranked(products.values(), byName)).map(
         ({ productId, name, salesRupees, packs }) => ({
           productId,
@@ -712,27 +791,37 @@ export class SalesReportService {
   }
 
   // The totals, and each day's and each place's sales and orders, of every
-  // sale: from the summaries of whole orders.
+  // sale, or of those a filter keeps by place: from the summaries of whole
+  // orders.
   private async allFigures(
     tx: Prisma.TransactionClient,
     { from, to }: Bounds,
+    filter: SalesFilter | null,
     customers: Customers,
   ): Promise<Figures> {
     const previous = previousPeriod(from, to);
-    const inPeriod = { day: { gte: dateOf(from), lte: dateOf(to) } };
+    const place = placeOf(filter);
+    const inPeriod = { day: { gte: dateOf(from), lte: dateOf(to) }, ...place };
+    const inPrevious = {
+      day: { gte: dateOf(previous.from), lte: dateOf(previous.to) },
+      ...place,
+    };
     const now = await tx.dailyOrderSale.aggregate({
       where: inPeriod,
       _sum: ORDER_SUMS,
     });
     const before = await tx.dailyOrderSale.aggregate({
-      where: {
-        day: { gte: dateOf(previous.from), lte: dateOf(previous.to) },
-      },
+      where: inPrevious,
       _sum: ORDER_SUMS,
     });
     const days = await tx.dailyOrderSale.groupBy({
       by: ['day'],
       where: inPeriod,
+      _sum: ORDER_SUMS,
+    });
+    const previousDays = await tx.dailyOrderSale.groupBy({
+      by: ['day'],
+      where: inPrevious,
       _sum: ORDER_SUMS,
     });
     const places = await tx.dailyOrderSale.groupBy({
@@ -744,6 +833,9 @@ export class SalesReportService {
       totals: totalsOf(now._sum, customers.current),
       previousTotals: totalsOf(before._sum, customers.previous),
       days: days.map((row) =>
+        dayOfTotals(dayOf(row.day), totalsOf(row._sum, undefined)),
+      ),
+      previousDays: previousDays.map((row) =>
         dayOfTotals(dayOf(row.day), totalsOf(row._sum, undefined)),
       ),
       places: places.map((row) => ({
@@ -772,20 +864,26 @@ export class SalesReportService {
       day: { gte: dateOf(from), lte: dateOf(to) },
       ...matching,
     };
+    const inPrevious = {
+      day: { gte: dateOf(previous.from), lte: dateOf(previous.to) },
+      ...matching,
+    };
     const now = await tx.dailyLineSale.aggregate({
       where: inPeriod,
       _sum: LINE_SUMS,
     });
     const before = await tx.dailyLineSale.aggregate({
-      where: {
-        day: { gte: dateOf(previous.from), lte: dateOf(previous.to) },
-        ...matching,
-      },
+      where: inPrevious,
       _sum: LINE_SUMS,
     });
     const days = await tx.dailyLineSale.groupBy({
       by: ['day'],
       where: inPeriod,
+      _sum: LINE_SUMS,
+    });
+    const previousDays = await tx.dailyLineSale.groupBy({
+      by: ['day'],
+      where: inPrevious,
       _sum: LINE_SUMS,
     });
     const places = await tx.dailyLineSale.groupBy({
@@ -796,6 +894,7 @@ export class SalesReportService {
     const productId = filter.productId ?? null;
     const categoryId = filter.categoryId ?? null;
     const brandId = filter.brandId ?? null;
+    const place = placeParams(filter);
     const counts = refreshedAt
       ? await tx.$queryRaw<OrderCount[]>`
           WITH "events" AS (
@@ -832,6 +931,10 @@ export class SalesReportService {
                            OR i."subcategoryId" = ${categoryId}::uuid)
                       AND (${brandId}::uuid IS NULL
                            OR i."brandId" = ${brandId}::uuid))
+             AND (${place.state}::text IS NULL
+                  OR o."deliveryState" = ${place.state}::text)
+             AND (NOT ${place.methodKept}
+                  OR e."method"::text IS NOT DISTINCT FROM ${place.method}::text)
            GROUP BY 1, 2, 3, 4`
       : [];
 
@@ -849,18 +952,36 @@ export class SalesReportService {
     const sold = counts.filter((row) => !row.refunded && current(row));
 
     // Each day's lines, and its orders paid and refunded.
-    const sumsByDay = new Map(days.map((row) => [dayOf(row.day), row._sum]));
-    const soldByDay = new Map<string, number>();
-    const refundedByDay = new Map<string, number>();
-    for (const row of counts.filter(current)) {
-      const byDay = row.refunded ? refundedByDay : soldByDay;
-      byDay.set(row.day, (byDay.get(row.day) ?? 0) + row.orders);
-    }
-    const everyDay = new Set([
-      ...sumsByDay.keys(),
-      ...soldByDay.keys(),
-      ...refundedByDay.keys(),
-    ]);
+    const daysOf = (
+      rows: { day: Date; _sum: LineSums }[],
+      counted: OrderCount[],
+    ): SalesDay[] => {
+      const sumsByDay = new Map(rows.map((row) => [dayOf(row.day), row._sum]));
+      const soldByDay = new Map<string, number>();
+      const refundedByDay = new Map<string, number>();
+      for (const row of counted) {
+        const byDay = row.refunded ? refundedByDay : soldByDay;
+        byDay.set(row.day, (byDay.get(row.day) ?? 0) + row.orders);
+      }
+      const everyDay = new Set([
+        ...sumsByDay.keys(),
+        ...soldByDay.keys(),
+        ...refundedByDay.keys(),
+      ]);
+      return [...everyDay].map((day) =>
+        dayOfTotals(
+          day,
+          lineTotalsOf(
+            sumsByDay.get(day) ?? {},
+            {
+              orders: soldByDay.get(day) ?? 0,
+              refundedOrders: refundedByDay.get(day) ?? 0,
+            },
+            undefined,
+          ),
+        ),
+      );
+    };
     const placeFigures = new Map<string, Figures['places'][number]>();
     const placeFigure = (state: string, method: PaymentMethod | null) => {
       const key = `${state}\u0000${method ?? ''}`;
@@ -889,18 +1010,10 @@ export class SalesReportService {
         countsOf(false),
         customers.previous,
       ),
-      days: [...everyDay].map((day) =>
-        dayOfTotals(
-          day,
-          lineTotalsOf(
-            sumsByDay.get(day) ?? {},
-            {
-              orders: soldByDay.get(day) ?? 0,
-              refundedOrders: refundedByDay.get(day) ?? 0,
-            },
-            undefined,
-          ),
-        ),
+      days: daysOf(days, counts.filter(current)),
+      previousDays: daysOf(
+        previousDays,
+        counts.filter((row) => !current(row)),
       ),
       places: [...placeFigures.values()],
     };
@@ -924,6 +1037,7 @@ export class SalesReportService {
     const productId = filter?.productId ?? null;
     const categoryId = filter?.categoryId ?? null;
     const brandId = filter?.brandId ?? null;
+    const place = placeParams(filter);
     const cutoff = utcText(refreshedAt);
     const rows = await tx.$queryRaw<RegisterRow[]>`
       WITH "events" AS (
@@ -955,6 +1069,10 @@ export class SalesReportService {
               OR i."topCategoryId" = ${categoryId}::uuid
               OR i."subcategoryId" = ${categoryId}::uuid)
          AND (${brandId}::uuid IS NULL OR i."brandId" = ${brandId}::uuid)
+         AND (${place.state}::text IS NULL
+              OR o."deliveryState" = ${place.state}::text)
+         AND (NOT ${place.methodKept}
+              OR e."method"::text IS NOT DISTINCT FROM ${place.method}::text)
        ORDER BY e."at", o."reference", e."refunded", i."position"
        LIMIT ${MAX_REGISTER_LINES + 1}`;
 
@@ -992,7 +1110,7 @@ export class SalesReportService {
         next.sortAt.getTime() !== row.sortAt.getTime() ||
         next.reference !== row.reference ||
         next.refunded !== row.refunded;
-      if (!filter && lastOfEvent && row.deliveryRupees > 0) {
+      if (!keepsProducts(filter) && lastOfEvent && row.deliveryRupees > 0) {
         lines.push({
           ...event,
           product: null,
@@ -1018,7 +1136,7 @@ export class SalesReportService {
     );
     const soldAs = (pick: (line: SoldLine) => string | null) =>
       latestFirst.map(pick).find((name) => name !== null) ?? null;
-    const { productId, categoryId, brandId } = filter ?? {};
+    const { productId, categoryId, brandId, state, method } = filter ?? {};
 
     const product = productId
       ? await tx.product.findUnique({
@@ -1081,6 +1199,10 @@ export class SalesReportService {
               ),
           }
         : null,
+      state: state ? { state } : null,
+      method: method
+        ? { method: method === NOT_RECORDED ? null : method }
+        : null,
     };
   }
 
@@ -1089,18 +1211,20 @@ export class SalesReportService {
   // Counted from the payments themselves, as the summaries keep no
   // customers. Days in India, as in the summaries (UTC+5:30). With a
   // filter, only those who bought one of its products, up to when the
-  // summaries were last rebuilt; new still means new to the shop.
+  // summaries were last rebuilt; new still means new to the shop. Narrowed
+  // to a state or a way of paying, those whose payment it was.
   private async customers(
     tx: Prisma.TransactionClient,
     { from, to, previousFrom }: Bounds,
     filter: SalesFilter | null,
     refreshedAt: Date | null,
   ): Promise<Customers> {
-    const filtered = filter !== null;
+    const filtered = keepsProducts(filter);
     const cutoff = filtered && refreshedAt ? utcText(refreshedAt) : null;
     const productId = filter?.productId ?? null;
     const categoryId = filter?.categoryId ?? null;
     const brandId = filter?.brandId ?? null;
+    const place = placeParams(filter);
     const rows = await tx.$queryRaw<
       { current: boolean; new: number; returning: number }[]
     >`
@@ -1133,6 +1257,10 @@ export class SalesReportService {
                               OR i."subcategoryId" = ${categoryId}::uuid)
                          AND (${brandId}::uuid IS NULL
                               OR i."brandId" = ${brandId}::uuid))))
+           AND (${place.state}::text IS NULL
+                OR o."deliveryState" = ${place.state}::text)
+           AND (NOT ${place.methodKept}
+                OR p."method"::text IS NOT DISTINCT FROM ${place.method}::text)
       )
       SELECT b."current",
              count(*) FILTER (WHERE f."first" >= CASE WHEN b."current"

@@ -39,7 +39,7 @@ export class SalesExportService {
       preparedAt: now,
       preparedBy: preparer?.fullName ?? 'a Super User',
     });
-    const { from, to, productId, categoryId, brandId } = query;
+    const { from, to, productId, categoryId, brandId, state, method } = query;
     await this.audit.record(this.prisma, {
       ...context,
       action: 'report.sales_exported',
@@ -50,6 +50,8 @@ export class SalesExportService {
         ...(productId ? { productId } : {}),
         ...(categoryId ? { categoryId } : {}),
         ...(brandId ? { brandId } : {}),
+        ...(state ? { state } : {}),
+        ...(method ? { method } : {}),
         registerLines: data.register.length,
       },
     });

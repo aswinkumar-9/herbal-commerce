@@ -50,9 +50,24 @@ describe('sales periods', () => {
     expect(barOf('2026-11-25', 'month', '2026-01-01')).toBe('2026-11-01');
   });
 
+  it('puts a day in its quarter from January, April, July or October, and its financial year from April', () => {
+    const from = '2020-01-01';
+    expect(barOf('2026-03-31', 'quarter', from)).toBe('2026-01-01');
+    expect(barOf('2026-04-01', 'quarter', from)).toBe('2026-04-01');
+    expect(barOf('2026-09-30', 'quarter', from)).toBe('2026-07-01');
+    expect(barOf('2026-12-31', 'quarter', from)).toBe('2026-10-01');
+    // The financial year 2025–26 runs from 1 April 2025 to 31 March 2026.
+    expect(barOf('2026-03-31', 'year', from)).toBe('2025-04-01');
+    expect(barOf('2026-04-01', 'year', from)).toBe('2026-04-01');
+    expect(barOf('2026-01-01', 'year', from)).toBe('2025-04-01');
+    expect(barOf('2026-12-31', 'year', from)).toBe('2026-04-01');
+  });
+
   it('starts the first bar with the period, never before it', () => {
     expect(barOf('2026-11-25', 'week', '2026-11-24')).toBe('2026-11-24');
     expect(barOf('2026-11-25', 'month', '2026-11-15')).toBe('2026-11-15');
+    expect(barOf('2026-11-25', 'quarter', '2026-11-15')).toBe('2026-11-15');
+    expect(barOf('2026-11-25', 'year', '2026-05-01')).toBe('2026-05-01');
   });
 
   it('lists every bar of a period, in order', () => {
@@ -70,6 +85,18 @@ describe('sales periods', () => {
       '2026-01-15',
       '2026-02-01',
       '2026-03-01',
+    ]);
+    expect(barsOf('2025-12-01', '2026-07-01', 'quarter')).toEqual([
+      '2025-12-01',
+      '2026-01-01',
+      '2026-04-01',
+      '2026-07-01',
+    ]);
+    expect(barsOf('2024-03-01', '2026-11-27', 'year')).toEqual([
+      '2024-03-01',
+      '2024-04-01',
+      '2025-04-01',
+      '2026-04-01',
     ]);
   });
 });

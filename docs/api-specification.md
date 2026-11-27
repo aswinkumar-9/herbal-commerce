@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.38.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.39.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -2858,8 +2858,11 @@ Query parameters, `from` and `to` needed:
 | `productId` | Optional, a UUID, else `Choose a product by its ID` | Only this product's sales (since part 15D's filters) |
 | `categoryId` | Optional, a UUID, else `Choose a category by its ID` | Only this category's: a top category with its subcategories, or a subcategory |
 | `brandId` | Optional, a UUID, else `Choose a brand by its ID` | Only this brand's |
+| `state` | Optional, one of India's 28 states and 8 union territories as the addresses name them, such as `Tamil Nadu`, else `Choose a state or union territory from the list` | Only the orders sent to this state (since part 15E) |
+| `method` | Optional, `UPI`, `CARD`, `NETBANKING`, `WALLET`, `EMI`, `PAY_LATER`, `OTHER` or `NOT_RECORDED`, else `Choose a payment method from the list` | Only the orders paid this way; `NOT_RECORDED` for the payments made before part 15C, which kept none (since part 15E) |
+| `unit` | Optional, `day`, `week`, `month`, `quarter` or `year`, else `Choose days, weeks, months, quarters or years`; at most 366 bars for the period, else `Choose bigger bars: a chart has at most 366` | The bars of `series` (since part 15E). Without it, they are chosen for the period's length |
 
-The filters combine: a category and a brand give that brand's products in that category. An ID nothing sold under simply gives a report of nothing. Any other parameter is ignored.
+The filters combine: a category and a brand give that brand's products in that category, and a state and a product that product's lines in the orders sent there. An ID nothing sold under, or a state nothing was sent to, simply gives a report of nothing. Any other parameter is ignored.
 
 The rules (the owner's, 2026-11-23 and 2026-11-25):
 - a payment counts on the day in India it was paid, and its refund comes off on the day it was made. A refund of a payment that never counted changes nothing;
@@ -2876,11 +2879,13 @@ With a filter, every figure, the series and every list count only the order line
 - the customers are those who paid for such an order; new still means paying for the first time ever, for anything;
 - the orders and customers are counted from the payments up to `refreshedAt`, so they always agree with the summaries the rupees come from. Before the summaries were ever made, there are none.
 
+Narrowed by `state` or `method` only, the figures are those of whole orders, from the same summaries as without a filter (since part 15E): `deliveryRupees` is a number, and the customers are those whose payment it was, counted up to now, as without a filter. With a product, category or brand too, the rules above apply to its lines in those orders.
+
 Response `200`:
 ```json
 {
   "period": { "from": "2026-11-01", "to": "2026-11-25" },
-  "filters": { "product": null, "category": null, "brand": null },
+  "filters": { "product": null, "category": null, "brand": null, "state": null, "method": null },
   "previousPeriod": { "from": "2026-10-07", "to": "2026-10-31" },
   "refreshedAt": "2026-11-25T06:40:00.000Z",
   "totals": {
@@ -2899,10 +2904,15 @@ Response `200`:
   "series": {
     "unit": "day",
     "points": [
-      { "start": "2026-11-01", "salesRupees": 0, "orders": 0 },
-      { "start": "2026-11-03", "salesRupees": 900, "orders": 2 }
+      { "start": "2026-11-01", "salesRupees": 0, "orders": 0, "previous": { "salesRupees": 0, "orders": 0 } },
+      { "start": "2026-11-03", "salesRupees": 900, "orders": 2, "previous": { "salesRupees": 0, "orders": 0 } },
+      { "start": "2026-11-04", "salesRupees": 0, "orders": 0, "previous": { "salesRupees": 300, "orders": 1 } }
     ]
   },
+  "calendar": [
+    { "day": "2026-11-01", "salesRupees": 0, "orders": 0 },
+    { "day": "2026-11-03", "salesRupees": 900, "orders": 2 }
+  ],
   "products": [
     { "productId": "7d6c5b4a-3f2e-4d1c-8b0a-9f8e7d6c5b41", "name": "Ashwagandha Capsules", "salesRupees": 855, "packs": 2 }
   ],
@@ -2927,9 +2937,10 @@ Response `200`:
   ]
 }
 ```
-- `filters`: what the report was narrowed to, each `null` when not asked for: `product` is `{ "productId", "name" }`, `category` is `{ "categoryId", "name", "parentName" }` (`parentName` is the top category of a subcategory, else `null`), and `brand` is `{ "brandId", "name" }`. Each is named as the catalog names it now, else as it last sold in the period, else `null`.
+- `filters`: what the report was narrowed to, each `null` when not asked for: `product` is `{ "productId", "name" }`, `category` is `{ "categoryId", "name", "parentName" }` (`parentName` is the top category of a subcategory, else `null`), and `brand` is `{ "brandId", "name" }`. Each is named as the catalog names it now, else as it last sold in the period, else `null`. Since part 15E, `state` is `{ "state" }` and `method` is `{ "method" }`, its `method` `null` for `NOT_RECORDED`.
 - `refreshedAt`: `null` until the summaries are first filled, a minute after the API first starts.
-- `series`: every day, week or month of the period, in order, those with nothing too. Days for up to 62 days, weeks for up to 182, months beyond. A week starts on Monday and a month on the 1st, but the first starts with the period. `start` is its first day.
+- `series`: every day, week, month, quarter or financial year of the period, in order, those with nothing too. Without `unit`, days for up to 62 days, weeks for up to 182, months beyond. A week starts on Monday, a month on the 1st, a quarter on 1 January, April, July or October, and a financial year on 1 April (the owner's choice, 2026-11-27), but the first starts with the period. `start` is its first day. Since part 15E, `previous` is the sales and orders of the same days of the period before: as many days earlier as the period is long.
+- `calendar`: since part 15E, every day of a period of at most 366 days, its sales and orders; `null` for a longer one.
 - `products` and `brands`: the best 10. `categories`, `states` and `methods`: all of them. Each list is the best first, equal ones by name, those without a name last.
 - A product is named as it last sold, so a product renamed shows its newest name. A `productId` of `null` is a line sold before part 15C whose pack size was deleted: it is known by its name only.
 - A `categoryId` of `null` is "Not recorded", for those same old lines. A category's `subcategories` are its sales in each; what is left is its own products.
@@ -2940,20 +2951,20 @@ Errors: `400 Validation failed` (a bad parameter, named in `errors`); `401` and 
 
 ### GET `/v1/staff/reports/sales/export`
 
-The same report as an Excel workbook (`.xlsx`) to keep, as a company's sales report reads (since part 15D, the owner's choice on 2026-11-25, ADR 0047). Needs a **Super User's** staff access token. Takes the same parameters as `GET /v1/staff/reports/sales`, with the same rules and errors.
+The same report as an Excel workbook (`.xlsx`) to keep, as a company's sales report reads (since part 15D, the owner's choice on 2026-11-25, ADR 0047). Needs a **Super User's** staff access token. Takes the same parameters as `GET /v1/staff/reports/sales`, with the same rules and errors; `unit` changes nothing in the file.
 
-Response `200`, `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `Content-Disposition: attachment; filename="herbal-commerce-sales-2026-11-01-to-2026-11-25.xlsx"` (with `-narrowed` before `.xlsx` when filtered), `Cache-Control: no-store`. Its sheets:
+Response `200`, `Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`, `Content-Disposition: attachment; filename="herbal-commerce-sales-2026-11-01-to-2026-11-25.xlsx"` (with `-narrowed` before `.xlsx` when filtered in any way), `Cache-Control: no-store`. Its sheets:
 - **Dashboard**, first: the period, what it is narrowed to, when the figures were last worked out and who made the file; eight tiles (net sales, GST, paid, orders, average order, refunds, new and returning customers), each with the period before's figure and the change; and seven Excel charts, each reading its sheet: net sales by day (columns), and as ranked bars the top 10 products, the categories, the top 10 brands, the top 10 states, the payment methods and the top 10 pack sizes;
 - **Summary**: the period, the period before, what it is narrowed to, when the figures were last worked out, when and by whom the file was made, then each figure of `totals` beside `previousTotals`, the change, and the change as a share when the period before had some and this one is not below 0 ("New" from nothing). Notes say what the figures count;
 - **Sales by day**: every day of the period, even those with nothing, with its weekday: orders, net sales, GST, delivery (not when narrowed), paid, orders refunded and refunds;
 - **Products**, **Categories**, **Subcategories** and **Brands**: everything that sold in the period or the one before, the best now first. Each with packs sold and refunded, gross sales, refunds and net sales (without GST), GST, net sales with GST, its share of net sales, its net sales in the period before, and the change in rupees and as a share. A product shows its category, subcategory and brand as it last sold; a category, subcategory or brand how many products sold in it. A category's subcategories, with what sold in the category directly ("Not in a subcategory"), add up to it;
 - **Pack sizes**: each SKU's lines in the register, named as it last sold, with its GST rate, packs, gross sales, refunds, net sales, GST and share: this period only;
 - **States** and **Payment methods**: orders, gross sales, refunds, net sales, GST, delivery (not when narrowed), paid, share, the period before and the change;
-- **Sales register**: one row for each line sold or refunded in the period, oldest first, at its date and time in India: the type (`Sale`, `Refund`, and without a filter `Delivery charge` and `Delivery refunded` after an order's lines), the order's reference, the product, SKU, category, subcategory, brand, state, payment method, packs, price without GST, GST rate, GST and total. A refund is below 0. Only up to `refreshedAt`, so it adds up to the totals exactly; with a filter, only its products' lines. No customer details: no names, emails, phones or addresses.
+- **Sales register**: one row for each line sold or refunded in the period, oldest first, at its date and time in India: the type (`Sale`, `Refund`, and without a filter `Delivery charge` and `Delivery refunded` after an order's lines), the order's reference, the product, SKU, category, subcategory, brand, state, payment method, packs, price without GST, GST rate, GST and total. A refund is below 0. Only up to `refreshedAt`, so it adds up to the totals exactly; with a filter, only its products' lines, or those of the orders sent to its state or paid its way, with their delivery charges when no product, category or brand is asked for. No customer details: no names, emails, phones or addresses.
 
 Every sheet after the Summary opens with its title, the period and what it is narrowed to, and has one table under a header row of filter and sort buttons, kept in view while it scrolls and printed on each page. Under the table, apart from it so a filter never hides it, a Total row adds up the rows shown (`SUBTOTAL(109, …)`). A chart plots only the rows its sheet's filter shows. Amounts are whole rupees, as numbers formatted in rupees, and Excel works every formula out again when the file opens. Text that a spreadsheet could take for a formula (starting with `=`, `+`, `-`, `@`, a tab or a return) starts with an apostrophe. GST invoice numbers and the CGST, SGST and IGST split are not in it until the company is registered.
 
-Each download is written to the audit log as `report.sales_exported` (`targetType` `report`, no `targetId`), with `after` holding `from`, `to`, any `productId`, `categoryId` and `brandId`, and `registerLines`, the number of lines in the register. Reading the report on the page is not audited.
+Each download is written to the audit log as `report.sales_exported` (`targetType` `report`, no `targetId`), with `after` holding `from`, `to`, any `productId`, `categoryId`, `brandId`, `state` and `method` (the last two since part 15E), and `registerLines`, the number of lines in the register. Reading the report on the page is not audited.
 
 Errors: as for `GET /v1/staff/reports/sales`, and `400 More than 1,00,000 lines were sold or refunded in this period: download a shorter one` when the register would be longer than 100,000 lines.
 
