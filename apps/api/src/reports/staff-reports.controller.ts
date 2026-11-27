@@ -5,6 +5,7 @@ import { SuperUserOnly } from '../auth/super-user-only.decorator';
 import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { salesReportQuerySchema } from './reports.schemas';
 import type { SalesReportQuery } from './reports.schemas';
+import { CustomersReportService } from './customers-report.service';
 import { SalesExportService } from './sales-export.service';
 import { SalesReportService } from './sales-report.service';
 import { XLSX_TYPE } from './sales-workbook';
@@ -18,6 +19,7 @@ export class StaffReportsController {
   constructor(
     private readonly reports: SalesReportService,
     private readonly exports: SalesExportService,
+    private readonly customersReport: CustomersReportService,
   ) {}
 
   // A period's sales, compared with the period before of the same length.
@@ -27,6 +29,17 @@ export class StaffReportsController {
     query: SalesReportQuery,
   ) {
     return this.reports.sales(query);
+  }
+
+  // The same period's customers (part 15E): new and returning, those who
+  // bought again, the accounts made, and the best customers by name, on
+  // the page only.
+  @Get('customers')
+  customers(
+    @Query(new ZodValidationPipe(salesReportQuerySchema))
+    query: SalesReportQuery,
+  ) {
+    return this.customersReport.customers(query);
   }
 
   // The same as an Excel file, with every day, every grouping and the

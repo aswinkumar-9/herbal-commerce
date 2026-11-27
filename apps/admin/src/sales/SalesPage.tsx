@@ -1,4 +1,4 @@
-import { CalendarRange, Minus, TrendingDown, TrendingUp } from 'lucide-react';
+import { CalendarRange } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useId, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
@@ -15,14 +15,12 @@ import type { SalesReport, SalesTotals } from './sales-api';
 import {
   averageChange,
   changeFrom,
-  toneOf,
   count,
   counted,
   periodBefore,
   periodName,
   updatedName,
 } from './sales-display';
-import type { Change } from './sales-display';
 import {
   DEFAULT_PRESET,
   PRESETS,
@@ -38,6 +36,7 @@ import type {
   Unit,
 } from './sales-periods';
 import { DownloadReport } from './DownloadReport';
+import { Figure, FiguresLoading, TILE } from './SalesFigure';
 import { SalesOverTime, SalesPlaces } from './SalesBreakdown';
 import { SalesFilterBar } from './SalesFilterBar';
 import { METHOD_NAMES, NOT_RECORDED } from './sales-breakdown';
@@ -45,10 +44,12 @@ import {
   NOT_RECORDED_METHOD,
   filterFrom,
   filterParams,
+  isFiltered,
   keepsProducts,
 } from './sales-filters';
 import type { FilterKind, FilterMatch, SalesFilter } from './sales-filters';
-import { useSalesReport } from './sales-queries';
+import { CustomersTab } from './CustomersTab';
+import { useCustomersReport, useSalesReport } from './sales-queries';
 import { useIndiaToday } from './use-india-today';
 
 // The period as the address keeps it: nothing for the default.
@@ -105,7 +106,13 @@ function filterNames(
   return names;
 }
 
-export type SalesTab = 'overview' | 'places';
+export type SalesTab = 'overview' | 'places' | 'customers';
+
+const TITLES: Record<SalesTab, string> = {
+  overview: 'Sales',
+  places: 'Sales by place and catalog',
+  customers: 'Customers',
+};
 
 // A period's sales, for Super Users (part 15D, ADR 0047): the totals, each
 // beside the period of the same length just before, narrowed or not to a
@@ -115,7 +122,7 @@ export type SalesTab = 'overview' | 'places';
 // page. The period, the filters and the chart's bars live in the address,
 // so a link, a reload or the other tab shows the same.
 export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
-  usePageTitle(tab === 'places' ? 'Sales by place and catalog' : 'Sales');
+  usePageTitle(TITLES[tab]);
   const [params, setParams] = useSearchParams();
   const today = useIndiaToday();
   const choice = periodChoice(params, today);
@@ -123,6 +130,12 @@ export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
   const filter = filterFrom(params);
   const unit = unitChoice(params, period);
   const report = useSalesReport(period, filter, unit);
+  const customers = useCustomersReport(
+    period,
+    filter,
+    unit,
+    tab === 'customers',
+  );
   // The names of what the search found, or of what was chosen, by kind and
   // ID.
   const [found, setFound] = useState<Record<string, string>>({});
@@ -133,6 +146,7 @@ export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
       to: `/sales/places${query ? `?${query}` : ''}`,
       label: 'Places and catalog',
     },
+    { to: `/sales/customers${query ? `?${query}` : ''}`, label: 'Customers' },
   ];
 
   function show(
@@ -223,7 +237,13 @@ export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
         ) : null}
       </div>
 
-      {report.isPending ? (
+      {tab === 'customers' ? (
+        <CustomersTab
+          query={customers}
+          narrowed={isFiltered(filter)}
+          onUnit={(chosen) => show(periodParams(choice), filter, chosen)}
+        />
+      ) : report.isPending ? (
         <FiguresLoading />
       ) : report.isError && !report.data ? (
         <LoadFailed
@@ -437,79 +457,6 @@ function DatesForm({
   );
 }
 
-const TILE =
-  'rounded-card border border-line bg-surface p-5 shadow-clay inset-shadow-clay';
-
-// Green when it got better, red when worse, the quiet ink otherwise; its
-// arrow and words say which way, and screen readers hear whether that is
-// for the better.
-const TONES = {
-  better: { colour: 'text-good', words: ', for the better' },
-  worse: { colour: 'text-danger', words: ', for the worse' },
-  neutral: { colour: 'text-ink-muted', words: '' },
-} as const;
-
-function ChangeLine({
-  change,
-  better,
-}: {
-  change: Change;
-  better: 'up' | 'down';
-}) {
-  const tone = TONES[toneOf(change, better)];
-  const Icon =
-    change.direction === 'up'
-      ? TrendingUp
-      : change.direction === 'down'
-        ? TrendingDown
-        : change.direction === 'same'
-          ? Minus
-          : null;
-  return (
-    <p className={`mt-1 flex items-start gap-1.5 text-sm ${tone.colour}`}>
-      {Icon ? (
-        <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-      ) : null}
-      <span>
-        {change.words}
-        {tone.words ? <span className="sr-only">{tone.words}</span> : null}
-      </span>
-    </p>
-  );
-}
-
-// One figure under its name, a heading to find it by, and how it moved
-// since the period before.
-function Figure({
-  label,
-  value,
-  change,
-  better = 'up',
-  note,
-  size = 'md',
-}: {
-  label: string;
-  value: string;
-  change: Change;
-  // Which way is for the better: up, but for refunds.
-  better?: 'up' | 'down';
-  note?: string;
-  size?: 'lg' | 'md';
-}) {
-  return (
-    <div>
-      <h2 className="text-sm font-medium text-ink-muted">{label}</h2>
-      <p
-        className={`mt-1 font-semibold tabular-nums ${size === 'lg' ? 'text-4xl' : 'text-2xl'}`}
-      >
-        {value}
-      </p>
-      <ChangeLine change={change} better={better} />
-      {note ? <p className="mt-2 text-xs text-ink-muted">{note}</p> : null}
-    </div>
-  );
-}
-
 function Figures({
   report,
   filtered,
@@ -670,28 +617,6 @@ function Part({
       <dt className="text-ink-muted">{label}</dt>
       <dd className="mt-0.5 font-medium tabular-nums">{value}</dd>
       {note ? <dd className="text-xs text-ink-muted">{note}</dd> : null}
-    </div>
-  );
-}
-
-// Shaped like the figures, while they load.
-function FiguresLoading() {
-  return (
-    <div className="mt-4">
-      <output className="sr-only">Loading the sales…</output>
-      <div
-        aria-hidden="true"
-        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
-      >
-        <div className="h-56 animate-pulse rounded-card bg-surface-muted sm:col-span-2" />
-        <div className="h-56 animate-pulse rounded-card bg-surface-muted" />
-        {[0, 1, 2].map((tile) => (
-          <div
-            key={tile}
-            className="h-36 animate-pulse rounded-card bg-surface-muted"
-          />
-        ))}
-      </div>
     </div>
   );
 }

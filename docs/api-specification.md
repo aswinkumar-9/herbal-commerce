@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.39.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.40.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -2967,6 +2967,42 @@ Every sheet after the Summary opens with its title, the period and what it is na
 Each download is written to the audit log as `report.sales_exported` (`targetType` `report`, no `targetId`), with `after` holding `from`, `to`, any `productId`, `categoryId`, `brandId`, `state` and `method` (the last two since part 15E), and `registerLines`, the number of lines in the register. Reading the report on the page is not audited.
 
 Errors: as for `GET /v1/staff/reports/sales`, and `400 More than 1,00,000 lines were sold or refunded in this period: download a shorter one` when the register would be longer than 100,000 lines.
+
+### GET `/v1/staff/reports/customers`
+
+A period's customers, for the Sales page's Customers tab (since part 15E, the owner's choice on 2026-11-27). Needs a **Super User's** staff access token. Takes the same parameters as `GET /v1/staff/reports/sales`, with the same rules and errors. Reading is not audited.
+
+Counted from the payments, refunds and accounts themselves, in India's days, as the sales report counts customers:
+- `customers` paid for at least one order in the period; `newCustomers` paid for the first time ever in it, `returningCustomers` had paid before it. They match the sales report's for the same parameters;
+- `boughtAgain` are those of them who paid for more than one order in the period (a second payment for the same order is not another order);
+- `accountsMade` are the customers' accounts made in the period, whether they paid or not. Never narrowed: an account has no products, state or way of paying;
+- narrowed to a product, a category or a brand, the customers are those who paid for an order with one of its lines in, up to `refreshedAt`; narrowed to a state or a way of paying, those whose orders went there or were paid that way.
+
+Response `200`:
+```json
+{
+  "period": { "from": "2026-11-01", "to": "2026-11-25" },
+  "previousPeriod": { "from": "2026-10-07", "to": "2026-10-31" },
+  "filters": { "product": null, "category": null, "brand": null, "state": null, "method": null },
+  "refreshedAt": "2026-11-25T06:40:00.000Z",
+  "totals": { "customers": 3, "newCustomers": 1, "returningCustomers": 2, "boughtAgain": 1, "accountsMade": 2 },
+  "previousTotals": { "customers": 2, "newCustomers": 1, "returningCustomers": 1, "boughtAgain": 0, "accountsMade": 1 },
+  "series": {
+    "unit": "day",
+    "points": [
+      {
+        "start": "2026-11-05", "customers": 1, "newCustomers": 1, "returningCustomers": 0, "boughtAgain": 0, "accountsMade": 2,
+        "previous": { "customers": 0, "newCustomers": 0, "returningCustomers": 0, "boughtAgain": 0, "accountsMade": 0 }
+      }
+    ]
+  },
+  "topCustomers": [
+    { "userId": "6a000000-0000-4000-8000-000000000101", "name": "Asha Rao", "email": "asha@example.com", "orders": 2, "salesRupees": 1284 }
+  ]
+}
+```
+- `filters` and `series` are as in `GET /v1/staff/reports/sales`: every bar of the period, a customer counted once in each bar it paid in, new in the bar of its first payment ever, and `previous` the same days of the period before.
+- `topCustomers`: the best 10 by what their products came to, without GST, less refunds, as the sales summaries count it, up to `refreshedAt`; narrowed, only the lines and orders the filter keeps. `orders` are those paid in the period. Equal ones by name. None before the summaries were first made. Customers' names and emails are shown on the page only, never in a download (the owner's choice, 2026-11-27).
 
 ## Not yet implemented
 

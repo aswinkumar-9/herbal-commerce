@@ -10,6 +10,7 @@ import { UNITS } from './sales-periods';
 // summaries, rebuilt every 5 minutes: refreshedAt says when they last were.
 
 const SALES = '/v1/staff/reports/sales';
+const CUSTOMERS = '/v1/staff/reports/customers';
 const SALES_EXPORT = '/v1/staff/reports/sales/export';
 export const XLSX_TYPE =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -170,4 +171,58 @@ export function downloadSalesReport(
 ): Promise<{ file: Blob; fileName: string }> {
   const search = new URLSearchParams({ from, to, ...filterParams(filter) });
   return apiDownload(`${SALES_EXPORT}?${search.toString()}`, XLSX_TYPE);
+}
+
+// A period's customers (part 15E): who paid, new or returning, who paid for
+// more than one order, and the accounts made, never narrowed.
+const countsSchema = z.object({
+  customers: count,
+  newCustomers: count,
+  returningCustomers: count,
+  boughtAgain: count,
+  accountsMade: count,
+});
+export type CustomerCounts = z.infer<typeof countsSchema>;
+
+const customersSchema = z.object({
+  period,
+  previousPeriod: period,
+  refreshedAt: z.iso.datetime().nullable(),
+  totals: countsSchema,
+  previousTotals: countsSchema,
+  series: z.object({
+    unit: z.enum(UNITS),
+    points: z.array(
+      countsSchema.extend({ start: z.iso.date(), previous: countsSchema }),
+    ),
+  }),
+  // For the page only: downloads never name customers.
+  topCustomers: z.array(
+    z.object({
+      userId: z.string(),
+      name: z.string(),
+      email: z.string(),
+      orders: count,
+      salesRupees: rupees,
+    }),
+  ),
+});
+export type CustomersReport = z.infer<typeof customersSchema>;
+
+export function getCustomersReport(
+  { from, to }: Period,
+  filter: SalesFilter,
+  unit: Unit | undefined,
+  signal?: AbortSignal,
+): Promise<CustomersReport> {
+  const search = new URLSearchParams({
+    from,
+    to,
+    ...filterParams(filter),
+    ...(unit ? { unit } : {}),
+  });
+  return apiRequest(`${CUSTOMERS}?${search.toString()}`, {
+    schema: customersSchema,
+    signal,
+  });
 }

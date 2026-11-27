@@ -251,7 +251,7 @@ export function SalesPlaces({
 
 // A small row of buttons, one of them pressed, on two lines in a narrow
 // card.
-function Choices<T extends string>({
+export function Choices<T extends string>({
   label,
   options,
   value,

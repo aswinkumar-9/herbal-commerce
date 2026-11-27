@@ -368,7 +368,7 @@ function placeOf(filter: SalesFilter | null): {
 
 // The same for a query of the orders and payments themselves: whether to
 // keep one state, and one way of paying, none recorded included.
-function placeParams(filter: SalesFilter | null) {
+export function placeParams(filter: SalesFilter | null) {
   return {
     state: filter?.state ?? null,
     methodKept: Boolean(filter?.method),
@@ -1125,8 +1125,8 @@ export class SalesReportService {
   }
 
   // What the filter is, by name: as the catalog names it now, else as it
-  // last sold in the period.
-  private async filtersOf(
+  // last sold in the period. The customers report (part 15E) names it too.
+  async filtersOf(
     tx: Prisma.TransactionClient,
     filter: SalesFilter | null,
     lines: SoldLine[],

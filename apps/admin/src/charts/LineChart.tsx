@@ -46,6 +46,7 @@ export function LineChart({
   points,
   tableHeaders,
   names,
+  counts = false,
 }: {
   // What the chart shows, for screen readers and the table's caption.
   label: string;
@@ -53,16 +54,29 @@ export function LineChart({
   tableHeaders: string[];
   // The legend: "This period", "Period before, 7 Oct – 31 Oct".
   names: { now: string; before: string };
+  // Things counted whole, such as customers, not rupees (part 15E).
+  counts?: boolean;
 }) {
   const frame = useRef<HTMLDivElement>(null);
   const width = useWidth(frame);
   const [active, setActive] = useState<number | null>(null);
 
   const scale = useMemo(
-    () => scaleFor(points.flatMap((point) => [point.value, point.previous])),
-    [points],
+    () =>
+      scaleFor(
+        points.flatMap((point) => [point.value, point.previous]),
+        4,
+        counts,
+      ),
+    [points, counts],
   );
-  const format = useMemo(() => tickFormat(scale.ticks), [scale]);
+  const format = useMemo(
+    () =>
+      counts
+        ? (value: number) => value.toLocaleString('en-IN')
+        : tickFormat(scale.ticks),
+    [counts, scale],
+  );
   const left =
     8 + CHAR * Math.max(...scale.ticks.map((tick) => format(tick).length));
   const plotWidth = Math.max(1, width - left - SIDE * 2);

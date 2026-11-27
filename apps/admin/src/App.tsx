@@ -94,6 +94,10 @@ export const routes = createRoutesFromElements(
         <Route element={<RequireRole only="SUPER_USER" />}>
           <Route path="sales" element={<SalesPage tab="overview" />} />
           <Route path="sales/places" element={<SalesPage tab="places" />} />
+          <Route
+            path="sales/customers"
+            element={<SalesPage tab="customers" />}
+          />
           <Route path="admins" element={<AdminsPage />} />
           <Route path="audit-log" element={<AuditLogPage />} />
           <Route path="policies" element={<PoliciesPage />} />

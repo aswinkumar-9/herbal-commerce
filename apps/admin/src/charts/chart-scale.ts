@@ -30,10 +30,16 @@ export function tickFormat(
 }
 
 // A clean step near the rough one: 1, 2, 2.5 or 5, times a power of ten.
-function cleanStep(rough: number): number {
+// For things counted whole (part 15E), never 2.5.
+function cleanStep(rough: number, whole = false): number {
   const power = 10 ** Math.floor(Math.log10(rough));
   const steps = [1, 2, 2.5, 5, 10];
-  const step = steps.find((candidate) => candidate * power >= rough) ?? 10;
+  const step =
+    steps.find(
+      (candidate) =>
+        candidate * power >= rough &&
+        (!whole || Number.isInteger(candidate * power)),
+    ) ?? 10;
   return step * power;
 }
 
@@ -46,15 +52,20 @@ export interface Scale {
 }
 
 // An axis for these values: from 0, or below it when one is below 0, to
-// about `count` clean steps. Nothing but 0 still gives an axis.
-export function scaleFor(values: readonly number[], count = 4): Scale {
+// about `count` clean steps, whole ones for things counted whole. Nothing
+// but 0 still gives an axis.
+export function scaleFor(
+  values: readonly number[],
+  count = 4,
+  whole = false,
+): Scale {
   const least = Math.min(0, ...values);
   const most = Math.max(0, ...values);
   if (least === most) {
     return { low: 0, high: 1, ticks: [0] };
   }
   // Whole rupees: the step is never below one.
-  const step = Math.max(1, cleanStep((most - least) / count));
+  const step = Math.max(1, cleanStep((most - least) / count, whole));
   const low = Math.floor(least / step) * step;
   const high = Math.ceil(most / step) * step;
   const ticks: number[] = [];

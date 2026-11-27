@@ -97,6 +97,26 @@ describe('LineChart', () => {
     }
   });
 
+  it('writes things counted whole as whole numbers, not rupees', () => {
+    const view = render(
+      <LineChart
+        label="Customers each day"
+        points={[day(1, 9, 4), day(2, 6, 7)]}
+        tableHeaders={['Day', 'Customers']}
+        names={{ now: 'This period', before: 'Period before' }}
+        counts
+      />,
+    );
+    const texts = [
+      ...(view.container
+        .querySelector('svg[width="640"]')
+        ?.querySelectorAll('text') ?? []),
+    ].map((t) => t.textContent);
+    expect(texts).toEqual(expect.arrayContaining(['0', '5', '10']));
+    expect(texts.some((text) => text?.includes('₹'))).toBe(false);
+    expect(texts).not.toContain('7.5');
+  });
+
   it('names both lines in a legend, each beside a short line of its colour', () => {
     draw();
     const legend = screen.getByRole('list');

@@ -70,6 +70,16 @@ describe('scaleFor', () => {
   });
 });
 
+describe('scaleFor, for things counted whole', () => {
+  it('never steps by 2.5', () => {
+    // 0 to 9 in about four steps: 2.5 for rupees, 5 for customers.
+    expect(scaleFor([0, 9]).ticks).toEqual([0, 2.5, 5, 7.5, 10]);
+    expect(scaleFor([0, 9], 4, true).ticks).toEqual([0, 5, 10]);
+    expect(scaleFor([0, 90], 4, true).ticks).toEqual([0, 25, 50, 75, 100]);
+    expect(scaleFor([0, 3], 4, true).ticks).toEqual([0, 1, 2, 3]);
+  });
+});
+
 describe('columnPath', () => {
   it('rounds a rising column at its top only, square at the baseline', () => {
     expect(columnPath(10, 20, 100, 40)).toBe(

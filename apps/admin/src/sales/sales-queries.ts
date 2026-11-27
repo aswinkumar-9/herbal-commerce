@@ -5,7 +5,7 @@ import {
   listProducts,
 } from '../catalog/catalog-api';
 import { catalogKeys } from '../catalog/catalog-queries';
-import { getSalesReport } from './sales-api';
+import { getCustomersReport, getSalesReport } from './sales-api';
 import { MATCHES_SHOWN } from './sales-filters';
 import type { SalesFilter } from './sales-filters';
 import type { Period, Unit } from './sales-periods';
@@ -19,6 +19,8 @@ export const salesKeys = {
   report: ({ from, to }: Period, filter: SalesFilter, unit?: Unit) =>
     ['sales', from, to, filter, unit ?? 'chosen'] as const,
   products: (words: string) => ['sales', 'products', words] as const,
+  customers: ({ from, to }: Period, filter: SalesFilter, unit?: Unit) =>
+    ['sales', 'customers', from, to, filter, unit ?? 'chosen'] as const,
 };
 
 // A period's sales, narrowed or not, its chart in the bars asked for. While
@@ -61,5 +63,21 @@ export function useProductMatches(words: string | undefined) {
       listProducts({ q: words, limit: MATCHES_SHOWN }, signal),
     enabled: words !== undefined,
     placeholderData: keepPreviousData,
+  });
+}
+
+// A period's customers, asked for only on their tab.
+export function useCustomersReport(
+  period: Period,
+  filter: SalesFilter,
+  unit: Unit | undefined,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: salesKeys.customers(period, filter, unit),
+    queryFn: ({ signal }) => getCustomersReport(period, filter, unit, signal),
+    placeholderData: keepPreviousData,
+    refetchInterval: SALES_REFRESH_MS,
+    enabled,
   });
 }
