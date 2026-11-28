@@ -49,7 +49,12 @@ import {
 } from './sales-filters';
 import type { FilterKind, FilterMatch, SalesFilter } from './sales-filters';
 import { CustomersTab } from './CustomersTab';
-import { useCustomersReport, useSalesReport } from './sales-queries';
+import { OrdersTab } from './OrdersTab';
+import {
+  useCustomersReport,
+  useOrdersReport,
+  useSalesReport,
+} from './sales-queries';
 import { useIndiaToday } from './use-india-today';
 
 // The period as the address keeps it: nothing for the default.
@@ -106,21 +111,23 @@ function filterNames(
   return names;
 }
 
-export type SalesTab = 'overview' | 'places' | 'customers';
+export type SalesTab = 'overview' | 'places' | 'customers' | 'orders';
 
 const TITLES: Record<SalesTab, string> = {
   overview: 'Sales',
   places: 'Sales by place and catalog',
   customers: 'Customers',
+  orders: 'Orders by status',
 };
 
 // A period's sales, for Super Users (part 15D, ADR 0047): the totals, each
 // beside the period of the same length just before, narrowed or not to a
 // product, a category or a brand, and since part 15E to a state or a way
-// of paying. Two tabs (part 15E): the overview, over time, and where the
-// sales went and what they were made of, each name a way to narrow the
-// page. The period, the filters and the chart's bars live in the address,
-// so a link, a reload or the other tab shows the same.
+// of paying. Tabs (part 15E): the overview, over time; where the sales
+// went and what they were made of, each name a way to narrow the page; the
+// customers; and the orders, read live. The period, the filters and the
+// chart's bars live in the address, so a link, a reload or another tab
+// shows the same.
 export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
   usePageTitle(TITLES[tab]);
   const [params, setParams] = useSearchParams();
@@ -136,6 +143,7 @@ export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
     unit,
     tab === 'customers',
   );
+  const orders = useOrdersReport(period, filter, unit, tab === 'orders');
   // The names of what the search found, or of what was chosen, by kind and
   // ID.
   const [found, setFound] = useState<Record<string, string>>({});
@@ -147,6 +155,7 @@ export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
       label: 'Places and catalog',
     },
     { to: `/sales/customers${query ? `?${query}` : ''}`, label: 'Customers' },
+    { to: `/sales/orders${query ? `?${query}` : ''}`, label: 'Orders' },
   ];
 
   function show(
@@ -228,7 +237,14 @@ export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
             , compared with {periodName(periodBefore(period))}
           </span>
         </p>
-        {report.data ? (
+        {tab === 'orders' ? (
+          orders.data ? (
+            <p className="text-ink-muted">
+              Live: read {updatedName(orders.data.readAt, today)}. Looks again
+              every minute.
+            </p>
+          ) : null
+        ) : report.data ? (
           <p className="text-ink-muted">
             {report.data.refreshedAt
               ? `Updated ${updatedName(report.data.refreshedAt, today)}. New payments show within 5 minutes.`
@@ -241,6 +257,13 @@ export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
         <CustomersTab
           query={customers}
           narrowed={isFiltered(filter)}
+          onUnit={(chosen) => show(periodParams(choice), filter, chosen)}
+        />
+      ) : tab === 'orders' ? (
+        <OrdersTab
+          query={orders}
+          narrowed={isFiltered(filter)}
+          byMethod={filter.method !== undefined}
           onUnit={(chosen) => show(periodParams(choice), filter, chosen)}
         />
       ) : report.isPending ? (

@@ -56,6 +56,7 @@ export function Figure({
   better = 'up',
   note,
   size = 'md',
+  heading: Heading = 'h2',
 }: {
   label: string;
   value: string;
@@ -64,10 +65,12 @@ export function Figure({
   better?: 'up' | 'down';
   note?: string;
   size?: 'lg' | 'md';
+  // Under a section's heading, a level down (part 15E).
+  heading?: 'h2' | 'h3';
 }) {
   return (
     <div>
-      <h2 className="text-sm font-medium text-ink-muted">{label}</h2>
+      <Heading className="text-sm font-medium text-ink-muted">{label}</Heading>
       <p
         className={`mt-1 font-semibold tabular-nums ${size === 'lg' ? 'text-4xl' : 'text-2xl'}`}
       >

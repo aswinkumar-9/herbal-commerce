@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.40.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.41.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -3003,6 +3003,61 @@ Response `200`:
 ```
 - `filters` and `series` are as in `GET /v1/staff/reports/sales`: every bar of the period, a customer counted once in each bar it paid in, new in the bar of its first payment ever, and `previous` the same days of the period before.
 - `topCustomers`: the best 10 by what their products came to, without GST, less refunds, as the sales summaries count it, up to `refreshedAt`; narrowed, only the lines and orders the filter keeps. `orders` are those paid in the period. Equal ones by name. None before the summaries were first made. Customers' names and emails are shown on the page only, never in a download (the owner's choice, 2026-11-27).
+
+### GET `/v1/staff/reports/orders`
+
+A period's orders, for the Sales page's Orders tab (since part 15E, the owner's choice on 2026-11-27). Needs a **Super User's** staff access token. Takes the same parameters as `GET /v1/staff/reports/sales`, with the same rules and errors. Reading is not audited.
+
+Read live from the orders, payments, refunds and the audit log, in one snapshot, not from the sales summaries:
+- `waiting` is now, whatever the period: the orders waiting for payment, paid and to pack, packed for the courier, and on their way, each with `since`, when the oldest was placed, paid, packed or shipped; and the refunds not finished, `refunds` asked of Razorpay or on their way back, and `failedRefunds` that Razorpay could not give back and no Super User has given back by hand yet, with what they come to and when the oldest was asked for. `since` is `null` when there are none;
+- `totals` are the orders placed in the period, on their day in India, by where each is now, and `previousTotals` those placed in the period before. `paid` are those paid for, whatever became of them since. The cancelled are split by who cancelled and when: the customer or a Super User, before paying, or after, when the payment went back in full. A paid order's canceller is the reason of its refund; an unpaid one's is a Super User when the audit log has their `order.cancelled`, else the customer;
+- `refunds` are every refund asked for in the period, on its day in India, whatever its reason: `byStatus` by how each is now (`GIVEN_BACK` for one failed and given back by hand), `byReason` by why, each in a fixed order, those with none too;
+- narrowed to a product, a category or a brand, the orders with one of its lines in; to a state, those that went there; to a way of paying, those paid that way, so never an unpaid one. Refunds are narrowed by their order and its payment.
+
+Response `200`:
+```json
+{
+  "period": { "from": "2026-11-01", "to": "2026-11-25" },
+  "previousPeriod": { "from": "2026-10-07", "to": "2026-10-31" },
+  "filters": { "product": null, "category": null, "brand": null, "state": null, "method": null },
+  "readAt": "2026-11-25T06:45:00.000Z",
+  "waiting": {
+    "payment": { "orders": 1, "since": "2026-11-25T06:40:00.000Z" },
+    "toPack": { "orders": 2, "since": "2026-11-20T04:00:00.000Z" },
+    "toShip": { "orders": 1, "since": "2026-11-24T05:00:00.000Z" },
+    "onTheWay": { "orders": 1, "since": "2026-11-23T09:00:00.000Z" },
+    "refunds": { "refunds": 1, "rupees": 498, "since": "2026-11-24T07:00:00.000Z" },
+    "failedRefunds": { "refunds": 0, "rupees": 0, "since": null }
+  },
+  "totals": {
+    "placed": 9, "paid": 6, "waitingForPayment": 1, "toPack": 2, "toShip": 1, "onTheWay": 1, "delivered": 1, "expired": 1,
+    "cancelled": 2, "customerCancelledUnpaid": 1, "customerCancelledPaid": 0, "staffCancelledUnpaid": 0, "staffCancelledPaid": 1
+  },
+  "previousTotals": {
+    "placed": 6, "paid": 4, "waitingForPayment": 0, "toPack": 0, "toShip": 0, "onTheWay": 0, "delivered": 3, "expired": 2,
+    "cancelled": 1, "customerCancelledUnpaid": 0, "customerCancelledPaid": 1, "staffCancelledUnpaid": 0, "staffCancelledPaid": 0
+  },
+  "series": { "unit": "day", "points": [] },
+  "refunds": {
+    "byStatus": [
+      { "status": "PROCESSED", "refunds": 2, "rupees": 945 },
+      { "status": "PENDING", "refunds": 0, "rupees": 0 },
+      { "status": "REQUESTED", "refunds": 1, "rupees": 498 },
+      { "status": "FAILED", "refunds": 0, "rupees": 0 },
+      { "status": "GIVEN_BACK", "refunds": 1, "rupees": 498 }
+    ],
+    "byReason": [
+      { "reason": "CANCELLED_BY_CUSTOMER", "refunds": 1, "rupees": 498 },
+      { "reason": "CANCELLED_BY_STAFF", "refunds": 1, "rupees": 498 },
+      { "reason": "ORDER_EXPIRED", "refunds": 0, "rupees": 0 },
+      { "reason": "ORDER_CANCELLED", "refunds": 1, "rupees": 498 },
+      { "reason": "ALREADY_PAID", "refunds": 1, "rupees": 447 }
+    ]
+  }
+}
+```
+- `filters` and `series` are as in `GET /v1/staff/reports/sales`: every bar of the period, each point the orders placed in it with the same counts as `totals`, and `previous` those placed on the same days of the period before.
+- Every order placed is at one step now, so the steps add up to `placed`, and the four cancellers to `cancelled`.
 
 ## Not yet implemented
 

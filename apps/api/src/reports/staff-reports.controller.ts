@@ -6,6 +6,7 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe';
 import { salesReportQuerySchema } from './reports.schemas';
 import type { SalesReportQuery } from './reports.schemas';
 import { CustomersReportService } from './customers-report.service';
+import { OrdersReportService } from './orders-report.service';
 import { SalesExportService } from './sales-export.service';
 import { SalesReportService } from './sales-report.service';
 import { XLSX_TYPE } from './sales-workbook';
@@ -20,6 +21,7 @@ export class StaffReportsController {
     private readonly reports: SalesReportService,
     private readonly exports: SalesExportService,
     private readonly customersReport: CustomersReportService,
+    private readonly ordersReport: OrdersReportService,
   ) {}
 
   // A period's sales, compared with the period before of the same length.
@@ -40,6 +42,17 @@ export class StaffReportsController {
     query: SalesReportQuery,
   ) {
     return this.customersReport.customers(query);
+  }
+
+  // The same period's orders (part 15E), read live: those waiting now at
+  // each step, where those placed in the period are now, who cancelled,
+  // and the refunds asked for, by status and by reason.
+  @Get('orders')
+  orders(
+    @Query(new ZodValidationPipe(salesReportQuerySchema))
+    query: SalesReportQuery,
+  ) {
+    return this.ordersReport.orders(query);
   }
 
   // The same as an Excel file, with every day, every grouping and the

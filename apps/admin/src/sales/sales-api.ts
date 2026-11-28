@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { apiDownload, apiRequest } from '../api/client';
+import { REFUND_REASONS, REFUND_STATUSES } from '../orders/orders-api';
 import { filterParams } from './sales-filters';
 import type { SalesFilter } from './sales-filters';
 import type { Period, Unit } from './sales-periods';
@@ -11,6 +12,7 @@ import { UNITS } from './sales-periods';
 
 const SALES = '/v1/staff/reports/sales';
 const CUSTOMERS = '/v1/staff/reports/customers';
+const ORDERS = '/v1/staff/reports/orders';
 const SALES_EXPORT = '/v1/staff/reports/sales/export';
 export const XLSX_TYPE =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -223,6 +225,93 @@ export function getCustomersReport(
   });
   return apiRequest(`${CUSTOMERS}?${search.toString()}`, {
     schema: customersSchema,
+    signal,
+  });
+}
+
+// A period's orders (part 15E), read live: those placed in it by where each
+// is now, and who cancelled those cancelled.
+const orderCountsSchema = z.object({
+  placed: count,
+  paid: count,
+  waitingForPayment: count,
+  toPack: count,
+  toShip: count,
+  onTheWay: count,
+  delivered: count,
+  expired: count,
+  cancelled: count,
+  customerCancelledUnpaid: count,
+  customerCancelledPaid: count,
+  staffCancelledUnpaid: count,
+  staffCancelledPaid: count,
+});
+export type OrderCounts = z.infer<typeof orderCountsSchema>;
+
+const waitingSchema = z.object({
+  orders: count,
+  since: z.iso.datetime().nullable(),
+});
+const owedSchema = z.object({
+  refunds: count,
+  rupees: count,
+  since: z.iso.datetime().nullable(),
+});
+const refundCount = { refunds: count, rupees: count };
+
+const ordersSchema = z.object({
+  period,
+  previousPeriod: period,
+  readAt: z.iso.datetime(),
+  // Now, whatever the period.
+  waiting: z.object({
+    payment: waitingSchema,
+    toPack: waitingSchema,
+    toShip: waitingSchema,
+    onTheWay: waitingSchema,
+    refunds: owedSchema,
+    failedRefunds: owedSchema,
+  }),
+  totals: orderCountsSchema,
+  previousTotals: orderCountsSchema,
+  series: z.object({
+    unit: z.enum(UNITS),
+    points: z.array(
+      orderCountsSchema.extend({
+        start: z.iso.date(),
+        previous: orderCountsSchema,
+      }),
+    ),
+  }),
+  // The refunds asked for in the period, whatever their reason.
+  refunds: z.object({
+    byStatus: z.array(
+      z.object({
+        status: z.enum([...REFUND_STATUSES, 'GIVEN_BACK']),
+        ...refundCount,
+      }),
+    ),
+    byReason: z.array(
+      z.object({ reason: z.enum(REFUND_REASONS), ...refundCount }),
+    ),
+  }),
+});
+export type OrdersReport = z.infer<typeof ordersSchema>;
+
+export function getOrdersReport(
+  { from, to }: Period,
+  filter: SalesFilter,
+  unit: Unit | undefined,
+  signal?: AbortSignal,
+): Promise<OrdersReport> {
+  const search = new URLSearchParams({
+    from,
+    to,
+    ...filterParams(filter),
+    ...(unit ? { unit } : {}),
+  });
+  return apiRequest(`${ORDERS}?${search.toString()}`, {
+    schema: ordersSchema,
     signal,
   });
 }

@@ -2,15 +2,13 @@ import type { UseQueryResult } from '@tanstack/react-query';
 import { useState } from 'react';
 import { problemMessage } from '../api/problems';
 import { LoadFailed } from '../catalog/list-states';
-import { LineChart } from '../charts/LineChart';
 import type { LinePoint } from '../charts/LineChart';
 import { shareName, signedRupees } from '../charts/chart-scale';
+import { CountChart, UNIT_WORDS, countPoints } from './CountChart';
 import type { CustomerCounts, CustomersReport } from './sales-api';
-import { columnLabel } from './sales-breakdown';
 import { Choices } from './SalesBreakdown';
-import { changeFrom, count, periodName } from './sales-display';
+import { changeFrom, count } from './sales-display';
 import { Figure, FiguresLoading, TILE } from './SalesFigure';
-import { MAX_BARS, UNITS, addDays, barsIn, daysIn } from './sales-periods';
 import type { Unit } from './sales-periods';
 
 type Measure = keyof CustomerCounts;
@@ -27,51 +25,13 @@ const MEASURES: { value: Measure; label: string; title: string }[] = [
   { value: 'accountsMade', label: 'Accounts', title: 'Accounts made' },
 ];
 
-const UNIT_WORDS: Record<Unit, { each: string; header: string }> = {
-  day: { each: 'each day', header: 'Day' },
-  week: { each: 'each week', header: 'Week' },
-  month: { each: 'each month', header: 'Month' },
-  quarter: { each: 'each quarter', header: 'Quarter' },
-  year: { each: 'each financial year', header: 'Financial year' },
-};
-const BUTTONS: Record<Unit, string> = {
-  day: 'Days',
-  week: 'Weeks',
-  month: 'Months',
-  quarter: 'Quarters',
-  year: 'Years',
-};
-
 // A point for each bar of what the chart follows, beside the same days of
 // the period before.
 export function customerPoints(
   report: CustomersReport,
   measure: Measure,
 ): LinePoint[] {
-  const { unit, points } = report.series;
-  const length = daysIn(report.period);
-  return points.map((point, i) => {
-    const next = points[i + 1];
-    const days = {
-      from: point.start,
-      to: next ? addDays(next.start, -1) : report.period.to,
-    };
-    const now = periodName(days);
-    const before = periodName({
-      from: addDays(days.from, -length),
-      to: addDays(days.to, -length),
-    });
-    const value = point[measure];
-    const previous = point.previous[measure];
-    return {
-      key: point.start,
-      label: columnLabel(unit, point.start),
-      value,
-      previous,
-      readout: `${now}: ${count(value)}. ${before}: ${count(previous)}`,
-      cells: [now, count(value), before, count(previous)],
-    };
-  });
+  return countPoints(report, (counts) => counts[measure]);
 }
 
 // A period's customers, for Super Users (part 15E): those who paid, new or
@@ -194,52 +154,25 @@ function Customers({
         </div>
       </div>
 
-      <div className={`${TILE} mt-4`}>
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="max-w-md">
-            <h2 className="font-semibold">{title}</h2>
-            <p className="mt-1 text-sm text-ink-muted">
-              A customer counts once a bar. The grey line is the same days of
-              the period before.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Choices
-              label="Bars"
-              value={unit}
-              onChange={onUnit}
-              options={UNITS.map((each) => ({
-                value: each,
-                label: BUTTONS[each],
-                disabled: barsIn(report.period, each) > MAX_BARS,
-              }))}
-            />
-            <Choices
-              label="Show"
-              value={measure}
-              onChange={setMeasure}
-              options={MEASURES.map(({ value, label }) => ({ value, label }))}
-            />
-          </div>
-        </div>
-        <div className="mt-4">
-          <LineChart
-            label={title}
-            points={customerPoints(report, measure)}
-            names={{
-              now: periodName(report.period),
-              before: periodName(report.previousPeriod),
-            }}
-            tableHeaders={[
-              UNIT_WORDS[unit].header,
-              followed?.title ?? 'Customers',
-              'Period before',
-              'Before',
-            ]}
-            counts
+      <CountChart
+        heading={title}
+        label={title}
+        note="A customer counts once a bar. The grey line is the same days of the period before."
+        period={report.period}
+        previousPeriod={report.previousPeriod}
+        unit={unit}
+        onUnit={onUnit}
+        choices={
+          <Choices
+            label="Show"
+            value={measure}
+            onChange={setMeasure}
+            options={MEASURES.map(({ value, label }) => ({ value, label }))}
           />
-        </div>
-      </div>
+        }
+        points={customerPoints(report, measure)}
+        column={followed?.title ?? 'Customers'}
+      />
 
       <div className={`${TILE} mt-4`}>
         <h2 className="font-semibold">Top customers</h2>

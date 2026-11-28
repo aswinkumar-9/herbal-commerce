@@ -98,6 +98,7 @@ export const routes = createRoutesFromElements(
             path="sales/customers"
             element={<SalesPage tab="customers" />}
           />
+          <Route path="sales/orders" element={<SalesPage tab="orders" />} />
           <Route path="admins" element={<AdminsPage />} />
           <Route path="audit-log" element={<AuditLogPage />} />
           <Route path="policies" element={<PoliciesPage />} />
