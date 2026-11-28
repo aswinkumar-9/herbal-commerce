@@ -3,6 +3,7 @@
 - Status: Accepted and implemented (part 13)
 - Date: 2026-11-20
 - Updated: 2026-11-25 (part 15D: the console's look has a chart green, `series` and `series-hover`, checked for its lightness, its chroma and 3:1 on the cards in both themes, see ADR 0047)
+- Updated: 2026-11-28 (part 15E: the console's look has colours for the parts of a donut, `series-1` to `series-7` and `series-other`, four steps of green for a calendar, `heat-1` to `heat-4`, and `good` for a change for the better, see ADR 0048)
 
 ## Context
 
