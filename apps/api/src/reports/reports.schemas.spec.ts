@@ -76,4 +76,54 @@ describe('salesReportQuerySchema', () => {
       ['brandId', 'Choose a brand by its ID'],
     ]);
   });
+
+  it('narrows to a state from the list, and a way of paying or the payments that kept none', () => {
+    const period = { from: '2026-11-01', to: '2026-11-25' };
+    expect(
+      salesReportQuerySchema.parse({ ...period, state: 'Tamil Nadu' }),
+    ).toEqual({ ...period, state: 'Tamil Nadu' });
+    for (const method of ['UPI', 'PAY_LATER', 'NOT_RECORDED']) {
+      expect(salesReportQuerySchema.parse({ ...period, method })).toEqual({
+        ...period,
+        method,
+      });
+    }
+    expect(refusals({ ...period, state: 'tamil nadu', method: 'upi' })).toEqual(
+      [
+        ['state', 'Choose a state or union territory from the list'],
+        ['method', 'Choose a payment method from the list'],
+      ],
+    );
+    expect(refusals({ ...period, state: '', method: 'CASH' })).toHaveLength(2);
+  });
+
+  it('draws the bars asked for, at most 366 of them', () => {
+    const period = { from: '2026-11-01', to: '2026-11-25' };
+    for (const unit of ['day', 'week', 'month', 'quarter', 'year']) {
+      expect(salesReportQuerySchema.parse({ ...period, unit })).toEqual({
+        ...period,
+        unit,
+      });
+    }
+    expect(refusals({ ...period, unit: 'hour' })).toEqual([
+      ['unit', 'Choose days, weeks, months, quarters or years'],
+    ]);
+    // A leap year of days is 366 bars; a day more is too many.
+    expect(
+      refusals({ from: '2024-01-01', to: '2024-12-31', unit: 'day' }),
+    ).toEqual([]);
+    expect(
+      refusals({ from: '2024-01-01', to: '2025-01-01', unit: 'day' }),
+    ).toEqual([['unit', 'Choose bigger bars: a chart has at most 366']]);
+    expect(
+      refusals({ from: '2016-11-18', to: '2026-11-25', unit: 'week' }),
+    ).toEqual([['unit', 'Choose bigger bars: a chart has at most 366']]);
+    expect(
+      refusals({ from: '2016-11-18', to: '2026-11-25', unit: 'month' }),
+    ).toEqual([]);
+    // Bars are counted only for a period that is otherwise right.
+    expect(
+      refusals({ from: '2026-11-26', to: '2026-11-25', unit: 'day' }),
+    ).toEqual([['to', 'The period starts after it ends']]);
+  });
 });

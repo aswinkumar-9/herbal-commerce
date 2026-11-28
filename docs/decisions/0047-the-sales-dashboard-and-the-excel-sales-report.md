@@ -2,6 +2,7 @@
 
 - Status: Accepted and implemented (part 15D)
 - Date: 2026-11-25
+- Updated: 2026-11-28 (part 15E: the Sales page has tabs, the top lists moved to "Places and catalog", the report and its download are narrowed by state and payment method too, and the bars are chosen from days to financial years, see ADR 0048)
 
 ## Context
 

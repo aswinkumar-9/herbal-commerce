@@ -510,6 +510,20 @@ describe('a report downloaded', () => {
     ).toBe(
       'Ravi Kumar downloaded the sales report of 25 Nov 2026, narrowed to a product and a brand',
     );
+    expect(
+      said({
+        ...download,
+        after: {
+          from: '2026-11-25',
+          to: '2026-11-25',
+          state: 'Kerala',
+          method: 'NOT_RECORDED',
+          registerLines: 2,
+        },
+      }),
+    ).toBe(
+      'Ravi Kumar downloaded the sales report of 25 Nov 2026, narrowed to a state and a payment method',
+    );
     expect(said({ ...download, after: null })).toBe(
       'Ravi Kumar downloaded the sales report',
     );

@@ -45,12 +45,19 @@ export function reportOf(
 ): SalesReport {
   return {
     period: { from, to },
-    filters: { product: null, category: null, brand: null },
+    filters: {
+      product: null,
+      category: null,
+      brand: null,
+      state: null,
+      method: null,
+    },
     previousPeriod: periodBefore({ from, to }),
     refreshedAt: '2026-11-25T06:40:00.000Z',
     totals: SOME,
     previousTotals: NOTHING,
     series: { unit: 'day', points: [] },
+    calendar: null,
     products: [],
     categories: [],
     brands: [],

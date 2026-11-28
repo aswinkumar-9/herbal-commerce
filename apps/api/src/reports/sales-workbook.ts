@@ -118,8 +118,13 @@ function momentName(at: Date): string {
 const periodName = ({ from, to }: { from: string; to: string }) =>
   from === to ? dayName(from) : `${dayName(from)} to ${dayName(to)}`;
 
+// Narrowed to some products: the delivery charge, which belongs to a whole
+// order, is not split.
 const isNarrowed = (filters: SalesFilters) =>
   Boolean(filters.product ?? filters.category ?? filters.brand);
+// Narrowed in any way, to some products or by place.
+const isFiltered = (filters: SalesFilters) =>
+  isNarrowed(filters) || filters.state !== null || filters.method !== null;
 
 function narrowedName(filters: SalesFilters): string {
   const parts = [
@@ -130,6 +135,14 @@ function narrowedName(filters: SalesFilters): string {
         }${filters.category.name ?? NOT_RECORDED}`
       : null,
     filters.brand ? `Brand: ${filters.brand.name ?? NOT_RECORDED}` : null,
+    filters.state ? `State: ${filters.state.state}` : null,
+    filters.method
+      ? `Payment method: ${
+          filters.method.method
+            ? METHOD_NAMES[filters.method.method]
+            : NOT_RECORDED
+        }`
+      : null,
   ].filter((part) => part !== null);
   return parts.length > 0 ? parts.join('; ') : 'All sales';
 }
@@ -137,7 +150,7 @@ function narrowedName(filters: SalesFilters): string {
 // The file's name: the shop, the period, and whether it is narrowed.
 export function salesFileName(report: SalesReport): string {
   const { from, to } = report.period;
-  const narrowed = isNarrowed(report.filters) ? '-narrowed' : '';
+  const narrowed = isFiltered(report.filters) ? '-narrowed' : '';
   return `herbal-commerce-sales-${from}-to-${to}${narrowed}.xlsx`;
 }
 

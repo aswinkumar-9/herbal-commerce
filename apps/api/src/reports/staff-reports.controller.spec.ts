@@ -7,17 +7,105 @@ import {
 import { Reflector } from '@nestjs/core';
 import { STAFF_ONLY } from '../auth/staff-only.decorator';
 import { SUPER_USER_ONLY } from '../auth/super-user-only.decorator';
+import type { CustomersReportService } from './customers-report.service';
+import type { OrdersReportService } from './orders-report.service';
 import type { SalesExportService } from './sales-export.service';
 import type { SalesReportService } from './sales-report.service';
+import type { StockReportService } from './stock-report.service';
 import { StaffReportsController } from './staff-reports.controller';
 
 describe('StaffReportsController', () => {
+  it('serves the stock beside a period’s sales at GET /v1/staff/reports/stock', async () => {
+    const report = { totals: {} };
+    const stock = { stock: jest.fn().mockResolvedValue(report) };
+    const controller = new StaffReportsController(
+      {} as SalesReportService,
+      {} as SalesExportService,
+      {} as CustomersReportService,
+      {} as OrdersReportService,
+      stock as unknown as StockReportService,
+    );
+
+    const period = {
+      from: '2026-11-01',
+      to: '2026-11-25',
+      brandId: '7d6c5b4a-3f2e-4d1c-8b0a-9f8e7d6c5b41',
+    };
+    await expect(controller.stock(period)).resolves.toBe(report);
+    expect(stock.stock).toHaveBeenCalledWith(period);
+    const handler = (
+      StaffReportsController.prototype as unknown as Record<string, object>
+    ).stock;
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(
+      RequestMethod.GET,
+    );
+    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe('stock');
+  });
+
+  it('serves a period’s orders at GET /v1/staff/reports/orders', async () => {
+    const report = { totals: {} };
+    const orders = { orders: jest.fn().mockResolvedValue(report) };
+    const controller = new StaffReportsController(
+      {} as SalesReportService,
+      {} as SalesExportService,
+      {} as CustomersReportService,
+      orders as unknown as OrdersReportService,
+      {} as StockReportService,
+    );
+
+    const period = {
+      from: '2026-11-01',
+      to: '2026-11-25',
+      method: 'UPI' as const,
+      unit: 'week' as const,
+    };
+    await expect(controller.orders(period)).resolves.toBe(report);
+    expect(orders.orders).toHaveBeenCalledWith(period);
+    const handler = (
+      StaffReportsController.prototype as unknown as Record<string, object>
+    ).orders;
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(
+      RequestMethod.GET,
+    );
+    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe('orders');
+  });
+
+  it('serves a period’s customers at GET /v1/staff/reports/customers', async () => {
+    const report = { totals: {} };
+    const customers = { customers: jest.fn().mockResolvedValue(report) };
+    const controller = new StaffReportsController(
+      {} as SalesReportService,
+      {} as SalesExportService,
+      customers as unknown as CustomersReportService,
+      {} as OrdersReportService,
+      {} as StockReportService,
+    );
+
+    const period = {
+      from: '2026-11-01',
+      to: '2026-11-25',
+      state: 'Kerala' as const,
+    };
+    await expect(controller.customers(period)).resolves.toBe(report);
+    expect(customers.customers).toHaveBeenCalledWith(period);
+    const handler = (
+      StaffReportsController.prototype as unknown as Record<string, object>
+    ).customers;
+    expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(
+      RequestMethod.GET,
+    );
+    expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe('customers');
+  });
+
   it('serves a period’s sales at GET /v1/staff/reports/sales, for Super Users only, which takes staff tokens only', async () => {
     const report = { totals: {} };
     const reports = { sales: jest.fn().mockResolvedValue(report) };
     const controller = new StaffReportsController(
       reports as unknown as SalesReportService,
       {} as SalesExportService,
+      {} as CustomersReportService,
+      {} as OrdersReportService,
+      {} as StockReportService,
     );
 
     const period = { from: '2026-11-01', to: '2026-11-25' };
@@ -50,6 +138,9 @@ describe('StaffReportsController', () => {
     const controller = new StaffReportsController(
       {} as SalesReportService,
       exports as unknown as SalesExportService,
+      {} as CustomersReportService,
+      {} as OrdersReportService,
+      {} as StockReportService,
     );
     const context = { actorId: 'staff-1', ip: '203.0.113.7', requestId: 'r1' };
 

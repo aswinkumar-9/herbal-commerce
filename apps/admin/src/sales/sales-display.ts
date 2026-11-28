@@ -67,6 +67,17 @@ export function changeFrom(
   return { direction, words: `${word} ${show(by)} from ${show(before)}` };
 }
 
+// Whether a change is for the better (part 15E, the owner's choice on
+// 2026-11-27): up for sales, orders, customers and the average order, down
+// for refunds. No change, or nothing to compare with, is neither.
+export type Tone = 'better' | 'worse' | 'neutral';
+export function toneOf(change: Change, better: 'up' | 'down'): Tone {
+  if (change.direction === 'up' || change.direction === 'down') {
+    return change.direction === better ? 'better' : 'worse';
+  }
+  return 'neutral';
+}
+
 // The same for the average order, which a period without orders has none
 // of.
 export function averageChange(

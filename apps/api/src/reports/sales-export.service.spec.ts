@@ -18,7 +18,13 @@ const NOTHING = {
 };
 const REPORT = {
   period: { from: '2026-11-20', to: '2026-11-21' },
-  filters: { product: null, category: null, brand: null },
+  filters: {
+    product: null,
+    category: null,
+    brand: null,
+    state: null,
+    method: null,
+  },
   previousPeriod: { from: '2026-11-18', to: '2026-11-19' },
   refreshedAt: null,
   totals: NOTHING,
@@ -98,6 +104,27 @@ describe('SalesExportService.salesWorkbook', () => {
         registerLines: 0,
       },
     });
+  });
+
+  it('writes a state and a way of paying it was narrowed to', async () => {
+    const { exports, audit } = setup();
+
+    await exports.salesWorkbook(
+      { ...PERIOD, state: 'Kerala', method: 'NOT_RECORDED' },
+      CONTEXT,
+    );
+    expect(audit.record).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        after: {
+          from: '2026-11-20',
+          to: '2026-11-21',
+          state: 'Kerala',
+          method: 'NOT_RECORDED',
+          registerLines: 0,
+        },
+      }),
+    );
   });
 
   it('refuses a period with too many lines for one file, and writes nothing', async () => {

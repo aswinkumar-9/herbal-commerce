@@ -1,8 +1,9 @@
-import { CalendarRange, Minus, TrendingDown, TrendingUp } from 'lucide-react';
+import { CalendarRange } from 'lucide-react';
 import { motion } from 'motion/react';
 import { useId, useRef, useState } from 'react';
 import type { FormEvent, ReactNode } from 'react';
 import { useSearchParams } from 'react-router';
+import { PageTabs } from '../layout/PageTabs';
 import { problemMessage } from '../api/problems';
 import { LoadFailed } from '../catalog/list-states';
 import { signedRupees } from '../charts/chart-scale';
@@ -20,20 +21,42 @@ import {
   periodName,
   updatedName,
 } from './sales-display';
-import type { Change } from './sales-display';
 import {
   DEFAULT_PRESET,
   PRESETS,
   datesProblems,
   periodChoice,
+  unitChoice,
 } from './sales-periods';
-import type { DateField, Period, PeriodChoice, Preset } from './sales-periods';
+import type {
+  DateField,
+  Period,
+  PeriodChoice,
+  Preset,
+  Unit,
+} from './sales-periods';
 import { DownloadReport } from './DownloadReport';
-import { SalesBreakdown } from './SalesBreakdown';
+import { Figure, FiguresLoading, TILE } from './SalesFigure';
+import { SalesOverTime, SalesPlaces } from './SalesBreakdown';
 import { SalesFilterBar } from './SalesFilterBar';
-import { filterFrom, filterParams, isFiltered } from './sales-filters';
+import { METHOD_NAMES, NOT_RECORDED } from './sales-breakdown';
+import {
+  NOT_RECORDED_METHOD,
+  filterFrom,
+  filterParams,
+  isFiltered,
+  keepsProducts,
+} from './sales-filters';
 import type { FilterKind, FilterMatch, SalesFilter } from './sales-filters';
-import { useSalesReport } from './sales-queries';
+import { CustomersTab } from './CustomersTab';
+import { OrdersTab } from './OrdersTab';
+import { StockTab } from './StockTab';
+import {
+  useCustomersReport,
+  useOrdersReport,
+  useSalesReport,
+  useStockReport,
+} from './sales-queries';
 import { useIndiaToday } from './use-india-today';
 
 // The period as the address keeps it: nothing for the default.
@@ -76,30 +99,88 @@ function filterNames(
       names[kind] = name ?? (report ? 'Not found' : '…');
     }
   }
+  // A state is its own name, and a way of paying is named as on the page.
+  if (filter.state) {
+    names.state = filter.state;
+  }
+  if (filter.method) {
+    names.method =
+      filter.method === NOT_RECORDED_METHOD
+        ? NOT_RECORDED
+        : (METHOD_NAMES[filter.method as keyof typeof METHOD_NAMES] ??
+          filter.method);
+  }
   return names;
 }
 
+export type SalesTab = 'overview' | 'places' | 'customers' | 'orders' | 'stock';
+
+const TITLES: Record<SalesTab, string> = {
+  overview: 'Sales',
+  places: 'Sales by place and catalog',
+  customers: 'Customers',
+  orders: 'Orders by status',
+  stock: 'Stock against sales',
+};
+
 // A period's sales, for Super Users (part 15D, ADR 0047): the totals, each
 // beside the period of the same length just before, narrowed or not to a
-// product, a category or a brand. The period and the filters live in the
-// address, so a link or a reload shows the same.
-export function SalesPage() {
-  usePageTitle('Sales');
+// product, a category or a brand, and since part 15E to a state or a way
+// of paying. Tabs (part 15E): the overview, over time; where the sales
+// went and what they were made of, each name a way to narrow the page; the
+// customers; and the orders and the stock, read live. The period, the filters and the
+// chart's bars live in the address, so a link, a reload or another tab
+// shows the same.
+export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
+  usePageTitle(TITLES[tab]);
   const [params, setParams] = useSearchParams();
   const today = useIndiaToday();
   const choice = periodChoice(params, today);
   const { period } = choice;
   const filter = filterFrom(params);
-  const report = useSalesReport(period, filter);
-  // The names of what the search found, by kind and ID.
+  const unit = unitChoice(params, period);
+  const report = useSalesReport(period, filter, unit);
+  const customers = useCustomersReport(
+    period,
+    filter,
+    unit,
+    tab === 'customers',
+  );
+  const orders = useOrdersReport(period, filter, unit, tab === 'orders');
+  const stock = useStockReport(period, filter, tab === 'stock');
+  // The tabs read live, when they have been read; none on the others.
+  const live =
+    tab === 'orders'
+      ? (orders.data ?? null)
+      : tab === 'stock'
+        ? (stock.data ?? null)
+        : undefined;
+  // The names of what the search found, or of what was chosen, by kind and
+  // ID.
   const [found, setFound] = useState<Record<string, string>>({});
+  const query = params.toString();
+  const tabs = [
+    { to: `/sales${query ? `?${query}` : ''}`, label: 'Overview', end: true },
+    {
+      to: `/sales/places${query ? `?${query}` : ''}`,
+      label: 'Places and catalog',
+    },
+    { to: `/sales/customers${query ? `?${query}` : ''}`, label: 'Customers' },
+    { to: `/sales/orders${query ? `?${query}` : ''}`, label: 'Orders' },
+    { to: `/sales/stock${query ? `?${query}` : ''}`, label: 'Stock' },
+  ];
 
   function show(
     periodPart: Record<string, string>,
     filterPart: SalesFilter = filter,
+    unitPart: Unit | undefined = unit,
   ) {
     setParams(
-      { ...periodPart, ...filterParams(filterPart) },
+      {
+        ...periodPart,
+        ...filterParams(filterPart),
+        ...(unitPart ? { unit: unitPart } : {}),
+      },
       { replace: true },
     );
   }
@@ -121,8 +202,19 @@ export function SalesPage() {
     show(periodParams(choice), { ...filter, [kind]: undefined });
   }
 
+  // A name chosen in a list: narrowed to it, or back to everything when it
+  // was already chosen.
+  function pick(kind: FilterKind, id: string, name: string) {
+    if (filter[kind] === id) {
+      remove(kind);
+      return;
+    }
+    choose({ kind, id, name });
+  }
+
   return (
     <section className="max-w-5xl">
+      <PageTabs label="Sales" tabs={tabs} layoutId="sales-tab" />
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="max-w-2xl">
           <h1 className="text-2xl font-semibold">Sales</h1>
@@ -157,7 +249,14 @@ export function SalesPage() {
             , compared with {periodName(periodBefore(period))}
           </span>
         </p>
-        {report.data ? (
+        {live !== undefined ? (
+          live ? (
+            <p className="text-ink-muted">
+              Live: read {updatedName(live.readAt, today)}. Looks again every
+              minute.
+            </p>
+          ) : null
+        ) : report.data ? (
           <p className="text-ink-muted">
             {report.data.refreshedAt
               ? `Updated ${updatedName(report.data.refreshedAt, today)}. New payments show within 5 minutes.`
@@ -166,7 +265,25 @@ export function SalesPage() {
         ) : null}
       </div>
 
-      {report.isPending ? (
+      {tab === 'customers' ? (
+        <CustomersTab
+          query={customers}
+          narrowed={isFiltered(filter)}
+          onUnit={(chosen) => show(periodParams(choice), filter, chosen)}
+        />
+      ) : tab === 'stock' ? (
+        <StockTab
+          query={stock}
+          byPlace={filter.state !== undefined || filter.method !== undefined}
+        />
+      ) : tab === 'orders' ? (
+        <OrdersTab
+          query={orders}
+          narrowed={isFiltered(filter)}
+          byMethod={filter.method !== undefined}
+          onUnit={(chosen) => show(periodParams(choice), filter, chosen)}
+        />
+      ) : report.isPending ? (
         <FiguresLoading />
       ) : report.isError && !report.data ? (
         <LoadFailed
@@ -182,7 +299,15 @@ export function SalesPage() {
             report.isPlaceholderData ? 'opacity-60' : ''
           }`}
         >
-          <Figures report={report.data} filtered={isFiltered(filter)} />
+          <Figures
+            report={report.data}
+            filtered={keepsProducts(filter)}
+            tab={tab}
+            today={today}
+            filter={filter}
+            onUnit={(chosen) => show(periodParams(choice), filter, chosen)}
+            onPick={pick}
+          />
         </div>
       ) : null}
     </section>
@@ -372,64 +497,23 @@ function DatesForm({
   );
 }
 
-const TILE =
-  'rounded-card border border-line bg-surface p-5 shadow-clay inset-shadow-clay';
-
-function ChangeLine({ change }: { change: Change }) {
-  const Icon =
-    change.direction === 'up'
-      ? TrendingUp
-      : change.direction === 'down'
-        ? TrendingDown
-        : change.direction === 'same'
-          ? Minus
-          : null;
-  return (
-    <p className="mt-1 flex items-start gap-1.5 text-sm text-ink-muted">
-      {Icon ? (
-        <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-      ) : null}
-      <span>{change.words}</span>
-    </p>
-  );
-}
-
-// One figure under its name, a heading to find it by, and how it moved
-// since the period before.
-function Figure({
-  label,
-  value,
-  change,
-  note,
-  size = 'md',
-}: {
-  label: string;
-  value: string;
-  change: Change;
-  note?: string;
-  size?: 'lg' | 'md';
-}) {
-  return (
-    <div>
-      <h2 className="text-sm font-medium text-ink-muted">{label}</h2>
-      <p
-        className={`mt-1 font-semibold tabular-nums ${size === 'lg' ? 'text-4xl' : 'text-2xl'}`}
-      >
-        {value}
-      </p>
-      <ChangeLine change={change} />
-      {note ? <p className="mt-2 text-xs text-ink-muted">{note}</p> : null}
-    </div>
-  );
-}
-
 function Figures({
   report,
   filtered,
+  tab,
+  today,
+  filter,
+  onUnit,
+  onPick,
 }: {
   report: SalesReport;
   // Narrowed to some products: every figure is theirs alone.
   filtered: boolean;
+  tab: SalesTab;
+  today: string;
+  filter: SalesFilter;
+  onUnit: (unit: Unit) => void;
+  onPick: (kind: FilterKind, id: string, name: string) => void;
 }) {
   const { totals: now, previousTotals: before } = report;
   const rupeesChange = (pick: (totals: SalesTotals) => number) =>
@@ -437,6 +521,22 @@ function Figures({
   const countChange = (pick: (totals: SalesTotals) => number) =>
     changeFrom(pick(now), pick(before), count);
   const quiet = now.orders === 0 && now.refundedOrders === 0;
+
+  const quietNote = quiet ? (
+    <p className="mt-4 rounded-card border border-dashed border-line bg-surface p-5 text-center text-sm text-ink-muted">
+      {filtered
+        ? 'None of these were paid for or refunded in this period.'
+        : 'Nothing was paid for or refunded in this period.'}{' '}
+      Payments show here within 5 minutes of being made.
+    </p>
+  ) : null;
+  if (tab === 'places') {
+    return (
+      quietNote ?? (
+        <SalesPlaces report={report} filter={filter} onPick={onPick} />
+      )
+    );
+  }
 
   return (
     <>
@@ -527,6 +627,7 @@ function Figures({
             label="Refunds"
             value={signedRupees(now.refundedRupees)}
             change={rupeesChange((totals) => totals.refundedRupees)}
+            better="down"
             note={
               filtered
                 ? `${counted(now.refundedOrders, 'order', 'orders')} with these in refunded in the period: what these came to, GST included.`
@@ -535,15 +636,8 @@ function Figures({
           />
         </div>
       </div>
-      {quiet ? (
-        <p className="mt-4 rounded-card border border-dashed border-line bg-surface p-5 text-center text-sm text-ink-muted">
-          {filtered
-            ? 'None of these were paid for or refunded in this period.'
-            : 'Nothing was paid for or refunded in this period.'}{' '}
-          Payments show here within 5 minutes of being made.
-        </p>
-      ) : (
-        <SalesBreakdown report={report} />
+      {quietNote ?? (
+        <SalesOverTime report={report} today={today} onUnit={onUnit} />
       )}
     </>
   );
@@ -563,28 +657,6 @@ function Part({
       <dt className="text-ink-muted">{label}</dt>
       <dd className="mt-0.5 font-medium tabular-nums">{value}</dd>
       {note ? <dd className="text-xs text-ink-muted">{note}</dd> : null}
-    </div>
-  );
-}
-
-// Shaped like the figures, while they load.
-function FiguresLoading() {
-  return (
-    <div className="mt-4">
-      <output className="sr-only">Loading the sales…</output>
-      <div
-        aria-hidden="true"
-        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
-      >
-        <div className="h-56 animate-pulse rounded-card bg-surface-muted sm:col-span-2" />
-        <div className="h-56 animate-pulse rounded-card bg-surface-muted" />
-        {[0, 1, 2].map((tile) => (
-          <div
-            key={tile}
-            className="h-36 animate-pulse rounded-card bg-surface-muted"
-          />
-        ))}
-      </div>
     </div>
   );
 }

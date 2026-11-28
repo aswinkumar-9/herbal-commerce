@@ -1,20 +1,12 @@
-import { Table2 } from 'lucide-react';
-import {
-  useEffect,
-  useId,
-  useMemo,
-  useRef,
-  useState,
-  type PointerEvent,
-  type RefObject,
-} from 'react';
-import { Button } from '../components/Button';
+import { useMemo, useRef, useState, type PointerEvent } from 'react';
+import { ChartTable } from './ChartTable';
 import {
   columnPath,
   labelledColumns,
   scaleFor,
   tickFormat,
 } from './chart-scale';
+import { useWidth } from './use-width';
 
 export interface ChartColumn {
   key: string;
@@ -44,30 +36,6 @@ const GAP = 2;
 // Room for each label under the columns.
 const LABEL_ROOM = 72;
 
-// The width the chart has, followed as its card grows and shrinks. Before
-// it is measured, and where it can't be (the tests), 640.
-function useWidth(ref: RefObject<HTMLElement | null>): number {
-  const [width, setWidth] = useState(640);
-  useEffect(() => {
-    const element = ref.current;
-    if (!element) {
-      return;
-    }
-    const measure = () => {
-      const measured = Math.round(element.getBoundingClientRect().width);
-      setWidth(measured > 0 ? measured : 640);
-    };
-    measure();
-    const watch =
-      typeof ResizeObserver === 'undefined'
-        ? null
-        : new ResizeObserver(measure);
-    watch?.observe(element);
-    return () => watch?.disconnect();
-  }, [ref]);
-  return width;
-}
-
 // One series over time as thin columns (part 15D, ADR 0047), our own SVG:
 // nothing from another site, and only attributes, so the console's policy
 // stays as it is. Columns rise from 0, or fall below it for less than
@@ -90,8 +58,6 @@ export function ColumnChart({
   const frame = useRef<HTMLDivElement>(null);
   const width = useWidth(frame);
   const [active, setActive] = useState<number | null>(null);
-  const [showTable, setShowTable] = useState(false);
-  const tableId = useId();
 
   const scale = useMemo(
     () => scaleFor(columns.map((column) => column.value)),
@@ -216,56 +182,7 @@ export function ColumnChart({
           })}
         </svg>
       </div>
-      <Button
-        variant="ghost"
-        size="sm"
-        icon={Table2}
-        aria-expanded={showTable}
-        aria-controls={tableId}
-        onClick={() => setShowTable((open) => !open)}
-        className="mt-2"
-      >
-        {showTable ? 'Hide the table' : 'Show as a table'}
-      </Button>
-      <div
-        id={tableId}
-        hidden={!showTable}
-        className="mt-2 overflow-x-auto rounded-lg border border-line"
-      >
-        <table className="w-full text-left text-sm">
-          <caption className="sr-only">{label}</caption>
-          <thead className="bg-surface-muted text-xs text-ink-muted">
-            <tr>
-              {tableHeaders.map((header, i) => (
-                <th
-                  key={header}
-                  scope="col"
-                  className={`px-3 py-1.5 font-medium ${i > 0 ? 'text-right' : ''}`}
-                >
-                  {header}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-line">
-            {columns.map((column) => (
-              <tr key={column.key}>
-                {column.cells.map((cell, i) =>
-                  i === 0 ? (
-                    <th key={i} scope="row" className="px-3 py-1.5 font-medium">
-                      {cell}
-                    </th>
-                  ) : (
-                    <td key={i} className="px-3 py-1.5 text-right tabular-nums">
-                      {cell}
-                    </td>
-                  ),
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <ChartTable label={label} headers={tableHeaders} rows={columns} />
     </figure>
   );
 }

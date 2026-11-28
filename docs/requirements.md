@@ -130,7 +130,7 @@ For Super Users, an interactive dashboard:
 | Brand, vendor or supplier | Brands done in part 15A: a list staff keep, one or none per product (ADR 0044). Vendors and suppliers are not wanted (the owner, 2026-11-23). Multi-vendor is deferred (section 6), and D1 rules out dealers. A supplier per stock batch would fit products bought from makers. |
 | Division | Not stored. It can come from the PIN code, with India Post's directory. Orders keep the city, state and PIN code. |
 | Country | Delivery is to India only (ADR 0026), so for now it is the same as overall. |
-| Low stock | Done in part 12D: each pack size has its own low-stock number, 10 by default (ADR 0034). Customers still see only "in stock" or "out of stock" (ADR 0024). |
+| Low stock | Done in part 12D: each pack size has its own low-stock number, 10 by default (ADR 0034). Customers still see only "in stock" or "out of stock" (ADR 0024). Since part 15E, the Sales page's Stock tab sets it beside the sales: days of cover, and the batches running out of shelf life (ADR 0048). |
 
 These are best added before launch: an order placed without them can't be reported on them later.
 
@@ -151,13 +151,24 @@ Part 15A added the catalog's side of these (ADR 0044), and part 15B showed them 
 
 The download has no customer details. Invoice numbers and the GST split wait until the company is registered.
 
+Part 15E added the drill-down reports as tabs on the Sales page (ADR 0048), by the owner's choices on 2026-11-27:
+- **Places and catalog:** every state, payment method, category, brand and product narrows the page, and the state and the payment method are filters too;
+- **Customers:** new and returning in each bar, who bought again, the accounts made, and the best customers by name and email, on the page only, never in a download;
+- **Orders by status,** read live: what waits to be packed or shipped, where the period's orders are now, who cancelled them, and the refunds by status;
+- **Stock against sales,** read live: out and low, days of cover, and the batches running out of shelf life;
+- **the charts:** bars of days, weeks, months, quarters or financial years, a line beside the period before, a donut for a few parts and a calendar of days, without hours;
+- **the tiles' changes** green when better and red when worse;
+- **financial years,** April to March.
+
+Downloads of the new tabs, PDF and CSV come in part 15F. Still not built: profit and loss (open decision 2), and places below the state.
+
 **How it will be built:**
 - Super Users only, with each export written to the audit log. Done in part 15D for the sales report and its Excel download (ADR 0047).
 - Reports read daily summaries, counted in Indian time, not the live order tables, so the shop stays fast. Done in part 15C: rebuilt by a job every 5 minutes, by the state, the payment method, and each line's product, category, subcategory and brand (ADR 0046).
 - Amounts in whole rupees, as everywhere.
 - CSV and Excel files never start a cell with `=`, `+`, `-` or `@` unescaped, so a spreadsheet can't run a cell as a formula. Done in part 15D for Excel, a tab and a return included (ADR 0047).
 - PDFs are made by the API, so they look the same every time.
-- Charts run under the console's security policy, checked in a real browser. Done in part 15D: our own SVG charts, driven in headless Chrome without a violation (ADR 0047).
+- Charts run under the console's security policy, checked in a real browser. Done in part 15D: our own SVG charts, driven in headless Chrome without a violation (ADR 0047). Part 15E added a line, a donut and a calendar the same way (ADR 0048).
 
 ### 10.2 The website and the apps
 

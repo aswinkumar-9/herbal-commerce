@@ -1,14 +1,21 @@
 import { z } from 'zod';
 import { apiDownload, apiRequest } from '../api/client';
+import { PACK_UNITS } from '../catalog/catalog-api';
+import { REFUND_REASONS, REFUND_STATUSES } from '../orders/orders-api';
+import { STOCK_LEVELS } from '../stock/stock-api';
 import { filterParams } from './sales-filters';
 import type { SalesFilter } from './sales-filters';
-import type { Period } from './sales-periods';
+import type { Period, Unit } from './sales-periods';
+import { UNITS } from './sales-periods';
 
 // A period's sales, for Super Users only (part 15D, ADR 0047), compared
 // with the period of the same length just before. Read from the daily
 // summaries, rebuilt every 5 minutes: refreshedAt says when they last were.
 
 const SALES = '/v1/staff/reports/sales';
+const CUSTOMERS = '/v1/staff/reports/customers';
+const ORDERS = '/v1/staff/reports/orders';
+const STOCK = '/v1/staff/reports/stock';
 const SALES_EXPORT = '/v1/staff/reports/sales/export';
 export const XLSX_TYPE =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -62,6 +69,12 @@ const reportSchema = z.object({
       .object({ categoryId: z.string(), name: named, parentName: named })
       .nullable(),
     brand: z.object({ brandId: z.string(), name: named }).nullable(),
+    // Since part 15E; an API from before sends neither.
+    state: z.object({ state: z.string() }).nullable().default(null),
+    method: z
+      .object({ method: z.enum(PAYMENT_METHODS).nullable() })
+      .nullable()
+      .default(null),
   }),
   previousPeriod: period,
   refreshedAt: z.iso.datetime().nullable(),
@@ -70,11 +83,24 @@ const reportSchema = z.object({
   // Every day, week or month of the period, in order, those with nothing
   // too.
   series: z.object({
-    unit: z.enum(['day', 'week', 'month']),
+    unit: z.enum(UNITS),
     points: z.array(
-      z.object({ start: z.iso.date(), salesRupees: rupees, orders: count }),
+      z.object({
+        start: z.iso.date(),
+        salesRupees: rupees,
+        orders: count,
+        // The same days of the period before (part 15E).
+        previous: z
+          .object({ salesRupees: rupees, orders: count })
+          .default({ salesRupees: 0, orders: 0 }),
+      }),
     ),
   }),
+  // Each day, for a calendar: none for a period over 366 days (part 15E).
+  calendar: z
+    .array(z.object({ day: z.iso.date(), salesRupees: rupees, orders: count }))
+    .nullable()
+    .default(null),
   // The best 10. No ID: a product sold before part 15C whose pack size
   // was deleted.
   products: z.array(
@@ -126,9 +152,15 @@ export type SalesReport = z.infer<typeof reportSchema>;
 export function getSalesReport(
   { from, to }: Period,
   filter: SalesFilter,
+  unit: Unit | undefined,
   signal?: AbortSignal,
 ): Promise<SalesReport> {
-  const search = new URLSearchParams({ from, to, ...filterParams(filter) });
+  const search = new URLSearchParams({
+    from,
+    to,
+    ...filterParams(filter),
+    ...(unit ? { unit } : {}),
+  });
   return apiRequest(`${SALES}?${search.toString()}`, {
     schema: reportSchema,
     signal,
@@ -144,4 +176,209 @@ export function downloadSalesReport(
 ): Promise<{ file: Blob; fileName: string }> {
   const search = new URLSearchParams({ from, to, ...filterParams(filter) });
   return apiDownload(`${SALES_EXPORT}?${search.toString()}`, XLSX_TYPE);
+}
+
+// A period's customers (part 15E): who paid, new or returning, who paid for
+// more than one order, and the accounts made, never narrowed.
+const countsSchema = z.object({
+  customers: count,
+  newCustomers: count,
+  returningCustomers: count,
+  boughtAgain: count,
+  accountsMade: count,
+});
+export type CustomerCounts = z.infer<typeof countsSchema>;
+
+const customersSchema = z.object({
+  period,
+  previousPeriod: period,
+  refreshedAt: z.iso.datetime().nullable(),
+  totals: countsSchema,
+  previousTotals: countsSchema,
+  series: z.object({
+    unit: z.enum(UNITS),
+    points: z.array(
+      countsSchema.extend({ start: z.iso.date(), previous: countsSchema }),
+    ),
+  }),
+  // For the page only: downloads never name customers.
+  topCustomers: z.array(
+    z.object({
+      userId: z.string(),
+      name: z.string(),
+      email: z.string(),
+      orders: count,
+      salesRupees: rupees,
+    }),
+  ),
+});
+export type CustomersReport = z.infer<typeof customersSchema>;
+
+export function getCustomersReport(
+  { from, to }: Period,
+  filter: SalesFilter,
+  unit: Unit | undefined,
+  signal?: AbortSignal,
+): Promise<CustomersReport> {
+  const search = new URLSearchParams({
+    from,
+    to,
+    ...filterParams(filter),
+    ...(unit ? { unit } : {}),
+  });
+  return apiRequest(`${CUSTOMERS}?${search.toString()}`, {
+    schema: customersSchema,
+    signal,
+  });
+}
+
+// A period's orders (part 15E), read live: those placed in it by where each
+// is now, and who cancelled those cancelled.
+const orderCountsSchema = z.object({
+  placed: count,
+  paid: count,
+  waitingForPayment: count,
+  toPack: count,
+  toShip: count,
+  onTheWay: count,
+  delivered: count,
+  expired: count,
+  cancelled: count,
+  customerCancelledUnpaid: count,
+  customerCancelledPaid: count,
+  staffCancelledUnpaid: count,
+  staffCancelledPaid: count,
+});
+export type OrderCounts = z.infer<typeof orderCountsSchema>;
+
+const waitingSchema = z.object({
+  orders: count,
+  since: z.iso.datetime().nullable(),
+});
+const owedSchema = z.object({
+  refunds: count,
+  rupees: count,
+  since: z.iso.datetime().nullable(),
+});
+const refundCount = { refunds: count, rupees: count };
+
+const ordersSchema = z.object({
+  period,
+  previousPeriod: period,
+  readAt: z.iso.datetime(),
+  // Now, whatever the period.
+  waiting: z.object({
+    payment: waitingSchema,
+    toPack: waitingSchema,
+    toShip: waitingSchema,
+    onTheWay: waitingSchema,
+    refunds: owedSchema,
+    failedRefunds: owedSchema,
+  }),
+  totals: orderCountsSchema,
+  previousTotals: orderCountsSchema,
+  series: z.object({
+    unit: z.enum(UNITS),
+    points: z.array(
+      orderCountsSchema.extend({
+        start: z.iso.date(),
+        previous: orderCountsSchema,
+      }),
+    ),
+  }),
+  // The refunds asked for in the period, whatever their reason.
+  refunds: z.object({
+    byStatus: z.array(
+      z.object({
+        status: z.enum([...REFUND_STATUSES, 'GIVEN_BACK']),
+        ...refundCount,
+      }),
+    ),
+    byReason: z.array(
+      z.object({ reason: z.enum(REFUND_REASONS), ...refundCount }),
+    ),
+  }),
+});
+export type OrdersReport = z.infer<typeof ordersSchema>;
+
+export function getOrdersReport(
+  { from, to }: Period,
+  filter: SalesFilter,
+  unit: Unit | undefined,
+  signal?: AbortSignal,
+): Promise<OrdersReport> {
+  const search = new URLSearchParams({
+    from,
+    to,
+    ...filterParams(filter),
+    ...(unit ? { unit } : {}),
+  });
+  return apiRequest(`${ORDERS}?${search.toString()}`, {
+    schema: ordersSchema,
+    signal,
+  });
+}
+
+// The stock now (part 15E), read live, beside how fast each pack size sold
+// in the period.
+const stockSchema = z.object({
+  period,
+  readAt: z.iso.datetime(),
+  // The period's days up to today, the rate of sale is taken over.
+  rateDays: count,
+  totals: z.object({
+    packSizes: count,
+    out: count,
+    low: count,
+    sellablePacks: count,
+    sellableRupees: count,
+    unsellablePacks: count,
+  }),
+  packSizes: z.array(
+    z.object({
+      variantId: z.string(),
+      productId: z.string(),
+      productName: z.string(),
+      sku: z.string(),
+      quantity: count,
+      unit: z.enum(PACK_UNITS),
+      onSale: z.boolean(),
+      sellable: count,
+      lowStockAt: count,
+      level: z.enum(STOCK_LEVELS),
+      // Less what cancelled orders gave back: below 0 at times.
+      soldPacks: z.int(),
+      daysOfCover: count.nullable(),
+    }),
+  ),
+  shelfLife: z.array(
+    z.object({
+      batchId: z.string(),
+      variantId: z.string(),
+      productName: z.string(),
+      sku: z.string(),
+      quantity: count,
+      unit: z.enum(PACK_UNITS),
+      batchNumber: z.string(),
+      expiresOn: z.iso.date(),
+      stopsSellingOn: z.iso.date(),
+      packs: count,
+      // 0 or less once it has stopped selling.
+      daysLeft: z.int(),
+      leftOver: count,
+    }),
+  ),
+});
+export type StockReport = z.infer<typeof stockSchema>;
+
+export function getStockReport(
+  { from, to }: Period,
+  filter: SalesFilter,
+  signal?: AbortSignal,
+): Promise<StockReport> {
+  const search = new URLSearchParams({ from, to, ...filterParams(filter) });
+  return apiRequest(`${STOCK}?${search.toString()}`, {
+    schema: stockSchema,
+    signal,
+  });
 }

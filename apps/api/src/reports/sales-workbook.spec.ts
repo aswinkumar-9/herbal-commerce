@@ -41,12 +41,19 @@ const TOTALS: SalesTotals = {
 };
 const REPORT: SalesReport = {
   period: { from: '2026-11-20', to: '2026-11-21' },
-  filters: { product: null, category: null, brand: null },
+  filters: {
+    product: null,
+    category: null,
+    brand: null,
+    state: null,
+    method: null,
+  },
   previousPeriod: { from: '2026-11-18', to: '2026-11-19' },
   refreshedAt: new Date('2026-11-25T06:40:00.000Z'),
   totals: TOTALS,
   previousTotals: { ...NONE, salesRupees: 1000, orders: 2 },
   series: { unit: 'day', points: [] },
+  calendar: null,
   products: [],
   categories: [],
   brands: [],
@@ -63,6 +70,8 @@ const NARROWED: SalesReport = {
       parentName: 'Wellness',
     },
     brand: { brandId: 'b9', name: null },
+    state: null,
+    method: null,
   },
   // More refunded than sold: down past 0 is no share of what it was.
   totals: { ...TOTALS, salesRupees: -428, deliveryRupees: null },
@@ -649,6 +658,39 @@ describe('salesWorkbook', () => {
     expect(salesFileName(REPORT)).toBe(
       'herbal-commerce-sales-2026-11-20-to-2026-11-21.xlsx',
     );
+  });
+
+  it('names a state and a way of paying it is narrowed to, its delivery still split', async () => {
+    const placed: SalesReport = {
+      ...REPORT,
+      filters: {
+        ...REPORT.filters,
+        state: { state: 'Kerala' },
+        method: { method: null },
+      },
+    };
+    const summary = rows(
+      (await opened({ report: placed })).getWorksheet('Summary'),
+    );
+    expect(summary[5]).toEqual([
+      'Narrowed to',
+      'State: Kerala; Payment method: Not recorded',
+    ]);
+    expect(summary[12]?.slice(0, 3)).toEqual(['Delivery', 49, 0]);
+    expect(summary[13]?.[0]).toBe('Paid in all (with GST and delivery)');
+    expect(salesFileName(placed)).toBe(
+      'herbal-commerce-sales-2026-11-20-to-2026-11-21-narrowed.xlsx',
+    );
+    const byCard: SalesReport = {
+      ...REPORT,
+      filters: { ...REPORT.filters, method: { method: 'CARD' } },
+    };
+    expect(salesFileName(byCard)).toBe(
+      'herbal-commerce-sales-2026-11-20-to-2026-11-21-narrowed.xlsx',
+    );
+    expect(
+      rows((await opened({ report: byCard })).getWorksheet('Summary'))[5],
+    ).toEqual(['Narrowed to', 'Payment method: Card']);
   });
 
   it('gives each day as a date and its weekday, under filter buttons, with a total of the rows shown', async () => {

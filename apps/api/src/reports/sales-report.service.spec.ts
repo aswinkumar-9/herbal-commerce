@@ -56,6 +56,11 @@ const DAYS = [
   { day: day('2026-11-03'), _sum: sold(2, 1000, 100) },
   { day: day('2026-11-20'), _sum: refunded(1, 449, 21) },
 ];
+// 10 October, 25 days before 4 November.
+const DAYS_BEFORE = [{ day: day('2026-10-10'), _sum: sold(1, 330, 30) }];
+// Whether a query asks for days before November's.
+const asksBefore = (args: { where?: { day?: { gte?: Date } } }) =>
+  (args.where?.day?.gte?.getTime() ?? 0) < day('2026-11-01').getTime();
 const PLACES = [
   { deliveryState: 'Karnataka', method: 'UPI', _sum: sold(2, 1000, 100) },
   { deliveryState: 'Karnataka', method: 'CARD', _sum: sold(1, 500, 50) },
@@ -138,8 +143,14 @@ function setup() {
         .fn()
         .mockResolvedValueOnce({ _sum: NOW })
         .mockResolvedValueOnce({ _sum: { ...NONE, soldOrders: null } }),
-      groupBy: jest.fn((args: { by: string[] }) =>
-        Promise.resolve(args.by.includes('day') ? DAYS : PLACES),
+      groupBy: jest.fn((args: { by: string[]; where: object }) =>
+        Promise.resolve(
+          !args.by.includes('day')
+            ? PLACES
+            : asksBefore(args)
+              ? DAYS_BEFORE
+              : DAYS,
+        ),
       ),
     },
     dailyLineSale: {
@@ -183,6 +194,8 @@ describe('SalesReportService.sales', () => {
       product: null,
       category: null,
       brand: null,
+      state: null,
+      method: null,
     });
     expect(tx.dailyLineSale.aggregate).not.toHaveBeenCalled();
     expect(tx.salesSummaryRefresh.findUnique).toHaveBeenCalledWith({
@@ -198,11 +211,17 @@ describe('SalesReportService.sales', () => {
     expect(before).toEqual({
       day: { gte: day('2026-10-07'), lte: day('2026-10-31') },
     });
-    for (const [args] of [
+    // Each day of both periods, to draw them side by side; the rest of the
+    // period only.
+    const calls = [
       ...tx.dailyOrderSale.groupBy.mock.calls,
       ...tx.dailyLineSale.groupBy.mock.calls,
-    ]) {
-      expect((args as { where: object }).where).toEqual(now);
+    ].map(([args]) => args as { by: string[]; where: object });
+    expect(
+      calls.filter((args) => args.by.includes('day')).map((a) => a.where),
+    ).toEqual([now, before]);
+    for (const args of calls.filter((found) => !found.by.includes('day'))) {
+      expect(args.where).toEqual(now);
     }
   });
 
@@ -270,8 +289,15 @@ describe('SalesReportService.sales', () => {
       '2026-11-01',
       '2026-11-25',
     ]);
-    // No filter: every buyer.
-    expect(values.slice(3)).toEqual([false, ...Array(8).fill(null)]);
+    // No filter: every buyer, of every state, however they paid.
+    expect(values.slice(3)).toEqual([
+      false,
+      ...Array(8).fill(null),
+      null,
+      null,
+      false,
+      null,
+    ]);
     const sql = strings.join('?');
     expect(sql).toContain('?::date - INTERVAL \'330 minutes\' AS "before"');
     expect(sql).toContain('(?::date + 1) - INTERVAL \'330 minutes\' AS "end"');
@@ -284,21 +310,119 @@ describe('SalesReportService.sales', () => {
     const { series } = await reports.sales(NOVEMBER);
     expect(series.unit).toBe('day');
     expect(series.points).toHaveLength(25);
+    const nothing = { salesRupees: 0, orders: 0 };
     expect(series.points[0]).toEqual({
       start: '2026-11-01',
-      salesRupees: 0,
-      orders: 0,
+      ...nothing,
+      previous: nothing,
     });
     expect(series.points[2]).toEqual({
       start: '2026-11-03',
       salesRupees: 900,
       orders: 2,
+      previous: nothing,
     });
     expect(series.points[19]).toEqual({
       start: '2026-11-20',
       salesRupees: -428,
       orders: 0,
+      previous: nothing,
     });
+  });
+
+  it('puts each day of the period before beside the day as many days later as the period is long', async () => {
+    const { reports } = setup();
+
+    const { series } = await reports.sales(NOVEMBER);
+    // 10 October is 25 days before 4 November.
+    expect(series.points[3]).toEqual({
+      start: '2026-11-04',
+      salesRupees: 0,
+      orders: 0,
+      previous: { salesRupees: 300, orders: 1 },
+    });
+    expect(
+      series.points.filter((point) => point.previous.orders > 0),
+    ).toHaveLength(1);
+  });
+
+  it('gives each day of the period for a calendar, none for a period longer than a year', async () => {
+    const { reports, tx } = setup();
+
+    const { calendar } = await reports.sales(NOVEMBER);
+    expect(calendar).toHaveLength(25);
+    expect(calendar?.[0]).toEqual({
+      day: '2026-11-01',
+      salesRupees: 0,
+      orders: 0,
+    });
+    expect(calendar?.[2]).toEqual({
+      day: '2026-11-03',
+      salesRupees: 900,
+      orders: 2,
+    });
+    expect(calendar?.[19]).toEqual({
+      day: '2026-11-20',
+      salesRupees: -428,
+      orders: 0,
+    });
+
+    tx.dailyOrderSale.aggregate.mockResolvedValue({ _sum: NONE });
+    const leap = await reports.sales({ from: '2024-01-01', to: '2024-12-31' });
+    expect(leap.calendar).toHaveLength(366);
+    const longer = await reports.sales({
+      from: '2025-01-01',
+      to: '2026-01-02',
+    });
+    expect(longer.calendar).toBeNull();
+  });
+
+  it('draws the bars asked for: quarters from January, April, July and October, years from April', async () => {
+    const { reports, tx } = setup();
+    tx.dailyOrderSale.aggregate.mockResolvedValue({ _sum: NONE });
+    tx.dailyOrderSale.groupBy.mockImplementation((args: { by: string[] }) =>
+      Promise.resolve(
+        args.by.includes('day')
+          ? ['2025-03-31', '2025-04-01', '2026-11-25'].map((text) => ({
+              day: day(text),
+              _sum: sold(1, 110, 10),
+            }))
+          : [],
+      ),
+    );
+
+    const years = await reports.sales({
+      from: '2025-01-01',
+      to: '2026-11-25',
+      unit: 'year',
+    });
+    expect(years.series.unit).toBe('year');
+    expect(
+      years.series.points.map(({ start, salesRupees }) => [start, salesRupees]),
+    ).toEqual([
+      ['2025-01-01', 100],
+      ['2025-04-01', 100],
+      ['2026-04-01', 100],
+    ]);
+
+    const quarters = await reports.sales({
+      from: '2026-02-15',
+      to: '2026-11-25',
+      unit: 'quarter',
+    });
+    expect(quarters.series.points.map(({ start }) => start)).toEqual([
+      '2026-02-15',
+      '2026-04-01',
+      '2026-07-01',
+      '2026-10-01',
+    ]);
+
+    const days = await reports.sales({ ...NOVEMBER, unit: 'day' });
+    expect(days.series.unit).toBe('day');
+    const months = await reports.sales({ ...NOVEMBER, unit: 'month' });
+    expect(months.series.points.map(({ start }) => start)).toEqual([
+      '2026-11-01',
+    ]);
   });
 
   it('adds a longer period’s days into weeks from Monday, the first from the period’s start', async () => {
@@ -321,10 +445,11 @@ describe('SalesReportService.sales', () => {
     });
     expect(series.unit).toBe('week');
     expect(series.points).toHaveLength(10);
+    const nothing = { salesRupees: 0, orders: 0 };
     expect(series.points.slice(0, 3)).toEqual([
-      { start: '2026-10-01', salesRupees: 200, orders: 2 },
-      { start: '2026-10-05', salesRupees: 100, orders: 1 },
-      { start: '2026-10-12', salesRupees: 0, orders: 0 },
+      { start: '2026-10-01', salesRupees: 200, orders: 2, previous: nothing },
+      { start: '2026-10-05', salesRupees: 100, orders: 1, previous: nothing },
+      { start: '2026-10-12', ...nothing, previous: nothing },
     ]);
   });
 
@@ -502,6 +627,13 @@ const ASH_DAYS = [
     _sum: { ...LINE_NONE, soldPacks: 1, soldRupees: 449, soldGstRupees: 21 },
   },
 ];
+// 15 October, 25 days before 9 November.
+const ASH_DAYS_BEFORE = [
+  {
+    day: day('2026-10-15'),
+    _sum: { ...LINE_NONE, soldPacks: 1, soldRupees: 449, soldGstRupees: 21 },
+  },
+];
 const ASH_PLACES = [
   {
     deliveryState: 'Karnataka',
@@ -567,14 +699,17 @@ function filtered() {
   tx.dailyLineSale.aggregate
     .mockResolvedValueOnce({ _sum: ASH_NOW })
     .mockResolvedValueOnce({ _sum: ASH_BEFORE });
-  tx.dailyLineSale.groupBy.mockImplementation((args: { by: string[] }) =>
-    Promise.resolve(
-      args.by.includes('day')
-        ? ASH_DAYS
-        : args.by.includes('deliveryState')
-          ? ASH_PLACES
-          : LINES.slice(0, 2),
-    ),
+  tx.dailyLineSale.groupBy.mockImplementation(
+    (args: { by: string[]; where: object }) =>
+      Promise.resolve(
+        args.by.includes('day')
+          ? asksBefore(args)
+            ? ASH_DAYS_BEFORE
+            : ASH_DAYS
+          : args.by.includes('deliveryState')
+            ? ASH_PLACES
+            : LINES.slice(0, 2),
+      ),
   );
   // The customers' query, then the orders'.
   tx.$queryRaw.mockImplementation((strings: TemplateStringsArray) =>
@@ -653,8 +788,12 @@ describe('SalesReportService.sales, narrowed to some products', () => {
       ],
     );
     for (const [args] of tx.dailyLineSale.groupBy.mock.calls) {
-      expect((args as { where: object }).where).toEqual({
-        ...inNovember,
+      const { by, where } = args as { by: string[]; where: object };
+      expect(where).toEqual({
+        day:
+          by.includes('day') && asksBefore({ where })
+            ? { gte: day('2026-10-07'), lte: day('2026-10-31') }
+            : inNovember.day,
         productId: P1,
       });
     }
@@ -693,6 +832,10 @@ describe('SalesReportService.sales, narrowed to some products', () => {
       WELLNESS,
       null,
       null,
+      null,
+      null,
+      false,
+      null,
     ]);
     expect(sql).toContain('p."paidAt" < ?::timestamp');
     expect(sql).toContain('r."createdAt" < ?::timestamp');
@@ -720,6 +863,10 @@ describe('SalesReportService.sales, narrowed to some products', () => {
       null,
       HIMALAYA,
       HIMALAYA,
+      null,
+      null,
+      false,
+      null,
     ]);
     expect(sql).toContain('i."brandId" = ?::uuid');
   });
@@ -767,11 +914,21 @@ describe('SalesReportService.sales, narrowed to some products', () => {
     const points = report.series.points.filter(
       (point) => point.salesRupees !== 0 || point.orders !== 0,
     );
+    const nothing = { salesRupees: 0, orders: 0 };
     expect(points).toEqual([
-      { start: '2026-11-03', salesRupees: 855, orders: 2 },
-      { start: '2026-11-20', salesRupees: -428, orders: 0 },
-      { start: '2026-11-24', salesRupees: 428, orders: 1 },
+      { start: '2026-11-03', salesRupees: 855, orders: 2, previous: nothing },
+      { start: '2026-11-20', salesRupees: -428, orders: 0, previous: nothing },
+      { start: '2026-11-24', salesRupees: 428, orders: 1, previous: nothing },
     ]);
+    // 15 October's sale and order go beside 9 November; 20 October's
+    // refunded order is no order paid.
+    expect(
+      report.series.points.find((point) => point.start === '2026-11-09'),
+    ).toEqual({
+      start: '2026-11-09',
+      ...nothing,
+      previous: { salesRupees: 428, orders: 1 },
+    });
     expect(report.states).toEqual([
       { state: 'Kerala', salesRupees: 428, orders: 1 },
       { state: 'Karnataka', salesRupees: 427, orders: 2 },
@@ -808,6 +965,8 @@ describe('SalesReportService.sales, narrowed to some products', () => {
         parentName: 'Wellness',
       },
       brand: { brandId: HIMALAYA, name: 'Himalaya Wellness' },
+      state: null,
+      method: null,
     });
     expect(tx.category.findUnique).toHaveBeenCalledWith({
       where: { id: IMMUNITY },
@@ -902,6 +1061,105 @@ const B_REFUNDED = registerRow({
   at: '2026-11-21 00:30:00',
   sortAt: new Date('2026-11-20T19:00:00.000Z'),
   refunded: true,
+});
+
+describe('SalesReportService.sales, narrowed by place', () => {
+  const inNovember = { gte: day('2026-11-01'), lte: day('2026-11-25') };
+  const inOctober = { gte: day('2026-10-07'), lte: day('2026-10-31') };
+
+  it('reads the orders sent to a state and paid one way from the summaries of whole orders, delivery still split', async () => {
+    const { reports, tx } = setup();
+
+    const report = await reports.sales({
+      ...NOVEMBER,
+      state: 'Kerala',
+      method: 'UPI',
+    });
+    const place = { deliveryState: 'Kerala', method: 'UPI' };
+    expect(
+      tx.dailyOrderSale.aggregate.mock.calls.map(
+        ([args]) => (args as { where: object }).where,
+      ),
+    ).toEqual([
+      { day: inNovember, ...place },
+      { day: inOctober, ...place },
+    ]);
+    for (const [args] of [
+      ...tx.dailyOrderSale.groupBy.mock.calls,
+      ...tx.dailyLineSale.groupBy.mock.calls,
+    ]) {
+      expect((args as { where: object }).where).toMatchObject(place);
+    }
+    expect(tx.dailyLineSale.aggregate).not.toHaveBeenCalled();
+    expect(report.totals.deliveryRupees).toBe(98 - 49);
+    expect(report.filters).toEqual({
+      product: null,
+      category: null,
+      brand: null,
+      state: { state: 'Kerala' },
+      method: { method: 'UPI' },
+    });
+
+    // Its customers, counted from the payments themselves, up to now.
+    const { sql, values } = queryOf(tx, 0);
+    expect(values.slice(3)).toEqual([
+      false,
+      ...Array(8).fill(null),
+      'Kerala',
+      'Kerala',
+      true,
+      'UPI',
+    ]);
+    expect(sql).toContain('o."deliveryState" = ?::text');
+    expect(sql).toContain('p."method"::text IS NOT DISTINCT FROM ?::text');
+  });
+
+  it('keeps the payments that recorded no method when asked for those', async () => {
+    const { reports, tx } = setup();
+
+    const report = await reports.sales({ ...NOVEMBER, method: 'NOT_RECORDED' });
+    expect(tx.dailyOrderSale.aggregate.mock.calls[0][0]).toMatchObject({
+      where: { day: inNovember, method: null },
+    });
+    expect(report.filters.method).toEqual({ method: null });
+    expect(report.filters.state).toBeNull();
+    expect(queryOf(tx, 0).values.slice(-4)).toEqual([null, null, true, null]);
+  });
+
+  it('narrows some products by place too, their orders counted from the payments of that place', async () => {
+    const { reports, tx } = filtered();
+
+    const report = await reports.sales({
+      ...NOVEMBER,
+      productId: P1,
+      state: 'Karnataka',
+    });
+    expect(tx.dailyLineSale.aggregate.mock.calls[0][0]).toEqual({
+      where: { day: inNovember, deliveryState: 'Karnataka', productId: P1 },
+      _sum: expect.any(Object),
+    });
+    expect(report.totals.deliveryRupees).toBeNull();
+    const counts = queryOf(tx, 1);
+    expect(counts.values.slice(-4)).toEqual([
+      'Karnataka',
+      'Karnataka',
+      false,
+      null,
+    ]);
+    expect(counts.sql).toContain('o."deliveryState" = ?::text');
+    expect(counts.sql).toContain(
+      'e."method"::text IS NOT DISTINCT FROM ?::text',
+    );
+    // The customers who bought it there, up to the last rebuild.
+    const customers = queryOf(tx, 0);
+    expect(customers.values[3]).toBe(true);
+    expect(customers.values.slice(-4)).toEqual([
+      'Karnataka',
+      'Karnataka',
+      false,
+      null,
+    ]);
+  });
 });
 
 function exporting(registerRows: object[]) {
@@ -1123,6 +1381,10 @@ describe('SalesReportService.forExport', () => {
       null,
       null,
       null,
+      null,
+      null,
+      false,
+      null,
       MAX_REGISTER_LINES + 1,
     ]);
     const sql = strings.join('?');
@@ -1175,6 +1437,39 @@ describe('SalesReportService.forExport', () => {
       (strings as TemplateStringsArray).join('?').includes('"lineTotalRupees"'),
     ) as [TemplateStringsArray, ...unknown[]];
     expect(register.slice(7, 9)).toEqual([P1, P1]);
+  });
+
+  it('keeps each order’s delivery in a register narrowed by place, and asks for that place’s lines only', async () => {
+    const { reports, tx } = exporting([...B_SOLD, B_REFUNDED]);
+
+    const found = await reports.forExport({ ...NOVEMBER, state: 'Kerala' });
+    expect(
+      found?.register.map((line) => line.product?.name ?? 'delivery'),
+    ).toEqual([
+      'Ashwagandha Capsules',
+      'Tulsi Tea',
+      'delivery',
+      'Ashwagandha Capsules',
+      'delivery',
+    ]);
+    const register = tx.$queryRaw.mock.calls.find(([strings]) =>
+      (strings as TemplateStringsArray).join('?').includes('"lineTotalRupees"'),
+    ) as [TemplateStringsArray, ...unknown[]];
+    expect(register.slice(14, 18)).toEqual(['Kerala', 'Kerala', false, null]);
+    // A day with nothing sold still has its delivery, of nothing.
+    expect(found?.days[0]).toMatchObject({
+      day: '2026-11-01',
+      deliveryRupees: 0,
+    });
+    // Each state and method of the file from that state's whole orders.
+    expect(tx.dailyOrderSale.groupBy).toHaveBeenCalledWith({
+      by: ['deliveryState', 'method'],
+      where: {
+        day: { gte: day('2026-10-07'), lte: day('2026-10-31') },
+        deliveryState: 'Kerala',
+      },
+      _sum: expect.any(Object),
+    });
   });
 
   it('gives nothing to register before the summaries were ever made, and refuses one too long', async () => {

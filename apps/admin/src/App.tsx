@@ -92,7 +92,14 @@ export const routes = createRoutesFromElements(
         <Route path="orders/:id" element={<OrderPage />} />
         {forEveryone.map(comingSoon)}
         <Route element={<RequireRole only="SUPER_USER" />}>
-          <Route path="sales" element={<SalesPage />} />
+          <Route path="sales" element={<SalesPage tab="overview" />} />
+          <Route path="sales/places" element={<SalesPage tab="places" />} />
+          <Route
+            path="sales/customers"
+            element={<SalesPage tab="customers" />}
+          />
+          <Route path="sales/orders" element={<SalesPage tab="orders" />} />
+          <Route path="sales/stock" element={<SalesPage tab="stock" />} />
           <Route path="admins" element={<AdminsPage />} />
           <Route path="audit-log" element={<AuditLogPage />} />
           <Route path="policies" element={<PoliciesPage />} />

@@ -5,28 +5,46 @@ import {
   listProducts,
 } from '../catalog/catalog-api';
 import { catalogKeys } from '../catalog/catalog-queries';
-import { getSalesReport } from './sales-api';
+import {
+  getCustomersReport,
+  getOrdersReport,
+  getSalesReport,
+  getStockReport,
+} from './sales-api';
 import { MATCHES_SHOWN } from './sales-filters';
 import type { SalesFilter } from './sales-filters';
-import type { Period } from './sales-periods';
+import type { Period, Unit } from './sales-periods';
 
 // The summaries behind the report are rebuilt every 5 minutes, so the page
 // asks again as often while it is open.
 export const SALES_REFRESH_MS = 5 * 60_000;
+// The orders are read live, so their tab looks again every minute, as the
+// orders list does.
+export const ORDERS_REFRESH_MS = 60_000;
 
 export const salesKeys = {
   all: ['sales'] as const,
-  report: ({ from, to }: Period, filter: SalesFilter) =>
-    ['sales', from, to, filter] as const,
+  report: ({ from, to }: Period, filter: SalesFilter, unit?: Unit) =>
+    ['sales', from, to, filter, unit ?? 'chosen'] as const,
   products: (words: string) => ['sales', 'products', words] as const,
+  customers: ({ from, to }: Period, filter: SalesFilter, unit?: Unit) =>
+    ['sales', 'customers', from, to, filter, unit ?? 'chosen'] as const,
+  orders: ({ from, to }: Period, filter: SalesFilter, unit?: Unit) =>
+    ['sales', 'orders', from, to, filter, unit ?? 'chosen'] as const,
+  stock: ({ from, to }: Period, filter: SalesFilter) =>
+    ['sales', 'stock', from, to, filter] as const,
 };
 
-// A period's sales, narrowed or not. While another loads, the last one
-// stays on the page, dimmed.
-export function useSalesReport(period: Period, filter: SalesFilter) {
+// A period's sales, narrowed or not, its chart in the bars asked for. While
+// another loads, the last one stays on the page, dimmed.
+export function useSalesReport(
+  period: Period,
+  filter: SalesFilter,
+  unit?: Unit,
+) {
   return useQuery({
-    queryKey: salesKeys.report(period, filter),
-    queryFn: ({ signal }) => getSalesReport(period, filter, signal),
+    queryKey: salesKeys.report(period, filter, unit),
+    queryFn: ({ signal }) => getSalesReport(period, filter, unit, signal),
     placeholderData: keepPreviousData,
     refetchInterval: SALES_REFRESH_MS,
   });
@@ -57,5 +75,53 @@ export function useProductMatches(words: string | undefined) {
       listProducts({ q: words, limit: MATCHES_SHOWN }, signal),
     enabled: words !== undefined,
     placeholderData: keepPreviousData,
+  });
+}
+
+// A period's customers, asked for only on their tab.
+export function useCustomersReport(
+  period: Period,
+  filter: SalesFilter,
+  unit: Unit | undefined,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: salesKeys.customers(period, filter, unit),
+    queryFn: ({ signal }) => getCustomersReport(period, filter, unit, signal),
+    placeholderData: keepPreviousData,
+    refetchInterval: SALES_REFRESH_MS,
+    enabled,
+  });
+}
+
+// A period's orders, asked for only on their tab.
+export function useOrdersReport(
+  period: Period,
+  filter: SalesFilter,
+  unit: Unit | undefined,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: salesKeys.orders(period, filter, unit),
+    queryFn: ({ signal }) => getOrdersReport(period, filter, unit, signal),
+    placeholderData: keepPreviousData,
+    refetchInterval: ORDERS_REFRESH_MS,
+    enabled,
+  });
+}
+
+// The stock beside a period's sales, asked for only on its tab. It is read
+// live, as orders take packs, so it looks again every minute too.
+export function useStockReport(
+  period: Period,
+  filter: SalesFilter,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: salesKeys.stock(period, filter),
+    queryFn: ({ signal }) => getStockReport(period, filter, signal),
+    placeholderData: keepPreviousData,
+    refetchInterval: ORDERS_REFRESH_MS,
+    enabled,
   });
 }

@@ -66,6 +66,9 @@ function openSales(path = '/sales', answers: Answers = {}) {
 const figure = async (name: string) =>
   (await screen.findByRole('heading', { name, level: 2 }))
     .parentElement as HTMLElement;
+// A figure's change on the period before: its arrow and words.
+const change = (figure: HTMLElement) =>
+  figure.querySelector('svg.lucide')?.closest('p') as HTMLElement;
 // Which way a figure's change points, by its icon: the words say it too.
 const trend = (figure: HTMLElement) => {
   const icon = figure.querySelector('svg.lucide');
@@ -109,6 +112,11 @@ describe('the Sales page', () => {
     expect(sales).toHaveTextContent('₹1,374');
     expect(sales).toHaveTextContent('Up 37% from ₹1,000');
     expect(trend(sales)).toBe('trending-up');
+    // Up is for the better: green, and said so to screen readers.
+    expect(change(sales)).toHaveClass('text-good');
+    expect(change(sales)).toHaveTextContent(
+      'Up 37% from ₹1,000, for the better',
+    );
     expect(sales).toHaveTextContent(
       'What the products sold for, without GST, less refunds.',
     );
@@ -121,11 +129,17 @@ describe('the Sales page', () => {
     const orders = await figure('Orders');
     expect(orders).toHaveTextContent('4Same as before, 4');
     expect(trend(orders)).toBe('minus');
+    // No change: the quiet ink, and nothing more said.
+    expect(change(orders)).toHaveClass('text-ink-muted');
+    expect(change(orders)).toHaveTextContent(/^Same as before, 4$/);
     expect(await figure('Average order')).toHaveTextContent(
       '₹451Up 13% from ₹400',
     );
     const refunds = await figure('Refunds');
     expect(refunds).toHaveTextContent('₹498Up ₹498 from ₹0');
+    // More refunded is for the worse: red.
+    expect(change(refunds)).toHaveClass('text-danger');
+    expect(change(refunds)).toHaveTextContent('for the worse');
     expect(refunds).toHaveTextContent('1 order refunded in the period');
     expect(await figure('New customers')).toHaveTextContent('2Up 100% from 1');
     expect(await figure('Returning customers')).toHaveTextContent(
@@ -431,6 +445,8 @@ const NAMED_ASH = {
   product: { productId: ASH.id, name: 'Ashwagandha Capsules' },
   category: null,
   brand: null,
+  state: null,
+  method: null,
 };
 const SEARCH_BOX = 'Narrow to a product, category or brand';
 const narrowedTo = () =>
@@ -561,6 +577,8 @@ describe('narrowing the Sales page', () => {
                 parentName: 'Hair Care',
               },
               brand: { brandId: HIMALAYA.id, name: 'Himalaya' },
+              state: null,
+              method: null,
             },
             totals: { ...ASH_ONLY },
           },
@@ -592,6 +610,8 @@ describe('narrowing the Sales page', () => {
             product: null,
             category: null,
             brand: { brandId: GONE, name: null },
+            state: null,
+            method: null,
           },
         }),
         'GET /v1/staff/products?q=hima&limit=5': productsOf([]),
@@ -742,5 +762,189 @@ describe('downloading the Sales report', () => {
     await user.click(button);
     await waitFor(() => expect(saved).toHaveLength(1));
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+const NO_FILTERS = {
+  product: null,
+  category: null,
+  brand: null,
+  state: null,
+  method: null,
+};
+
+describe('the Sales page’s tabs', () => {
+  it('has an overview and the places and catalog, each keeping the period and the filters', async () => {
+    const { router, user } = openSales('/sales?period=this-month', {
+      [SALES('2026-11-01', '2026-11-25')]: salesOf('2026-11-01', '2026-11-25', {
+        series: {
+          unit: 'day',
+          points: [
+            {
+              start: '2026-11-01',
+              salesRupees: 900,
+              orders: 2,
+              previous: { salesRupees: 0, orders: 0 },
+            },
+          ],
+        },
+        states: [{ state: 'Kerala', salesRupees: 900, orders: 2 }],
+      }),
+    });
+
+    await figure('Sales');
+    const tabs = screen.getByRole('navigation', { name: 'Sales' });
+    expect(
+      within(tabs).getByRole('link', { name: 'Overview' }),
+    ).toHaveAttribute('aria-current', 'page');
+    const places = within(tabs).getByRole('link', {
+      name: 'Places and catalog',
+    });
+    expect(places).toHaveAttribute('href', '/sales/places?period=this-month');
+    expect(
+      screen.getByRole('heading', { name: 'Sales each day', level: 2 }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'States' })).toBeNull();
+
+    await user.click(places);
+    expect(router.state.location.pathname).toBe('/sales/places');
+    expect(router.state.location.search).toBe('?period=this-month');
+    expect(
+      await screen.findByRole('heading', { name: 'States', level: 2 }),
+    ).toBeInTheDocument();
+    // The tiles and the chart over time are the overview's.
+    expect(screen.queryByRole('heading', { name: 'Average order' })).toBeNull();
+    expect(
+      screen.queryByRole('heading', { name: 'Sales each day' }),
+    ).toBeNull();
+    expect(document.title).toContain('Sales by place and catalog');
+    // And back, the period kept.
+    expect(
+      within(tabs).getByRole('link', { name: 'Overview' }),
+    ).toHaveAttribute('href', '/sales?period=this-month');
+  });
+
+  it('names the payments that kept no method as not recorded', async () => {
+    openSales('/sales/places?method=NOT_RECORDED', {
+      [SALES('2026-10-27', '2026-11-25', '&method=NOT_RECORDED')]: salesOf(
+        '2026-10-27',
+        '2026-11-25',
+        { filters: { ...NO_FILTERS, method: { method: null } } },
+      ),
+    });
+    await waitFor(() =>
+      expect(narrowedTo()).toEqual(['Payment method: Not recorded']),
+    );
+  });
+
+  it('narrows to a state and a way of paying chosen in the lists, and back again', async () => {
+    const lists = {
+      states: [
+        { state: 'Tamil Nadu', salesRupees: 900, orders: 2 },
+        { state: 'Goa', salesRupees: 300, orders: 1 },
+      ],
+      methods: [
+        { method: 'UPI' as const, salesRupees: 900, orders: 2 },
+        { method: 'CARD' as const, salesRupees: 300, orders: 1 },
+      ],
+    };
+    const narrowed = (filter: string) =>
+      SALES('2026-10-27', '2026-11-25', filter);
+    const { router, user } = openSales('/sales/places', {
+      [LAST_30]: salesOf('2026-10-27', '2026-11-25', lists),
+      [narrowed('&state=Tamil+Nadu')]: salesOf('2026-10-27', '2026-11-25', {
+        ...lists,
+        filters: { ...NO_FILTERS, state: { state: 'Tamil Nadu' } },
+      }),
+      [narrowed('&state=Tamil+Nadu&method=UPI')]: salesOf(
+        '2026-10-27',
+        '2026-11-25',
+        lists,
+      ),
+      [narrowed('&method=UPI')]: salesOf('2026-10-27', '2026-11-25', lists),
+    });
+    const stateButton = () =>
+      within(screen.getByRole('list', { name: 'States' })).getByRole('button', {
+        name: 'Tamil Nadu',
+      });
+
+    await screen.findByRole('list', { name: 'States' });
+    await user.click(stateButton());
+    expect(router.state.location.search).toBe('?state=Tamil+Nadu');
+    await waitFor(() => expect(narrowedTo()).toEqual(['State: Tamil Nadu']));
+    await waitFor(() =>
+      expect(stateButton()).toHaveAttribute('aria-pressed', 'true'),
+    );
+
+    await user.click(
+      within(screen.getByRole('list', { name: 'Payment methods' })).getByRole(
+        'button',
+        { name: 'UPI' },
+      ),
+    );
+    expect(router.state.location.search).toBe('?state=Tamil+Nadu&method=UPI');
+    await waitFor(() =>
+      expect(narrowedTo()).toEqual([
+        'State: Tamil Nadu',
+        'Payment method: UPI',
+      ]),
+    );
+
+    // Chosen again: every state again, still paid by UPI.
+    await user.click(stateButton());
+    expect(router.state.location.search).toBe('?method=UPI');
+    await waitFor(() => expect(narrowedTo()).toEqual(['Payment method: UPI']));
+  });
+
+  it('draws the bars asked for, kept in the address as the period changes', async () => {
+    const weeks = { series: { unit: 'week' as const, points: [] } };
+    const { router, user } = openSales('/sales', {
+      [SALES('2026-10-27', '2026-11-25', '&unit=week')]: salesOf(
+        '2026-10-27',
+        '2026-11-25',
+        weeks,
+      ),
+      [SALES('2026-11-01', '2026-11-25', '&unit=week')]: salesOf(
+        '2026-11-01',
+        '2026-11-25',
+        weeks,
+      ),
+    });
+
+    await figure('Sales');
+    await user.click(
+      within(screen.getByRole('group', { name: 'Bars' })).getByRole('button', {
+        name: 'Weeks',
+      }),
+    );
+    expect(router.state.location.search).toBe('?unit=week');
+    expect(
+      await screen.findByRole('heading', { name: 'Sales each week', level: 2 }),
+    ).toBeInTheDocument();
+
+    await user.click(chip('This month'));
+    expect(router.state.location.search).toBe('?period=this-month&unit=week');
+    await waitFor(() =>
+      expect(
+        screen.getByText(
+          sentence('1–25 Nov 2026, compared with 7–31 Oct 2026'),
+        ),
+      ).toBeInTheDocument(),
+    );
+  });
+
+  it('leaves out bars a period has too many of, and lets the API choose', async () => {
+    openSales('/sales?from=2016-11-26&to=2026-11-25&unit=day', {
+      [SALES('2016-11-26', '2026-11-25')]: salesOf('2016-11-26', '2026-11-25', {
+        series: { unit: 'month', points: [] },
+      }),
+    });
+
+    await figure('Sales');
+    const bars = screen.getByRole('group', { name: 'Bars' });
+    expect(within(bars).getByRole('button', { name: 'Days' })).toBeDisabled();
+    expect(
+      within(bars).getByRole('button', { name: 'Months' }),
+    ).toHaveAttribute('aria-pressed', 'true');
   });
 });
