@@ -265,6 +265,15 @@ async function main() {
     (await call('GET', salesExport, { token: login.body.accessToken }))
       .status === 401,
   );
+  // The drill-down reports of part 15E, each for Super Users only too.
+  for (const report of ['customers', 'orders', 'stock']) {
+    const path = `/v1/staff/reports/${report}?from=2026-11-01&to=2026-11-25`;
+    check(
+      `a customer access token cannot read the ${report} report on GET /v1/staff/reports/${report}`,
+      (await call('GET', path, { token: login.body.accessToken })).status ===
+        401,
+    );
+  }
 
   // Accepting an invitation is public, but only a real link works. (A real
   // invitation is tried by hand: only a signed-in Super User can send one.)
