@@ -1,6 +1,6 @@
 # API specification
 
-Status: **Draft v0.41.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
+Status: **Draft v0.42.** Describes only the endpoints that exist today. OpenAPI documentation will be generated later (ADR 0002).
 
 Base path: `/v1` for business endpoints. Health endpoints are unversioned. Image files are served at `/media` (see "Image files").
 
@@ -3058,6 +3058,44 @@ Response `200`:
 ```
 - `filters` and `series` are as in `GET /v1/staff/reports/sales`: every bar of the period, each point the orders placed in it with the same counts as `totals`, and `previous` those placed on the same days of the period before.
 - Every order placed is at one step now, so the steps add up to `placed`, and the four cancellers to `cancelled`.
+
+### GET `/v1/staff/reports/stock`
+
+The stock beside a period's sales, for the Sales page's Stock tab (since part 15E, the owner's choice on 2026-11-27). Needs a **Super User's** staff access token. Takes the same parameters as `GET /v1/staff/reports/sales`, with the same rules and errors; `unit` is not used. Reading is not audited.
+
+Read live from the batches, as they are now, in one snapshot:
+- `rateDays` are the period's days up to today: each pack size's rate of sale is `soldPacks` over them. `soldPacks` are the packs paid for in those days, less those of cancelled orders given back in them, as the sales summaries count them (below 0 at times);
+- `sellable` are the packs free to sell in the batches that may be sold today (at least 6 months left, ADR 0024), and `level` is `OUT`, `LOW` (at `lowStockAt` or fewer) or `OK`, as on the Stock page;
+- `daysOfCover` is how many whole days `sellable` lasts at the rate of sale, or `null` when nothing sold;
+- `shelfLife` are the batches still holding packs that stop selling within 90 days, or already have: `daysLeft` until then (0 or less once stopped), and `leftOver`, the packs still in it then at the rate of sale, the batches that expire first being sold first, as orders take them;
+- `totals` count the pack sizes on sale (the pack size and its product both live): those out and low, the packs that may be sold and what they fetch at today's prices, GST included; and `unsellablePacks`, the packs of any pack size in batches that may no longer be sold;
+- narrowed to a product, a category (its own products and its subcategories') or a brand, as the catalog has them now; a state or a way of paying never narrows the stock, which the shop keeps in one store.
+
+Response `200`:
+```json
+{
+  "period": { "from": "2026-11-01", "to": "2026-11-25" },
+  "filters": { "product": null, "category": null, "brand": null, "state": null, "method": null },
+  "readAt": "2026-11-25T06:45:00.000Z",
+  "rateDays": 25,
+  "totals": { "packSizes": 3, "out": 1, "low": 1, "sellablePacks": 58, "sellableRupees": 24042, "unsellablePacks": 5 },
+  "packSizes": [
+    {
+      "variantId": "6a000000-0000-4000-8000-000000000301", "productId": "6a000000-0000-4000-8000-000000000201",
+      "productName": "Tulsi Tea", "sku": "TUL-100", "quantity": 100, "unit": "G", "onSale": true,
+      "sellable": 8, "lowStockAt": 10, "level": "LOW", "soldPacks": 3, "daysOfCover": 66
+    }
+  ],
+  "shelfLife": [
+    {
+      "batchId": "6a000000-0000-4000-8000-000000000401", "variantId": "6a000000-0000-4000-8000-000000000301",
+      "productName": "Tulsi Tea", "sku": "TUL-100", "quantity": 100, "unit": "G", "batchNumber": "TT2611",
+      "expiresOn": "2027-06-20", "stopsSellingOn": "2026-12-21", "packs": 8, "daysLeft": 26, "leftOver": 5
+    }
+  ]
+}
+```
+- `packSizes` are every pack size the filter keeps, on sale or not: the least cover first, those that did not sell after, then by product name and SKU. `shelfLife` the first to stop selling first.
 
 ## Not yet implemented
 

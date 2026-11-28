@@ -289,18 +289,26 @@ export function Choices<T extends string>({
   );
 }
 
-function TopList({
+// A list's first 10 as bars, and the rest on asking (part 15D; the stock
+// tab's too since part 15E).
+export function TopList({
   title,
   note,
   items,
   onPick,
   picked,
+  empty = 'Nothing in this period.',
+  fewer = `Show the best ${SHOWN_AT_FIRST}`,
 }: {
   title: string;
   note: string;
   items: BarListItem[];
   onPick?: (item: BarListItem) => void;
   picked?: (item: BarListItem) => boolean;
+  // What an empty list says.
+  empty?: string;
+  // The button that folds the list back.
+  fewer?: string;
 }) {
   const [all, setAll] = useState(false);
   const listId = useId();
@@ -312,7 +320,7 @@ function TopList({
       <p className="mt-1 text-sm text-ink-muted">{note}</p>
       <div id={listId} className="mt-4">
         {items.length === 0 ? (
-          <p className="text-sm text-ink-muted">Nothing in this period.</p>
+          <p className="text-sm text-ink-muted">{empty}</p>
         ) : (
           <BarList
             label={title}
@@ -332,7 +340,7 @@ function TopList({
           onClick={() => setAll((open) => !open)}
           className="mt-3"
         >
-          {all ? `Show the best ${SHOWN_AT_FIRST}` : `Show all ${items.length}`}
+          {all ? fewer : `Show all ${items.length}`}
         </Button>
       ) : null}
     </div>

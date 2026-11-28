@@ -1,5 +1,5 @@
 import type { UseQueryResult } from '@tanstack/react-query';
-import { ChevronRight, TriangleAlert } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
@@ -19,7 +19,13 @@ import type { OrderCounts, OrdersReport } from './sales-api';
 import { ringFits, signedCount } from './sales-breakdown';
 import { Choices } from './SalesBreakdown';
 import { changeFrom, count } from './sales-display';
-import { Figure, FiguresLoading, TILE } from './SalesFigure';
+import {
+  Figure,
+  FiguresLoading,
+  LinkTile,
+  TILE,
+  TILE_LINK,
+} from './SalesFigure';
 import type { Unit } from './sales-periods';
 
 type Measure = 'placed' | 'paid' | 'delivered' | 'cancelled' | 'expired';
@@ -74,9 +80,6 @@ const CANCELLERS: Step[] = [
     colour: 4,
   },
 ];
-
-const LINK =
-  'mt-2 inline-flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:underline focus-visible:outline-2 focus-visible:outline-focus';
 
 const orders = (value: number) => signedCount(value, 'order', 'orders');
 const refundsWord = (value: number) => signedCount(value, 'refund', 'refunds');
@@ -196,45 +199,6 @@ function Section({
   );
 }
 
-function WaitingTile({
-  label,
-  value,
-  note,
-  to,
-  linkText,
-  alert,
-}: {
-  label: string;
-  value: number;
-  note: string;
-  to: string;
-  linkText: string;
-  // Money a Super User must give back by hand.
-  alert?: boolean;
-}) {
-  return (
-    <div className={TILE}>
-      <h3 className="text-sm font-medium text-ink-muted">{label}</h3>
-      <p className="mt-1 text-2xl font-semibold tabular-nums">{count(value)}</p>
-      {alert ? (
-        <p className="mt-1 flex items-start gap-1.5 text-sm text-danger">
-          <TriangleAlert
-            aria-hidden="true"
-            className="mt-0.5 size-4 shrink-0"
-          />
-          <span>{note}</span>
-        </p>
-      ) : (
-        <p className="mt-1 text-sm text-ink-muted">{note}</p>
-      )}
-      <Link to={to} className={LINK}>
-        {linkText}
-        <ChevronRight aria-hidden="true" className="size-4" />
-      </Link>
-    </div>
-  );
-}
-
 function Waiting({
   report,
   narrowed,
@@ -253,7 +217,8 @@ function Waiting({
       }`}
     >
       <div className="mt-3 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <WaitingTile
+        <LinkTile
+          heading="h3"
           label="To pack"
           value={waiting.toPack.orders}
           note={oldest(
@@ -264,7 +229,8 @@ function Waiting({
           to="/orders?show=to-pack"
           linkText="See the orders to pack"
         />
-        <WaitingTile
+        <LinkTile
+          heading="h3"
           label="Packed, for the courier"
           value={waiting.toShip.orders}
           note={oldest(
@@ -275,7 +241,8 @@ function Waiting({
           to="/orders?show=packed"
           linkText="See the packed orders"
         />
-        <WaitingTile
+        <LinkTile
+          heading="h3"
           label="On its way"
           value={waiting.onTheWay.orders}
           note={oldest(
@@ -286,7 +253,8 @@ function Waiting({
           to="/orders?show=on-its-way"
           linkText="See the orders on their way"
         />
-        <WaitingTile
+        <LinkTile
+          heading="h3"
           label="Waiting for payment"
           value={waiting.payment.orders}
           note={oldest(
@@ -297,7 +265,8 @@ function Waiting({
           to="/orders?show=waiting"
           linkText="See the orders waiting for payment"
         />
-        <WaitingTile
+        <LinkTile
+          heading="h3"
           label="Refunds on their way"
           value={waiting.refunds.refunds}
           note={
@@ -308,7 +277,8 @@ function Waiting({
           to="/orders/refunds"
           linkText="See the refunds"
         />
-        <WaitingTile
+        <LinkTile
+          heading="h3"
           label="Refunds to give back by hand"
           value={waiting.failedRefunds.refunds}
           note={
@@ -613,7 +583,7 @@ function Refunds({ report }: { report: OrdersReport }) {
             </div>
           </>
         )}
-        <Link to="/orders/refunds" className={LINK}>
+        <Link to="/orders/refunds" className={TILE_LINK}>
           See every refund
           <ChevronRight aria-hidden="true" className="size-4" />
         </Link>

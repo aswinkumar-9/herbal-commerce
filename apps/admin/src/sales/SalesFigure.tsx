@@ -1,5 +1,12 @@
-import { Minus, TrendingDown, TrendingUp } from 'lucide-react';
-import { toneOf } from './sales-display';
+import {
+  ChevronRight,
+  Minus,
+  TrendingDown,
+  TrendingUp,
+  TriangleAlert,
+} from 'lucide-react';
+import { Link } from 'react-router';
+import { count, toneOf } from './sales-display';
 import type { Change } from './sales-display';
 
 // The Sales page's figures (part 15D, ADR 0047), shared by its tabs since
@@ -78,6 +85,58 @@ export function Figure({
       </p>
       <ChangeLine change={change} better={better} />
       {note ? <p className="mt-2 text-xs text-ink-muted">{note}</p> : null}
+    </div>
+  );
+}
+
+// A way on from a tile to the list it counts (part 15E).
+export const TILE_LINK =
+  'mt-2 inline-flex min-h-11 items-center gap-1 text-sm font-medium text-primary hover:underline focus-visible:outline-2 focus-visible:outline-focus';
+
+// A count as it stands now, with no period to compare, and a way to the
+// list it counts (part 15E): what waits for staff, what is out of stock.
+export function LinkTile({
+  label,
+  value,
+  note,
+  to,
+  linkText,
+  alert,
+  heading: Heading = 'h2',
+}: {
+  label: string;
+  // A count, or the words for an amount.
+  value: number | string;
+  note: string;
+  to?: string;
+  linkText?: string;
+  // Something for a Super User to put right: in red, with an icon.
+  alert?: boolean;
+  heading?: 'h2' | 'h3';
+}) {
+  return (
+    <div className={TILE}>
+      <Heading className="text-sm font-medium text-ink-muted">{label}</Heading>
+      <p className="mt-1 text-2xl font-semibold tabular-nums">
+        {typeof value === 'number' ? count(value) : value}
+      </p>
+      {alert ? (
+        <p className="mt-1 flex items-start gap-1.5 text-sm text-danger">
+          <TriangleAlert
+            aria-hidden="true"
+            className="mt-0.5 size-4 shrink-0"
+          />
+          <span>{note}</span>
+        </p>
+      ) : (
+        <p className="mt-1 text-sm text-ink-muted">{note}</p>
+      )}
+      {to && linkText ? (
+        <Link to={to} className={TILE_LINK}>
+          {linkText}
+          <ChevronRight aria-hidden="true" className="size-4" />
+        </Link>
+      ) : null}
     </div>
   );
 }

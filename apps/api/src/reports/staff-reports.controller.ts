@@ -9,6 +9,7 @@ import { CustomersReportService } from './customers-report.service';
 import { OrdersReportService } from './orders-report.service';
 import { SalesExportService } from './sales-export.service';
 import { SalesReportService } from './sales-report.service';
+import { StockReportService } from './stock-report.service';
 import { XLSX_TYPE } from './sales-workbook';
 
 // The reports, for Super Users only (part 15, ADR 0047): Admins never see
@@ -22,6 +23,7 @@ export class StaffReportsController {
     private readonly exports: SalesExportService,
     private readonly customersReport: CustomersReportService,
     private readonly ordersReport: OrdersReportService,
+    private readonly stockReport: StockReportService,
   ) {}
 
   // A period's sales, compared with the period before of the same length.
@@ -53,6 +55,18 @@ export class StaffReportsController {
     query: SalesReportQuery,
   ) {
     return this.ordersReport.orders(query);
+  }
+
+  // The stock now (part 15E), read live: what is out or low, how many days
+  // each pack size lasts at the period's rate of sale, and the batches
+  // near the end of their selling life. A state or a way of paying never
+  // narrows it.
+  @Get('stock')
+  stock(
+    @Query(new ZodValidationPipe(salesReportQuerySchema))
+    query: SalesReportQuery,
+  ) {
+    return this.stockReport.stock(query);
   }
 
   // The same as an Excel file, with every day, every grouping and the

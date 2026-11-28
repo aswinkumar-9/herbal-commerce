@@ -1,6 +1,8 @@
 import { z } from 'zod';
 import { apiDownload, apiRequest } from '../api/client';
+import { PACK_UNITS } from '../catalog/catalog-api';
 import { REFUND_REASONS, REFUND_STATUSES } from '../orders/orders-api';
+import { STOCK_LEVELS } from '../stock/stock-api';
 import { filterParams } from './sales-filters';
 import type { SalesFilter } from './sales-filters';
 import type { Period, Unit } from './sales-periods';
@@ -13,6 +15,7 @@ import { UNITS } from './sales-periods';
 const SALES = '/v1/staff/reports/sales';
 const CUSTOMERS = '/v1/staff/reports/customers';
 const ORDERS = '/v1/staff/reports/orders';
+const STOCK = '/v1/staff/reports/stock';
 const SALES_EXPORT = '/v1/staff/reports/sales/export';
 export const XLSX_TYPE =
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
@@ -312,6 +315,70 @@ export function getOrdersReport(
   });
   return apiRequest(`${ORDERS}?${search.toString()}`, {
     schema: ordersSchema,
+    signal,
+  });
+}
+
+// The stock now (part 15E), read live, beside how fast each pack size sold
+// in the period.
+const stockSchema = z.object({
+  period,
+  readAt: z.iso.datetime(),
+  // The period's days up to today, the rate of sale is taken over.
+  rateDays: count,
+  totals: z.object({
+    packSizes: count,
+    out: count,
+    low: count,
+    sellablePacks: count,
+    sellableRupees: count,
+    unsellablePacks: count,
+  }),
+  packSizes: z.array(
+    z.object({
+      variantId: z.string(),
+      productId: z.string(),
+      productName: z.string(),
+      sku: z.string(),
+      quantity: count,
+      unit: z.enum(PACK_UNITS),
+      onSale: z.boolean(),
+      sellable: count,
+      lowStockAt: count,
+      level: z.enum(STOCK_LEVELS),
+      // Less what cancelled orders gave back: below 0 at times.
+      soldPacks: z.int(),
+      daysOfCover: count.nullable(),
+    }),
+  ),
+  shelfLife: z.array(
+    z.object({
+      batchId: z.string(),
+      variantId: z.string(),
+      productName: z.string(),
+      sku: z.string(),
+      quantity: count,
+      unit: z.enum(PACK_UNITS),
+      batchNumber: z.string(),
+      expiresOn: z.iso.date(),
+      stopsSellingOn: z.iso.date(),
+      packs: count,
+      // 0 or less once it has stopped selling.
+      daysLeft: z.int(),
+      leftOver: count,
+    }),
+  ),
+});
+export type StockReport = z.infer<typeof stockSchema>;
+
+export function getStockReport(
+  { from, to }: Period,
+  filter: SalesFilter,
+  signal?: AbortSignal,
+): Promise<StockReport> {
+  const search = new URLSearchParams({ from, to, ...filterParams(filter) });
+  return apiRequest(`${STOCK}?${search.toString()}`, {
+    schema: stockSchema,
     signal,
   });
 }

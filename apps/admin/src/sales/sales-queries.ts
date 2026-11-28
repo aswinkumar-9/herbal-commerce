@@ -9,6 +9,7 @@ import {
   getCustomersReport,
   getOrdersReport,
   getSalesReport,
+  getStockReport,
 } from './sales-api';
 import { MATCHES_SHOWN } from './sales-filters';
 import type { SalesFilter } from './sales-filters';
@@ -30,6 +31,8 @@ export const salesKeys = {
     ['sales', 'customers', from, to, filter, unit ?? 'chosen'] as const,
   orders: ({ from, to }: Period, filter: SalesFilter, unit?: Unit) =>
     ['sales', 'orders', from, to, filter, unit ?? 'chosen'] as const,
+  stock: ({ from, to }: Period, filter: SalesFilter) =>
+    ['sales', 'stock', from, to, filter] as const,
 };
 
 // A period's sales, narrowed or not, its chart in the bars asked for. While
@@ -101,6 +104,22 @@ export function useOrdersReport(
   return useQuery({
     queryKey: salesKeys.orders(period, filter, unit),
     queryFn: ({ signal }) => getOrdersReport(period, filter, unit, signal),
+    placeholderData: keepPreviousData,
+    refetchInterval: ORDERS_REFRESH_MS,
+    enabled,
+  });
+}
+
+// The stock beside a period's sales, asked for only on its tab. It is read
+// live, as orders take packs, so it looks again every minute too.
+export function useStockReport(
+  period: Period,
+  filter: SalesFilter,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: salesKeys.stock(period, filter),
+    queryFn: ({ signal }) => getStockReport(period, filter, signal),
     placeholderData: keepPreviousData,
     refetchInterval: ORDERS_REFRESH_MS,
     enabled,

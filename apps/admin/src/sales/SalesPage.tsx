@@ -50,10 +50,12 @@ import {
 import type { FilterKind, FilterMatch, SalesFilter } from './sales-filters';
 import { CustomersTab } from './CustomersTab';
 import { OrdersTab } from './OrdersTab';
+import { StockTab } from './StockTab';
 import {
   useCustomersReport,
   useOrdersReport,
   useSalesReport,
+  useStockReport,
 } from './sales-queries';
 import { useIndiaToday } from './use-india-today';
 
@@ -111,13 +113,14 @@ function filterNames(
   return names;
 }
 
-export type SalesTab = 'overview' | 'places' | 'customers' | 'orders';
+export type SalesTab = 'overview' | 'places' | 'customers' | 'orders' | 'stock';
 
 const TITLES: Record<SalesTab, string> = {
   overview: 'Sales',
   places: 'Sales by place and catalog',
   customers: 'Customers',
   orders: 'Orders by status',
+  stock: 'Stock against sales',
 };
 
 // A period's sales, for Super Users (part 15D, ADR 0047): the totals, each
@@ -125,7 +128,7 @@ const TITLES: Record<SalesTab, string> = {
 // product, a category or a brand, and since part 15E to a state or a way
 // of paying. Tabs (part 15E): the overview, over time; where the sales
 // went and what they were made of, each name a way to narrow the page; the
-// customers; and the orders, read live. The period, the filters and the
+// customers; and the orders and the stock, read live. The period, the filters and the
 // chart's bars live in the address, so a link, a reload or another tab
 // shows the same.
 export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
@@ -144,6 +147,14 @@ export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
     tab === 'customers',
   );
   const orders = useOrdersReport(period, filter, unit, tab === 'orders');
+  const stock = useStockReport(period, filter, tab === 'stock');
+  // The tabs read live, when they have been read; none on the others.
+  const live =
+    tab === 'orders'
+      ? (orders.data ?? null)
+      : tab === 'stock'
+        ? (stock.data ?? null)
+        : undefined;
   // The names of what the search found, or of what was chosen, by kind and
   // ID.
   const [found, setFound] = useState<Record<string, string>>({});
@@ -156,6 +167,7 @@ export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
     },
     { to: `/sales/customers${query ? `?${query}` : ''}`, label: 'Customers' },
     { to: `/sales/orders${query ? `?${query}` : ''}`, label: 'Orders' },
+    { to: `/sales/stock${query ? `?${query}` : ''}`, label: 'Stock' },
   ];
 
   function show(
@@ -237,11 +249,11 @@ export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
             , compared with {periodName(periodBefore(period))}
           </span>
         </p>
-        {tab === 'orders' ? (
-          orders.data ? (
+        {live !== undefined ? (
+          live ? (
             <p className="text-ink-muted">
-              Live: read {updatedName(orders.data.readAt, today)}. Looks again
-              every minute.
+              Live: read {updatedName(live.readAt, today)}. Looks again every
+              minute.
             </p>
           ) : null
         ) : report.data ? (
@@ -258,6 +270,11 @@ export function SalesPage({ tab = 'overview' }: { tab?: SalesTab }) {
           query={customers}
           narrowed={isFiltered(filter)}
           onUnit={(chosen) => show(periodParams(choice), filter, chosen)}
+        />
+      ) : tab === 'stock' ? (
+        <StockTab
+          query={stock}
+          byPlace={filter.state !== undefined || filter.method !== undefined}
         />
       ) : tab === 'orders' ? (
         <OrdersTab
